@@ -359,7 +359,8 @@ public class MQTTBrokerService extends RouteBuilder
     server = new EmbeddedActiveMQ();
     server.setConfiguration(serverConfiguration);
 
-    securityManager = new ActiveMQORSecurityManager(this, executorService, identityService);
+    securityManager =
+        new ActiveMQORSecurityManager(this, executorService, identityService, identityProvider);
 
     // The context factory is instantiated by Artemis via ServiceLoader during server start, so the
     // container has to be registered before that happens

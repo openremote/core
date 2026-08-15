@@ -22,6 +22,7 @@ import org.apache.activemq.artemis.spi.core.protocol.RemotingConnection
 import org.apache.activemq.artemis.spi.core.security.jaas.RolePrincipal
 import org.apache.activemq.artemis.spi.core.security.jaas.UserPrincipal
 import org.openremote.container.security.IdentityService
+import org.openremote.manager.security.ManagerIdentityProvider
 import org.openremote.manager.security.RemotingConnectionPrincipal
 import spock.lang.Specification
 
@@ -35,7 +36,8 @@ class ActiveMQORSecurityManagerTest extends Specification {
     def brokerService = Stub(MQTTBrokerService)
     def executorService = Stub(ExecutorService)
     def identityService = Mock(IdentityService)
-    def securityManager = new ActiveMQORSecurityManager(brokerService, executorService, identityService)
+    def identityProvider = Stub(ManagerIdentityProvider)
+    def securityManager = new ActiveMQORSecurityManager(brokerService, executorService, identityService, identityProvider)
     Subject connectionSubject = null
     def connection = Stub(RemotingConnection) {
       getSubject() >> { connectionSubject }
