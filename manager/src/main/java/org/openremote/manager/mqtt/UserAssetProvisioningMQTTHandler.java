@@ -48,6 +48,7 @@ import java.util.logging.Logger;
 import org.apache.activemq.artemis.core.config.Configuration;
 import org.apache.activemq.artemis.core.settings.impl.AddressSettings;
 import org.apache.activemq.artemis.spi.core.protocol.RemotingConnection;
+import org.apache.activemq.artemis.utils.CertificateUtil;
 import org.apache.camel.builder.RouteBuilder;
 import org.openremote.container.message.MessageBrokerService;
 import org.openremote.container.security.AuthContext;
@@ -539,7 +540,22 @@ public class UserAssetProvisioningMQTTHandler extends MQTTHandler {
       case X509ProvisioningMessage message ->
           processX509ProvisioningMessage(
               connection, topic, message.getCert(), message.getSignature(), false);
-      default -> {}
+      case MTLSProvisioningMessage ignored -> processMTLSProvisioningMessage(connection, topic);
+      default -> {
+        LOG.info(
+            "Unsupported provisioning message type: "
+                + provisioningMessage.getClass().getName()
+                + ", "
+                + MQTTBrokerService.connectionToString(connection));
+        // Only answer while this connection still owns the response topic, for the same reason
+        // processX509ProvisioningMessage drops messages that arrive after it changed hands
+        if (ownsResponseTopic(connection, topic)) {
+          publishMessage(
+              getResponseTopic(topic),
+              new ErrorResponseMessage(ErrorResponseMessage.Error.MESSAGE_INVALID),
+              MqttQoS.AT_MOST_ONCE);
+        }
+      }
     }
   }
 
@@ -619,57 +635,15 @@ public class UserAssetProvisioningMQTTHandler extends MQTTHandler {
     }
 
     X509ProvisioningConfig matchingConfig =
-        getMatchingX509ProvisioningConfig(connection, clientCertificate);
+        resolveProvisioningConfig(connection, topic, clientCertificate);
 
     if (matchingConfig == null) {
-      LOG.fine(
-          "No matching provisioning config found for X.509 certificate: "
-              + MQTTBrokerService.connectionToString(connection));
-      publishMessage(
-          getResponseTopic(topic),
-          new ErrorResponseMessage(ErrorResponseMessage.Error.UNAUTHORIZED),
-          MqttQoS.AT_MOST_ONCE);
       return;
     }
 
-    // Check if config is disabled
-    if (matchingConfig.isDisabled()) {
-      LOG.fine(
-          "Matching provisioning config is disabled for X.509 certificate: "
-              + MQTTBrokerService.connectionToString(connection));
-      publishMessage(
-          getResponseTopic(topic),
-          new ErrorResponseMessage(ErrorResponseMessage.Error.CONFIG_DISABLED),
-          MqttQoS.AT_MOST_ONCE);
-      return;
-    }
-
-    // Validate unique ID
-    String certUniqueId =
-        ProvisioningUtil.getSubjectCN(clientCertificate.getSubjectX500Principal());
     String uniqueId = topicTokenIndexToString(topic, 1);
 
-    if (TextUtil.isNullOrEmpty(certUniqueId)) {
-      LOG.info(
-          () ->
-              "X.509 certificate missing unique ID in subject CN: "
-                  + MQTTBrokerService.connectionToString(connection));
-      publishMessage(
-          getResponseTopic(topic),
-          new ErrorResponseMessage(ErrorResponseMessage.Error.UNIQUE_ID_MISMATCH),
-          MqttQoS.AT_MOST_ONCE);
-      return;
-    }
-
-    if (TextUtil.isNullOrEmpty(uniqueId) || !certUniqueId.equals(uniqueId)) {
-      LOG.info(
-          () ->
-              "X.509 certificate unique ID doesn't match topic unique ID: "
-                  + MQTTBrokerService.connectionToString(connection));
-      publishMessage(
-          getResponseTopic(topic),
-          new ErrorResponseMessage(ErrorResponseMessage.Error.UNIQUE_ID_MISMATCH),
-          MqttQoS.AT_MOST_ONCE);
+    if (!verifyUniqueId(connection, topic, clientCertificate, uniqueId)) {
       return;
     }
 
@@ -687,6 +661,97 @@ public class UserAssetProvisioningMQTTHandler extends MQTTHandler {
           MqttQoS.AT_MOST_ONCE);
       return;
     }
+
+    provisionClient(connection, topic, matchingConfig, uniqueId);
+  }
+
+  /**
+   * Finds the provisioning config whose CA signed the certificate, publishing the error to the
+   * client when there is none or it is disabled.
+   *
+   * @return the matching config, or {@code null} when the request has already been answered
+   */
+  protected X509ProvisioningConfig resolveProvisioningConfig(
+      RemotingConnection connection, Topic topic, X509Certificate clientCertificate) {
+    X509ProvisioningConfig matchingConfig =
+        getMatchingX509ProvisioningConfig(connection, clientCertificate);
+
+    if (matchingConfig == null) {
+      LOG.fine(
+          "No matching provisioning config found for X.509 certificate: "
+              + MQTTBrokerService.connectionToString(connection));
+      publishMessage(
+          getResponseTopic(topic),
+          new ErrorResponseMessage(ErrorResponseMessage.Error.UNAUTHORIZED),
+          MqttQoS.AT_MOST_ONCE);
+      return null;
+    }
+
+    // Check if config is disabled
+    if (matchingConfig.isDisabled()) {
+      LOG.fine(
+          "Matching provisioning config is disabled for X.509 certificate: "
+              + MQTTBrokerService.connectionToString(connection));
+      publishMessage(
+          getResponseTopic(topic),
+          new ErrorResponseMessage(ErrorResponseMessage.Error.CONFIG_DISABLED),
+          MqttQoS.AT_MOST_ONCE);
+      return null;
+    }
+
+    return matchingConfig;
+  }
+
+  /**
+   * Checks that the certificate names a device and that the client is provisioning that device
+   * rather than another one, publishing the error to the client when it does not.
+   */
+  protected boolean verifyUniqueId(
+      RemotingConnection connection,
+      Topic topic,
+      X509Certificate clientCertificate,
+      String uniqueId) {
+    String certUniqueId =
+        ProvisioningUtil.getSubjectCN(clientCertificate.getSubjectX500Principal());
+
+    if (TextUtil.isNullOrEmpty(certUniqueId)) {
+      LOG.info(
+          () ->
+              "X.509 certificate missing unique ID in subject CN: "
+                  + MQTTBrokerService.connectionToString(connection));
+      publishMessage(
+          getResponseTopic(topic),
+          new ErrorResponseMessage(ErrorResponseMessage.Error.UNIQUE_ID_MISMATCH),
+          MqttQoS.AT_MOST_ONCE);
+      return false;
+    }
+
+    if (TextUtil.isNullOrEmpty(uniqueId) || !certUniqueId.equals(uniqueId)) {
+      LOG.info(
+          () ->
+              "X.509 certificate unique ID doesn't match topic unique ID: "
+                  + MQTTBrokerService.connectionToString(connection));
+      publishMessage(
+          getResponseTopic(topic),
+          new ErrorResponseMessage(ErrorResponseMessage.Error.UNIQUE_ID_MISMATCH),
+          MqttQoS.AT_MOST_ONCE);
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Creates (or reuses) the service user and asset for the device and re-authenticates the
+   * connection as that user. Callers must already have established that the connection holds the
+   * certificate's private key: the x509 flow through its challenge, the mTLS flow through the TLS
+   * handshake.
+   */
+  protected void provisionClient(
+      RemotingConnection connection,
+      Topic topic,
+      X509ProvisioningConfig matchingConfig,
+      String uniqueId) {
 
     String realm = matchingConfig.getRealm();
 
@@ -772,6 +837,78 @@ public class UserAssetProvisioningMQTTHandler extends MQTTHandler {
     LOG.fine("Client successfully provisioned: " + uniqueId);
     publishMessage(
         getResponseTopic(topic), new SuccessResponseMessage(realm, asset), MqttQoS.AT_MOST_ONCE);
+  }
+
+  protected void processMTLSProvisioningMessage(RemotingConnection connection, Topic topic) {
+    LOG.fine(
+        () ->
+            "Processing mTLS provisioning message: "
+                + MQTTBrokerService.connectionToString(connection));
+
+    // Same reasoning as processX509ProvisioningMessage: the message was queued, and any reply must
+    // not go to a response topic that has since changed hands
+    if (!ownsResponseTopic(connection, topic)) {
+      LOG.fine(
+          () ->
+              "Dropping mTLS provisioning message as the connection no longer owns the response"
+                  + " topic: topic="
+                  + topic
+                  + ", "
+                  + MQTTBrokerService.connectionToString(connection));
+      return;
+    }
+
+    // The message carries no certificate and needs no challenge: the client proved possession of
+    // the private key during the TLS handshake, and that certificate is what gets provisioned
+    X509Certificate[] certs = CertificateUtil.getCertsFromConnection(connection);
+
+    if (certs == null || certs.length == 0) {
+      LOG.info(
+          "No client certificate found on connection: "
+              + MQTTBrokerService.connectionToString(connection));
+      publishMessage(
+          getResponseTopic(topic),
+          new ErrorResponseMessage(ErrorResponseMessage.Error.CERTIFICATE_INVALID),
+          MqttQoS.AT_MOST_ONCE);
+      return;
+    }
+
+    X509Certificate clientCertificate = certs[0];
+    X509ProvisioningConfig matchingConfig =
+        resolveProvisioningConfig(connection, topic, clientCertificate);
+
+    if (matchingConfig == null) {
+      return;
+    }
+
+    String uniqueId = topicTokenIndexToString(topic, 1);
+
+    if (!verifyUniqueId(connection, topic, clientCertificate, uniqueId)) {
+      return;
+    }
+
+    // Unlike the x509 flow, the subject here was verified during the handshake, so an OU is an
+    // authenticated claim about which realm the device belongs to and must not contradict the
+    // realm the config provisions into
+    String subjectOU = ProvisioningUtil.getSubjectOU(clientCertificate.getSubjectX500Principal());
+
+    if (!TextUtil.isNullOrEmpty(subjectOU) && !subjectOU.equals(matchingConfig.getRealm())) {
+      LOG.info(
+          () ->
+              "Certificate OU doesn't match provisioning config realm: OU="
+                  + subjectOU
+                  + ", realm="
+                  + matchingConfig.getRealm()
+                  + ", "
+                  + MQTTBrokerService.connectionToString(connection));
+      publishMessage(
+          getResponseTopic(topic),
+          new ErrorResponseMessage(ErrorResponseMessage.Error.UNAUTHORIZED),
+          MqttQoS.AT_MOST_ONCE);
+      return;
+    }
+
+    provisionClient(connection, topic, matchingConfig, uniqueId);
   }
 
   protected void issueX509Challenge(

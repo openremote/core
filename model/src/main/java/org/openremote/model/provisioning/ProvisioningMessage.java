@@ -31,6 +31,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
   @JsonSubTypes.Type(
       name = "x509-challenge",
       value = X509ProvisioningChallengeResponseMessage.class),
-  @JsonSubTypes.Type(name = "x509", value = X509ProvisioningMessage.class)
+  @JsonSubTypes.Type(name = "x509", value = X509ProvisioningMessage.class),
+  @JsonSubTypes.Type(name = "mtls", value = MTLSProvisioningMessage.class)
 })
 public abstract class ProvisioningMessage {}

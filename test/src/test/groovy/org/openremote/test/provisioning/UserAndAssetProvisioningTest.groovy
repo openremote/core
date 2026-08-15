@@ -20,51 +20,60 @@ package org.openremote.test.provisioning
 
 import com.hivemq.client.internal.mqtt.mqtt3.Mqtt3AsyncClientView
 import com.hivemq.client.internal.mqtt.mqtt3.Mqtt3ClientConfigView
-import com.hivemq.client.mqtt.datatypes.MqttQos
 import com.hivemq.client.mqtt.MqttClientConfig
 import com.hivemq.client.mqtt.MqttClientConnectionConfig
+import com.hivemq.client.mqtt.datatypes.MqttQos
 import io.netty.channel.socket.SocketChannel
+import org.apache.activemq.artemis.spi.core.protocol.RemotingConnection
+import org.apache.activemq.artemis.spi.core.security.jaas.UserPrincipal
 import org.bouncycastle.openssl.PEMKeyPair
 import org.bouncycastle.openssl.PEMParser
 import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter
-import org.openremote.model.protocol.mqtt.Topic
-import org.apache.activemq.artemis.spi.core.protocol.RemotingConnection
 import org.keycloak.admin.client.resource.RealmResource
 import org.keycloak.representations.idm.RoleRepresentation
 import org.openremote.agent.protocol.mqtt.MQTTMessage
 import org.openremote.agent.protocol.mqtt.MQTT_IOClient
+import org.openremote.container.persistence.PersistenceService
 import org.openremote.container.security.keycloak.KeycloakIdentityProvider
-import org.openremote.model.util.UniqueIdentifierGenerator
 import org.openremote.manager.asset.AssetProcessingService
 import org.openremote.manager.asset.AssetStorageService
 import org.openremote.manager.event.ClientEventService
 import org.openremote.manager.mqtt.DefaultMQTTHandler
 import org.openremote.manager.mqtt.MQTTBrokerService
-import org.openremote.manager.provisioning.ProvisioningService
 import org.openremote.manager.mqtt.UserAssetProvisioningMQTTHandler
+import org.openremote.manager.provisioning.ProvisioningService
+import org.openremote.manager.security.KeyStoreServiceImpl
 import org.openremote.manager.security.ManagerIdentityService
+import org.openremote.manager.security.ManagerKeycloakIdentityProvider
 import org.openremote.manager.setup.SetupService
+import org.openremote.model.Constants
 import org.openremote.model.asset.Asset
 import org.openremote.model.asset.AssetEvent
 import org.openremote.model.asset.agent.ConnectionStatus
+import org.openremote.model.asset.impl.ShipAsset
 import org.openremote.model.asset.impl.WeatherAsset
 import org.openremote.model.attribute.Attribute
 import org.openremote.model.attribute.AttributeEvent
 import org.openremote.model.attribute.MetaItem
 import org.openremote.model.event.shared.SharedEvent
+import org.openremote.model.protocol.mqtt.Topic
 import org.openremote.model.provisioning.*
 import org.openremote.model.security.ClientRole
 import org.openremote.model.security.Realm
 import org.openremote.model.security.User
+import org.openremote.model.util.UniqueIdentifierGenerator
 import org.openremote.model.util.ValueUtil
 import org.openremote.model.value.MetaItemType
 import org.openremote.model.value.ValueType
-import org.openremote.test.ManagerContainerTrait
 import org.openremote.setup.integration.ManagerTestSetup
+import org.openremote.test.ManagerContainerTrait
+import org.openremote.test.mqtt.MTLSCertificateHelper
 import spock.lang.Specification
 import spock.util.concurrent.PollingConditions
 
+import javax.security.auth.Subject
 import java.nio.charset.StandardCharsets
+import java.nio.file.Paths
 import java.security.Signature
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
@@ -1028,5 +1037,325 @@ class UserAndAssetProvisioningTest extends Specification implements ManagerConta
     return new X509ProvisioningMessage(
             UserAndAssetProvisioningTest.getResource("/org/openremote/test/provisioning/${certificateName}.pem").text,
             Base64.encoder.encodeToString(signer.sign()))
+  }
+
+  @SuppressWarnings("GroovyAccessibility")
+  def "mTLS MQTT Autoprovisioning integration test"() {
+
+    given: "expected conditions"
+    def conditions = new PollingConditions(timeout: 10, delay: 0.1)
+
+    and: "temporary directories are created"
+    def tempDir = new File(System.getProperty("java.io.tmpdir"), "openremote-mtls-test-keystores-" + System.currentTimeMillis())
+    def tempManagerDir = new File(System.getProperty("java.io.tmpdir"), "openremote-tmp-" + System.currentTimeMillis())
+    tempDir.mkdirs()
+    tempManagerDir.mkdirs()
+    getLOG().info("KeyStore TempDir: $tempDir.absoluteFile")
+    getLOG().info("Manager TempDir: $tempManagerDir.absoluteFile")
+
+    and: "test configuration is set up"
+    def serverKeystorePath = new File(tempDir, "server-keystore.p12").absolutePath
+    def serverTruststorePath = new File(tempDir, "server-truststore.p12").absolutePath
+    def keystorePassword = "secret1"
+    def provisionedAccountAliasName = "mtlsclient"
+    def provisionedAccountKeyAlias = "$Constants.MASTER_REALM.$provisionedAccountAliasName"
+    def ProvisionedAccountUserName = "mtlstest2"
+
+    and: "mTLS certificate helper is initialized"
+    def mtlsHelper = new MTLSCertificateHelper()
+
+    and: "server and client certificates are generated"
+    def (serverKeyPair, serverCert) = mtlsHelper.generateServerCertificate()
+    def (clientKeyPair, clientCert) = mtlsHelper.generateClientCertificate(ProvisionedAccountUserName, Constants.MASTER_REALM)
+
+    and: "server keystores are created and saved to disk"
+    mtlsHelper.createAndSaveServerKeystores(
+            serverKeystorePath,
+            serverTruststorePath,
+            keystorePassword,
+            provisionedAccountKeyAlias,
+            serverKeyPair,
+            serverCert
+            )
+
+    and: "the container configuration is set up with MTLS environment variables"
+    def mtlsPort = findEphemeralPort()
+    def config = defaultConfig()
+    config.put(Constants.OR_MQTT_MTLS_SERVER_LISTEN_HOST, "localhost")
+    config.put(Constants.OR_MQTT_MTLS_SERVER_LISTEN_PORT, mtlsPort.toString())
+    config.put(Constants.OR_MQTT_MTLS_DISABLED, "false")
+    config.put(Constants.OR_MQTT_MTLS_KEYSTORE_PATH, serverKeystorePath)
+    config.put(Constants.OR_MQTT_MTLS_KEYSTORE_PASSWORD, keystorePassword)
+    config.put(Constants.OR_MQTT_MTLS_TRUSTSTORE_PATH, serverTruststorePath)
+    config.put(Constants.OR_MQTT_MTLS_TRUSTSTORE_PASSWORD, keystorePassword)
+    config.put(KeyStoreServiceImpl.OR_KEYSTORE_PASSWORD, keystorePassword)
+
+    and: "the keycloak grant file is pinned to the shared location before the storage dir is redirected"
+    // A throwaway storage dir isolates this test's keystores, but it must not take the keycloak
+    // grant file with it: the identity provider treats a missing grant file as a first install and
+    // rotates the manager-keycloak password, which lives in keycloak's shared database. That would
+    // invalidate the grant every other test - and the keycloak Flyway migrations - depend on.
+    def sharedGrantFile = Paths.get(
+            config.getOrDefault(PersistenceService.OR_STORAGE_DIR, PersistenceService.OR_STORAGE_DIR_DEFAULT))
+            .resolve(config.getOrDefault(
+                    ManagerKeycloakIdentityProvider.OR_KEYCLOAK_GRANT_FILE,
+                    ManagerKeycloakIdentityProvider.OR_KEYCLOAK_GRANT_FILE_DEFAULT))
+            .toAbsolutePath()
+            .toString()
+    config.put(ManagerKeycloakIdentityProvider.OR_KEYCLOAK_GRANT_FILE, sharedGrantFile)
+    config.put(PersistenceService.OR_STORAGE_DIR, tempManagerDir.getAbsolutePath())
+
+
+    and: "the container starts"
+    def container = startContainer(config, defaultServices())
+    def keystoreService = container.getService(KeyStoreServiceImpl.class)
+    def mqttBrokerService = container.getService(MQTTBrokerService.class)
+    def assetStorageService = container.getService(AssetStorageService.class)
+    def assetProcessingService = container.getService(AssetProcessingService.class)
+    def identityService = container.getService(ManagerIdentityService.class)
+    def provisioningService = container.getService(ProvisioningService.class)
+    def testSetup = container.getService(SetupService.class).getTaskOfType(ManagerTestSetup.class)
+    def mqttHost = "localhost"
+    def mqttPort = mtlsPort
+    when: "A new keypair, properly signed, is created, but the service user for it is not created"
+    def unprovisionedUsername = "unprovisioneduser"
+    def (unprovisionedKeyPair, unprovisionedCert) = mtlsHelper.generateClientCertificate(
+            unprovisionedUsername,
+            Constants.MASTER_REALM,
+            4 // serial offset
+            )
+
+    and: "It is added and saved to the KeyStoreService keystore"
+    def unprovisionedKeyAlias = Constants.MASTER_REALM + "unprovisionedclient"
+    mtlsHelper.addClientCertificateToKeyStoreService(
+            keystoreService,
+            unprovisionedKeyAlias,
+            keystorePassword,
+            unprovisionedKeyPair,
+            unprovisionedCert
+            )
+
+    and: "a client with unprovisioned certificate connects, for testing mTLS autoprovisioning"
+    String autoprovisioningClientId = "unprovisionedDevice"
+    MQTT_IOClient autoprovisioningClient = new MQTT_IOClient(
+            autoprovisioningClientId,
+            mqttHost,
+            mqttPort,
+            true,
+            false,
+            null,
+            null,
+            null,
+            keystoreService.getKeyManagerFactory(unprovisionedKeyAlias),
+            keystoreService.getTrustManagerFactory()
+            )
+
+    and: "the client connects"
+    autoprovisioningClient.connect()
+
+    then: "The client connects with 3 principals"
+    conditions.eventually {
+      Subject subject = mqttBrokerService.getConnectionFromClientID(autoprovisioningClientId).getSubject()
+      assert subject.getPrincipals().size() == 3
+    }
+
+    when: "the provisioning config is created to allow autoprovisioning using mTLS"
+
+    def provisioningConfig = new X509ProvisioningConfig("Valid Test Config",
+            new X509ProvisioningData()
+            .setCACertPEM(MTLSCertificateHelper.getPemString(mtlsHelper.getRootCACertificate()))
+            ).setAssetTemplate(
+            ValueUtil.asJSON(
+                    new ShipAsset("Ship Asset")
+                    .addAttributes(
+                            new Attribute<>("customAttribute", NUMBER).addMeta(
+                                    new MetaItem<>(MetaItemType.ACCESS_RESTRICTED_READ),
+                                    new MetaItem<>(MetaItemType.ACCESS_RESTRICTED_WRITE)
+                                    ),
+                            new Attribute<>("serialNumber", ValueType.TEXT, UNIQUE_ID_PLACEHOLDER),
+                            new Attribute<>("connected", BOOLEAN).addMeta(
+                                    new MetaItem<>(MetaItemType.USER_CONNECTED, PROVISIONING_USER_PREFIX + "device1")
+                                    )
+                            )
+                    ).orElse("")
+            ).setRealm(Constants.MASTER_REALM)
+            .setRestrictedUser(true)
+            .setUserRoles([
+              ClientRole.WRITE_ASSETS,
+              ClientRole.WRITE_ATTRIBUTES,
+              ClientRole.READ_ASSETS
+            ] as ClientRole[])
+    provisioningConfig = provisioningService.merge(provisioningConfig)
+
+
+    and: "We publish a message to the autoprovisioning message topic"
+
+    def autoProvisioningRequestTopic = "$PROVISIONING_TOKEN/$unprovisionedUsername/$REQUEST_TOKEN".toString()
+    def autoProvisioningResponseTopic = "$PROVISIONING_TOKEN/$unprovisionedUsername/$RESPONSE_TOKEN".toString()
+    List<ProvisioningMessage> autoProvisioningResponses = new CopyOnWriteArrayList<>()
+    Consumer<MQTTMessage<String>> autoProvisioningMessageConsumer = { MQTTMessage<String> msg ->
+      autoProvisioningResponses.add(ValueUtil.parse(msg.payload, ProvisioningMessage.class).orElse(null))
+    }
+    autoprovisioningClient.addMessageConsumer(autoProvisioningResponseTopic, autoProvisioningMessageConsumer)
+    // Only the connection that owns the response topic may publish requests, and the broker
+    // registers the subscription asynchronously, so wait for it to claim the topic first
+    def provisioningHandler = mqttBrokerService.customHandlers.find {
+      it instanceof UserAssetProvisioningMQTTHandler
+    } as UserAssetProvisioningMQTTHandler
+    conditions.eventually {
+      def brokerConnection = mqttBrokerService.getConnectionFromClientID(autoprovisioningClientId)
+      assert brokerConnection != null
+      assert provisioningHandler.responseTopicOwners.get(autoProvisioningResponseTopic) === brokerConnection
+    }
+    autoprovisioningClient.sendMessage(
+            new MQTTMessage<String>(autoProvisioningRequestTopic, ValueUtil.JSON.writeValueAsString(new MTLSProvisioningMessage()))
+            )
+
+    then: "we should receive a success response provisioning message"
+    conditions.eventually {
+      assert autoProvisioningResponses.size() == 1
+      assert autoProvisioningResponses.get(0) instanceof SuccessResponseMessage
+    }
+
+    then: "the broker should have published to the response topic a success message containing the provisioned asset"
+    ShipAsset provisionedAsset
+    conditions.eventually {
+      assert autoProvisioningResponses.size() == 1
+      assert autoProvisioningResponses.get(0) instanceof SuccessResponseMessage
+      assert ((SuccessResponseMessage)autoProvisioningResponses.get(0)).realm == Constants.MASTER_REALM
+      provisionedAsset = (ShipAsset)((SuccessResponseMessage)autoProvisioningResponses.get(0)).asset
+      assert provisionedAsset != null
+      assert provisionedAsset instanceof ShipAsset
+      assert provisionedAsset.getAttribute("serialNumber").flatMap{
+        it.getValue()
+      }.orElse(null) == unprovisionedUsername
+    }
+
+    when: "the device disconnects"
+    autoprovisioningClient.disconnect()
+
+    then: "the client should reach the disconnected state"
+    // disconnect() is asynchronous and connect() is a no-op unless the client is already
+    // DISCONNECTED, so reconnecting without waiting here silently never reconnects
+    conditions.eventually {
+      assert autoprovisioningClient.getConnectionStatus() == ConnectionStatus.DISCONNECTED
+    }
+
+    when: "it reconnects again"
+    autoProvisioningResponses.clear()
+    autoprovisioningClient.connect()
+
+    then: "the connection should be created with the provisioned user and roles"
+    conditions.eventually {
+      assert autoprovisioningClient.getConnectionStatus() == ConnectionStatus.CONNECTED
+    }
+
+    and: "the authenticated client should have the correct subject with roles"
+    conditions.eventually {
+      Subject unprovisionedJaasSubject = mqttBrokerService.getConnectionFromClientID(autoprovisioningClientId).getSubject()
+      assert unprovisionedJaasSubject != null
+      // New architecture creates a RemotingConnectionPrincipal, TokenPrincipal and UserPrincipal for the provisioned service user
+      assert unprovisionedJaasSubject.getPrincipals().size() == 3
+      assert unprovisionedJaasSubject.getPrincipals(org.openremote.container.security.TokenPrincipal.class).size() == 1
+      assert unprovisionedJaasSubject.getPrincipals(UserPrincipal.class).size() == 1
+      // ActiveMQORSecurityManager names the UserPrincipal with the keycloak subject id, so the
+      // username is asserted on the TokenPrincipal, which exposes the preferred_username claim.
+      // The provisioning prefix is part of the name: devices created by auto-provisioning are
+      // named the same way whichever flow provisioned them, and certificate authentication
+      // looks for that name before the bare CN
+      assert unprovisionedJaasSubject.getPrincipals(org.openremote.container.security.TokenPrincipal.class)[0].getUsername() == "$User.SERVICE_ACCOUNT_PREFIX$PROVISIONING_USER_PREFIX$unprovisionedUsername"
+    }
+
+    and: "the service user is discoverable under the provisioning naming convention"
+    identityService.getIdentityProvider().getUserByUsername(
+            Constants.MASTER_REALM,
+            User.SERVICE_ACCOUNT_PREFIX + PROVISIONING_USER_PREFIX + unprovisionedUsername) != null
+
+    when: "the client then subscribes to attribute events for the generated asset and asset events for all assets"
+    def assetSubscriptionTopic = "$provisioningConfig.realm/$autoprovisioningClientId/$DefaultMQTTHandler.ASSET_TOPIC/#".toString()
+    def attributeSubscriptionTopic = "$provisioningConfig.realm/$autoprovisioningClientId/$DefaultMQTTHandler.ATTRIBUTE_TOPIC/+/${provisionedAsset.id}".toString()
+    List<AssetEvent> assetEvents = new CopyOnWriteArrayList<>()
+    List<AttributeEvent> attributeEvents = new CopyOnWriteArrayList<>()
+    Consumer<MQTTMessage<String>> eventConsumer = { MQTTMessage<String> msg ->
+      def event = ValueUtil.parse(msg.payload, SharedEvent.class).orElse(null)
+      if (event instanceof AssetEvent) {
+        assetEvents.add(event as AssetEvent)
+      } else {
+        attributeEvents.add(event as AttributeEvent)
+      }
+    }
+    autoprovisioningClient.addMessageConsumer(assetSubscriptionTopic, eventConsumer)
+    autoprovisioningClient.addMessageConsumer(attributeSubscriptionTopic, eventConsumer)
+
+    then: "the subscriptions should be in place"
+    conditions.eventually {
+      assert autoprovisioningClient.topicConsumerMap.get(assetSubscriptionTopic) != null
+      assert autoprovisioningClient.topicConsumerMap.get(attributeSubscriptionTopic) != null
+      assert autoprovisioningClient.topicConsumerMap.get(assetSubscriptionTopic).consumers.size() == 1
+      assert autoprovisioningClient.topicConsumerMap.get(attributeSubscriptionTopic).consumers.size() == 1
+      def connection = mqttBrokerService.getConnectionFromClientID(autoprovisioningClientId)
+      assert connection != null
+    }
+
+    when: "the client updates one of the provisioned asset's attributes"
+    autoprovisioningClient.sendMessage(
+            new MQTTMessage<String>(
+                    "$provisioningConfig.realm/$autoprovisioningClientId/$DefaultMQTTHandler.ATTRIBUTE_VALUE_WRITE_TOPIC/customAttribute/${provisionedAsset.id}",
+                    "123"
+                    )
+            )
+
+    then: "the attribute should have been updated"
+    conditions.eventually {
+      def asset = assetStorageService.find(provisionedAsset.id)
+      assert asset.getAttribute("customAttribute").flatMap{it.getValue()}.orElse(0d) == 123d
+    }
+
+    and: "the client should have been notified about the attribute change"
+    conditions.eventually {
+      assert attributeEvents.size() == 1
+      assert attributeEvents.get(0).id == provisionedAsset.id
+      assert attributeEvents.get(0).name == "customAttribute"
+      assert attributeEvents.get(0).value.orElse(0d) == 123d
+    }
+
+
+    and: "an attribute update is sent for the onOff attribute with a value of true"
+
+
+    assetProcessingService.sendAttributeEvent(new AttributeEvent(
+                    testSetup.light1Id,
+                    "onOff",
+                    false,
+                    System.currentTimeMillis()
+                    ))
+
+    when: "the client tries to send an attribute event to that unlinked asset"
+    autoprovisioningClient.sendMessage(
+            new MQTTMessage<String>(
+                    "$provisioningConfig.realm/$autoprovisioningClientId/$DefaultMQTTHandler.ATTRIBUTE_VALUE_WRITE_TOPIC/onOff/${testSetup.light1Id}",
+                    "true"
+                    )
+            )
+
+    then: "the attribute should not have been updated"
+    conditions.eventually {
+      LOG.info("Waiting for the system to settle down")
+      def j = 0
+      while (j < 10 && !noEventProcessedIn(assetProcessingService, 100)) {
+        Thread.sleep(100)
+        j++
+      }
+
+      def asset = assetStorageService.find(testSetup.light1Id)
+      assert asset.getAttribute("onOff").flatMap{it.getValue()}.orElse(true) == false
+    }
+
+    cleanup: "disconnect the client and cleanup temporary files"
+    autoprovisioningClient.disconnect()
+
+    and: "delete the created temporary directories"
+    tempDir.deleteDir()
+    tempManagerDir.deleteDir()
   }
 }
