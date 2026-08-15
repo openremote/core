@@ -21,8 +21,9 @@ package org.openremote.manager.mqtt;
 import static java.lang.System.Logger.Level.*;
 import static java.util.stream.StreamSupport.stream;
 import static org.openremote.container.persistence.PersistenceService.PERSISTENCE_TOPIC;
-import static org.openremote.container.security.IdentityProvider.getTokenPrincipal;
+import static org.openremote.model.Constants.*;
 import static org.openremote.model.syslog.SyslogCategory.API;
+import static org.openremote.model.util.MapAccess.getBoolean;
 import static org.openremote.model.util.MapAccess.getInteger;
 import static org.openremote.model.util.MapAccess.getString;
 
@@ -30,12 +31,18 @@ import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.netty.channel.ChannelId;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.security.Principal;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import javax.security.auth.Subject;
 import org.apache.activemq.artemis.api.core.ActiveMQException;
@@ -66,11 +73,15 @@ import org.apache.activemq.artemis.core.settings.impl.AddressFullMessagePolicy;
 import org.apache.activemq.artemis.core.settings.impl.AddressSettings;
 import org.apache.activemq.artemis.core.settings.impl.PageFullMessagePolicy;
 import org.apache.activemq.artemis.spi.core.protocol.RemotingConnection;
+import org.apache.activemq.artemis.spi.core.remoting.Acceptor;
+import org.apache.activemq.artemis.spi.core.remoting.ssl.SSLContextFactoryProvider;
 import org.apache.activemq.artemis.spi.core.security.ActiveMQSecurityManager5;
-import org.apache.activemq.artemis.spi.core.security.jaas.*;
+import org.apache.activemq.artemis.spi.core.security.jaas.NoCacheLoginException;
+import org.apache.activemq.artemis.spi.core.security.jaas.UserPrincipal;
 import org.apache.camel.builder.RouteBuilder;
 import org.apache.http.client.utils.URIBuilder;
 import org.openremote.container.message.MessageBrokerService;
+import org.openremote.container.persistence.PersistenceService;
 import org.openremote.container.security.IdentityProvider;
 import org.openremote.container.security.TokenPrincipal;
 import org.openremote.container.security.keycloak.KeycloakIdentityProvider;
@@ -105,6 +116,8 @@ public class MQTTBrokerService extends RouteBuilder
   // Allow 5 min durable session but this will not enable retained topics etc. as we delete queues
   // aggressively for now
   public static final int DEFAULT_SESSION_EXPIRY_MILLIS = 300000;
+  public static final String MTLS_ACCEPTOR_NAME = "mqtt-mtls";
+  protected static final long CERT_RELOAD_INTERVAL_MILLIS = Duration.ofMinutes(5).toMillis();
   protected final WildcardConfiguration wildcardConfiguration = new WildcardConfiguration();
   protected static final System.Logger LOG =
       System.getLogger(MQTTBrokerService.class.getName() + "." + API.name());
@@ -118,6 +131,7 @@ public class MQTTBrokerService extends RouteBuilder
   protected ExecutorService executorService;
   protected TimerService timerService;
   protected AssetProcessingService assetProcessingService;
+  protected PersistenceService persistenceService;
   protected List<MQTTHandler> customHandlers = new ArrayList<>();
   protected ConcurrentMap<String, RemotingConnection> clientIDConnectionMap =
       new ConcurrentHashMap<>();
@@ -136,6 +150,17 @@ public class MQTTBrokerService extends RouteBuilder
   protected ActiveMQSecurityManager5 securityManager;
   protected ServerLocator serverLocator;
   protected ClientSessionFactory sessionFactory;
+
+  protected boolean mtlsDisabled;
+  protected boolean mtlsAcceptorEnabled;
+  protected String mtlsHost;
+  protected int mtlsPort;
+  protected String keystorePath;
+  protected String keystorePassword;
+  protected String truststorePath;
+  protected String truststorePassword;
+  protected ScheduledExecutorService scheduledExecutorService;
+  protected ScheduledFuture<?> certificateReloadFuture;
 
   @Override
   public int getPriority() {
@@ -159,6 +184,42 @@ public class MQTTBrokerService extends RouteBuilder
     executorService = container.getExecutor();
     timerService = container.getService(TimerService.class);
     assetProcessingService = container.getService(AssetProcessingService.class);
+    persistenceService = container.getService(PersistenceService.class);
+
+    scheduledExecutorService = container.getScheduledExecutor();
+
+    // mTLS values
+    final Path keystoreDirPath = Paths.get(OR_MQTT_MTLS_KEYSTORE_DIR_DEFAULT);
+    this.mtlsDisabled =
+        getBoolean(container.getConfig(), OR_MQTT_MTLS_DISABLED, OR_MQTT_MTLS_DISABLED_DEFAULT);
+    this.mtlsHost = getString(container.getConfig(), OR_MQTT_MTLS_SERVER_LISTEN_HOST, host);
+    this.mtlsPort =
+        getInteger(
+            container.getConfig(), OR_MQTT_MTLS_SERVER_LISTEN_PORT, OR_MQTT_MTLS_PORT_DEFAULT);
+    this.keystorePath =
+        getString(
+            container.getConfig(),
+            OR_MQTT_MTLS_KEYSTORE_PATH,
+            persistenceService
+                .resolvePath(keystoreDirPath.resolve(OR_MQTT_MTLS_KEYSTORE_FILE_DEFAULT))
+                .toString());
+    this.keystorePassword =
+        getString(
+            container.getConfig(),
+            OR_MQTT_MTLS_KEYSTORE_PASSWORD,
+            OR_MQTT_MTLS_KEYSTORE_PASSWORD_DEFAULT);
+    this.truststorePath =
+        getString(
+            container.getConfig(),
+            OR_MQTT_MTLS_TRUSTSTORE_PATH,
+            persistenceService
+                .resolvePath(keystoreDirPath.resolve(OR_MQTT_MTLS_TRUSTSTORE_FILE_DEFAULT))
+                .toString());
+    this.truststorePassword =
+        getString(
+            container.getConfig(),
+            OR_MQTT_MTLS_TRUSTSTORE_PASSWORD,
+            OR_MQTT_MTLS_KEYSTORE_PASSWORD_DEFAULT);
 
     userAssetDisconnectDebouncer =
         new Debouncer<>(
@@ -201,6 +262,11 @@ public class MQTTBrokerService extends RouteBuilder
             .build()
             .toString();
     serverConfiguration.addAcceptorConfiguration("tcp", serverURI);
+
+    if (!mtlsDisabled) {
+      addMTLSAcceptor(container);
+    }
+
     serverConfiguration.registerBrokerPlugin(this);
     if (container.getMeterRegistry() != null) {
       serverConfiguration.setMetricsConfiguration(
@@ -258,16 +324,6 @@ public class MQTTBrokerService extends RouteBuilder
 
     serverConfiguration.setPersistenceEnabled(false);
 
-    // TODO: Make auto provisioning clients disconnect and reconnect with credentials or pass
-    // through X.509 certificates for auth
-    // Cannot use authentication or authorisation cache as auto provisioning MQTT clients will
-    // authenticate as anonymous and this is then baked into the created ServerSession and cannot be
-    // modified
-    // so all anonymous sessions will use the same username/password for key lookups in the caches -
-    // Can possibly use caching if ActiveMQ makes changes and/or we move to using X.509 TLS with
-    // ActiveMQ
-    // config.setSecurityInvalidationInterval(600000); // Long cache as we force clear it when
-    // needed
     serverConfiguration.setAuthenticationCacheSize(0);
     serverConfiguration.setAuthorizationCacheSize(0);
 
@@ -302,11 +358,25 @@ public class MQTTBrokerService extends RouteBuilder
     // Start the broker
     server = new EmbeddedActiveMQ();
     server.setConfiguration(serverConfiguration);
+
     securityManager = new ActiveMQORSecurityManager(this, executorService, identityService);
+
+    // The context factory is instantiated by Artemis via ServiceLoader during server start, so the
+    // container has to be registered before that happens
+    OpenRemoteSSLContextFactory.setContainer(container);
 
     server.setSecurityManager(securityManager);
     server.start();
     LOG.log(DEBUG, "Started MQTT broker");
+
+    if (mtlsAcceptorEnabled) {
+      certificateReloadFuture =
+          scheduledExecutorService.scheduleWithFixedDelay(
+              this::reloadMTLSCertificatesIfChanged,
+              CERT_RELOAD_INTERVAL_MILLIS,
+              CERT_RELOAD_INTERVAL_MILLIS,
+              TimeUnit.MILLISECONDS);
+    }
 
     // Add a notification handler for subscribe/unsubscribe and publish events
     server
@@ -427,8 +497,15 @@ public class MQTTBrokerService extends RouteBuilder
 
     userAssetDisconnectDebouncer.cancelAll(true);
 
+    if (certificateReloadFuture != null) {
+      certificateReloadFuture.cancel(true);
+      certificateReloadFuture = null;
+    }
+
     server.stop();
     LOG.log(DEBUG, "Stopped MQTT broker");
+
+    OpenRemoteSSLContextFactory.clearContainer();
 
     stream(ServiceLoader.load(MQTTHandler.class).spliterator(), false)
         .sorted(Comparator.comparingInt(MQTTHandler::getPriority).reversed())
@@ -583,7 +660,7 @@ public class MQTTBrokerService extends RouteBuilder
             .orElse(null);
 
     // Only notify handlers if subject is a restricted user
-    if (Optional.ofNullable(getTokenPrincipal(subject))
+    if (Optional.ofNullable(IdentityProvider.getTokenPrincipal(subject))
         .map(TokenPrincipal::isRestrictedUser)
         .orElse(false)) {
       LOG.log(
@@ -784,6 +861,108 @@ public class MQTTBrokerService extends RouteBuilder
         LOG.log(INFO, "Failed to authenticate MQTT connection: " + connectionToString(connection));
         throw new RuntimeException(e);
       }
+    }
+  }
+
+  /**
+   * Adds the mTLS acceptor, provided the deployment can actually serve it. A server certificate
+   * comes from either the proxy certificate directory or a configured keystore, and a truststore is
+   * mandatory: without one there is nothing to verify client certificates against, which is the
+   * only reason this acceptor exists. Anything missing leaves the acceptor out rather than failing
+   * the broker, so a deployment that has not been set up for mTLS still starts.
+   */
+  protected void addMTLSAcceptor(Container container) throws Exception {
+    Path proxyCertsDir = OpenRemoteSSLContextFactory.resolveProxyCertsDir(container);
+    boolean hasProxyCert = proxyCertsDir != null && Files.isDirectory(proxyCertsDir);
+    boolean hasKeystore = isReadableFile(keystorePath);
+
+    if (!hasProxyCert && !hasKeystore) {
+      LOG.log(
+          INFO,
+          "MQTT mTLS acceptor not started: no server certificate available (no proxy certificates"
+              + " in "
+              + proxyCertsDir
+              + " and no readable keystore at "
+              + keystorePath
+              + ")");
+      return;
+    }
+
+    if (!isReadableFile(truststorePath)) {
+      LOG.log(
+          WARNING,
+          "MQTT mTLS acceptor not started: client certificates cannot be verified without a"
+              + " truststore, set "
+              + OR_MQTT_MTLS_TRUSTSTORE_PATH
+              + " (no readable truststore at "
+              + truststorePath
+              + ")");
+      return;
+    }
+
+    String mtlsServerURI =
+        new URIBuilder()
+            .setScheme("tcp")
+            .setHost(this.mtlsHost)
+            .setPort(this.mtlsPort)
+            .setParameter("protocols", "MQTT")
+            .setParameter("allowLinkStealing", "false")
+            .setParameter(
+                "defaultMqttSessionExpiryInterval", Integer.toString(DEFAULT_SESSION_EXPIRY_MILLIS))
+            .setParameter("sslEnabled", "true")
+            .setParameter("needClientAuth", "true") // Require client certificates (mTLS)
+            .setParameter("keyStorePath", this.keystorePath)
+            .setParameter("keyStorePassword", this.keystorePassword)
+            .setParameter("trustStorePath", this.truststorePath)
+            .setParameter("trustStorePassword", this.truststorePassword)
+            .build()
+            .toString();
+
+    serverConfiguration.addAcceptorConfiguration(MTLS_ACCEPTOR_NAME, mtlsServerURI);
+    mtlsAcceptorEnabled = true;
+    LOG.log(
+        INFO,
+        "Added mTLS MQTT acceptor listening on "
+            + mtlsHost
+            + ":"
+            + mtlsPort
+            + (hasProxyCert
+                ? " (using the proxy certificate)"
+                : " (using the configured keystore)"));
+  }
+
+  protected static boolean isReadableFile(String path) {
+    return !TextUtil.isNullOrEmpty(path) && Files.isReadable(Paths.get(path));
+  }
+
+  /**
+   * Artemis builds an acceptor's {@link javax.net.ssl.SSLContext} once and holds it, so clearing
+   * the context factory's cache is not enough on its own; the acceptor has to be reloaded for a
+   * renewed certificate to be served. Reloading drops the connections on that acceptor, which is
+   * why it only happens when the certificate has actually changed.
+   */
+  protected void reloadMTLSCertificatesIfChanged() {
+    try {
+      if (!(SSLContextFactoryProvider.getSSLContextFactory()
+          instanceof OpenRemoteSSLContextFactory sslContextFactory)) {
+        return;
+      }
+      if (!sslContextFactory.certificatesHaveChanged()) {
+        return;
+      }
+
+      Acceptor acceptor =
+          server.getActiveMQServer().getRemotingService().getAcceptor(MTLS_ACCEPTOR_NAME);
+
+      if (acceptor == null) {
+        return;
+      }
+
+      sslContextFactory.clearSSLContexts();
+      acceptor.reload();
+      LOG.log(INFO, "Reloaded the mTLS acceptor following a certificate change");
+    } catch (Exception e) {
+      LOG.log(WARNING, "Failed to reload the mTLS acceptor after a certificate change", e);
     }
   }
 }
