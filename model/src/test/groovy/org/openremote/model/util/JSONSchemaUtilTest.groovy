@@ -23,7 +23,6 @@ import org.openremote.model.util.JSONSchemaUtil.*
 import org.openremote.model.value.ValueType
 import org.reflections.Reflections
 import spock.lang.Snapshot
-import spock.lang.Snapshotter
 import spock.lang.Specification
 
 import java.time.*
@@ -33,7 +32,7 @@ class JSONSchemaUtilTest extends Specification {
   private static final Reflections reflections = new Reflections("org.openremote")
 
   @Snapshot(extension = "json")
-  Snapshotter snapshotter
+  NormalizingSnapshotter snapshotter
 
   def setupSpec() {
     ValueUtil.doInitialise()
