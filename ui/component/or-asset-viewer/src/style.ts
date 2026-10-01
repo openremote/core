@@ -61,11 +61,21 @@ export const panelStyles = css`
   }
 
   .panel-title {
+    display: flex;
+    align-items: center;
     font-size: 18px;
     font-weight: bold;
     color: var(--internal-or-asset-viewer-title-text-color);
     margin-bottom: 20px;
     flex: 0 0 auto;
+  }
+
+  .panel-title-actions {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+    font-size: initial;
+    font-weight: initial;
   }
 
   .field {

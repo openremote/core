@@ -1332,5 +1332,34 @@
         }
       }
     }
+  },
+  "attributeConfiguration": {
+    "import": "Import",
+    "export": "Export",
+    "exportHeading": "Export attribute configuration",
+    "exportDescription": "You can save the configuration items of these attributes as a file, to apply the same configuration to similar assets.",
+    "selectAttributes": "Export the configuration of these attributes",
+    "nothingToExport": "None of the attributes of this asset have configuration items to export",
+    "saveBeforeExport": "Save or revert your changes before exporting",
+    "importHeading": "Import attribute configuration",
+    "selectFile": "Select a JSON file to import attribute configuration data",
+    "chooseFile": "Choose file",
+    "noFileSelected": "No file selected",
+    "overwriteWarning": "You are about to import the following attribute configuration. This overwrites the existing configuration items of these attributes in your current draft.",
+    "assetTypeMismatch": "This configuration was exported from a {{imported}}, while this asset is a {{target}}.",
+    "willBeImported": "Will be imported",
+    "skippedMissing": "Skipped, not an attribute of this asset",
+    "skippedTypeMismatch": "Skipped, the attribute has a different type",
+    "imported": "The configuration of these attributes was imported: {{attributes}}",
+    "saveToPersist": "Save the asset to keep these changes, or discard them as usual.",
+    "forbidden": "You are not allowed to import attribute configuration into this asset.",
+    "failure": {
+      "INVALID_JSON": "The selected file does not hold valid JSON.",
+      "UNSUPPORTED_VERSION": "The selected file holds an unsupported attribute configuration version.",
+      "MISSING_REQUIRED_FIELD": "The selected file is missing a required field.",
+      "MALFORMED_ATTRIBUTE_ENTRY": "The selected file holds a malformed attribute entry.",
+      "NO_IMPORTABLE_ATTRIBUTES": "None of the attributes in the selected file can be imported into this asset.",
+      "DRAFT_MISMATCH": "This asset has changed since you opened it; refresh it and try again."
+    }
   }
 }

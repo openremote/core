@@ -325,7 +325,12 @@ declare global {
   }
 }
 
-export function getPanel(id: string, panelConfig: PanelConfig, content: TemplateResult | undefined) {
+export function getPanel(
+  id: string,
+  panelConfig: PanelConfig,
+  content: TemplateResult | undefined,
+  actions?: TemplateResult
+) {
   if (!content) {
     return;
   }
@@ -339,6 +344,7 @@ export function getPanel(id: string, panelConfig: PanelConfig, content: Template
       <div class="panel-content-wrapper">
         <div class="panel-title">
           <or-translate value="${panelConfig.title || panelConfig.type}"></or-translate>
+          ${actions ? html`<div class="panel-title-actions">${actions}</div>` : ``}
         </div>
         <div class="panel-content">${content}</div>
       </div>
@@ -1472,7 +1478,7 @@ export class OrAssetViewer extends subscribe(manager)(translate(i18next)(OrEleme
     if (editMode) {
       content = html`
         <div id="edit-container">
-          <or-edit-asset-panel id="editor" .asset="${asset}"></or-edit-asset-panel>
+          <or-edit-asset-panel id="editor" .asset="${asset}" .modified="${!!this.isModified()}"></or-edit-asset-panel>
         </div>
       `;
 

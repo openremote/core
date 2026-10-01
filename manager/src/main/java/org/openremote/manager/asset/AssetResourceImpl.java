@@ -47,12 +47,17 @@ import org.openremote.model.Constants;
 import org.openremote.model.asset.Asset;
 import org.openremote.model.asset.AssetResource;
 import org.openremote.model.asset.AssetTree;
+import org.openremote.model.asset.AttributeConfigurationDocument;
+import org.openremote.model.asset.AttributeConfigurationImportFailure;
+import org.openremote.model.asset.AttributeConfigurationImportPreview;
+import org.openremote.model.asset.AttributeConfigurationImportRequest;
 import org.openremote.model.asset.UserAssetLink;
 import org.openremote.model.attribute.*;
 import org.openremote.model.http.RequestParams;
 import org.openremote.model.query.AssetQuery;
 import org.openremote.model.query.filter.RealmPredicate;
 import org.openremote.model.security.ClientRole;
+import org.openremote.model.util.AttributeConfigurationUtil;
 import org.openremote.model.util.TextUtil;
 import org.openremote.model.util.ValueUtil;
 
@@ -464,6 +469,69 @@ public class AssetResourceImpl extends ManagerWebResource implements AssetResour
       throw new WebApplicationException(
           "Refresh the asset from the server and try to update the changes again", opEx, CONFLICT);
     }
+  }
+
+  @Override
+  public AttributeConfigurationDocument exportAttributeConfiguration(
+      RequestParams requestParams, String assetId, List<String> attributeNames) {
+    // Reuses the read access rules of #get, including the protected view for a restricted user
+    return AttributeConfigurationUtil.export(get(requestParams, assetId), attributeNames);
+  }
+
+  @Override
+  public AttributeConfigurationImportPreview previewAttributeConfigurationImport(
+      RequestParams requestParams, String assetId, AttributeConfigurationImportRequest request) {
+
+    Asset<?> storageAsset = assetStorageService.find(assetId, true);
+
+    if (storageAsset == null) {
+      LOG.fine("Asset not found: assetID=" + assetId);
+      throw new WebApplicationException(NOT_FOUND);
+    }
+
+    throwIfNotRealmActiveAndAccessible(storageAsset.getRealm());
+
+    if (isRestrictedUser() && !assetStorageService.isUserAsset(getUserId(), assetId)) {
+      LOG.fine(
+          "Forbidden access for restricted user: username="
+              + getUsername()
+              + ", assetID="
+              + assetId);
+      throw new WebApplicationException(FORBIDDEN);
+    }
+
+    if (request == null || request.getDraft() == null) {
+      throw new WebApplicationException("An asset draft is required", BAD_REQUEST);
+    }
+
+    Asset<?> draft = request.getDraft();
+
+    if (!Objects.equals(assetId, draft.getId())
+        || !Objects.equals(storageAsset.getRealm(), draft.getRealm())
+        || !Objects.equals(storageAsset.getType(), draft.getType())) {
+      throw importFailure(
+          AttributeConfigurationImportPreview.failed(
+              AttributeConfigurationImportFailure.DRAFT_MISMATCH));
+    }
+
+    AttributeConfigurationImportPreview preview =
+        AttributeConfigurationUtil.preview(draft, request.getDocument());
+
+    if (preview.getFailure() != null) {
+      throw importFailure(preview);
+    }
+
+    return preview;
+  }
+
+  protected WebApplicationException importFailure(AttributeConfigurationImportPreview preview) {
+    Response.Status status =
+        preview.getFailure() == AttributeConfigurationImportFailure.DRAFT_MISMATCH
+            ? CONFLICT
+            : BAD_REQUEST;
+
+    return new WebApplicationException(
+        Response.status(status).entity(preview).type(MediaType.APPLICATION_JSON_TYPE).build());
   }
 
   @Override
