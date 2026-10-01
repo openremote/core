@@ -1322,5 +1322,35 @@
         }
       }
     }
+  },
+  "configurationTemplate": {
+    "import": "Importeren",
+    "export": "Exporteren",
+    "exportHeading": "Configuratie template exporteren",
+    "exportDescription": "Sla de configuratie items op als template, zodat je de configuratie op een andere instantie kunt reproduceren.",
+    "templateName": "Template naam",
+    "selectAttributes": "Selecteer wat je in de template opneemt",
+    "selectAll": "Alles selecteren",
+    "nothingToExport": "Geen van de attributen van dit asset heeft configuratie items om te exporteren",
+    "saveBeforeExport": "Sla je wijzigingen op of maak ze ongedaan voordat je exporteert",
+    "importHeading": "Configuratie template importeren",
+    "selectFileDescription": "Selecteer een JSON-bestand om attribuutconfiguratie te importeren",
+    "noFileSelected": "geen bestand geselecteerd",
+    "overwriteWarning": "Je staat op het punt de volgende attribuutconfiguratie te importeren. Dit overschrijft de bestaande metadata van overeenkomende attributen in je huidige concept.",
+    "matchedAttributes": "Overeenkomende attributen",
+    "skippedAttributes": "Attribuutnaam of type niet gevonden (deze worden niet geïmporteerd)",
+    "back": "Terug",
+    "next": "Volgende",
+    "json": "JSON",
+    "forbidden": "Je hebt geen rechten om een configuratie template in dit asset te importeren.",
+    "failure": {
+      "INVALID_JSON": "Het geselecteerde bestand bevat geen geldige JSON.",
+      "UNSUPPORTED_VERSION": "Het geselecteerde bestand bevat een niet-ondersteunde versie van het configuratie template.",
+      "MISSING_REQUIRED_FIELD": "In het geselecteerde bestand ontbreekt een verplicht veld.",
+      "MALFORMED_ATTRIBUTE_ENTRY": "Het geselecteerde bestand bevat een ongeldige attribuutvermelding.",
+      "INVALID_META_ITEM": "Het geselecteerde bestand bevat een configuratie item waarvan de waarde niet bij het type past.",
+      "NO_IMPORTABLE_ATTRIBUTES": "Geen van de attributen in het geselecteerde bestand kan in dit asset worden geïmporteerd.",
+      "DRAFT_MISMATCH": "Dit asset is gewijzigd sinds je het opende; ververs het en probeer het opnieuw."
+    }
   }
 }

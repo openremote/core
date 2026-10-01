@@ -345,6 +345,86 @@ public interface AssetResource {
           Asset<?> asset);
 
   /**
+   * Retrieve a configuration template of the asset: a user editable document holding the type and
+   * metadata of every attribute that has metadata. Repeat the attributeName query parameter to
+   * export a subset of them. Access follows the same rules as {@link #get}. A 400 status is
+   * returned if nothing is left to export.
+   */
+  @GET
+  @Path("{assetId}/configurationTemplate")
+  @Produces(APPLICATION_JSON)
+  @RolesAllowed({Constants.READ_ASSETS_ROLE})
+  @Operation(
+      operationId = "exportConfigurationTemplate",
+      summary = "Export a configuration template of an asset",
+      description =
+          "Returns a versioned document holding the type and metadata of each attribute that has metadata, limited to the requested attribute names when any are given. Attributes without metadata are never included. Exporting nothing is rejected.")
+  @OpenApiResponses.Ok
+  @OpenApiResponses.Authenticated
+  @OpenApiResponses.BadRequest
+  @OpenApiResponses.NotFound
+  ConfigurationTemplate exportConfigurationTemplate(
+      @BeanParam RequestParams requestParams,
+      @Parameter(description = ASSET_ID, example = EXAMPLE_ASSET_ID) @PathParam("assetId")
+          String assetId,
+      @Parameter(
+              description =
+                  "Attribute names to export. Repeat the query parameter for multiple attributes, omit it to export all attributes that have metadata.",
+              style = ParameterStyle.FORM,
+              explode = Explode.TRUE)
+          @QueryParam("attributeName")
+          List<String> attributeNames);
+
+  /**
+   * Validate a configuration template against an asset draft and report what importing it would do,
+   * without storing anything. The returned patched attributes are for the client to apply to the
+   * draft once the user confirms, so the same access as {@link #update} is required. A 400 status
+   * is returned if no draft is given or the template cannot be imported, and a 409 status if the
+   * draft no longer identifies the persisted asset. A rejected template is answered with the
+   * preview, whose failure names the reason.
+   */
+  @POST
+  @Path("{assetId}/configurationTemplate/import")
+  @Consumes(APPLICATION_JSON)
+  @Produces(APPLICATION_JSON)
+  @RolesAllowed({Constants.WRITE_ASSETS_ROLE})
+  @Operation(
+      operationId = "previewConfigurationTemplateImport",
+      summary = "Preview a configuration template import",
+      description =
+          "Validates the document, matches its attributes against the draft by name and type, and returns the compatibility report together with the draft attributes holding the imported metadata. Nothing is stored; the client applies the patch after the user confirms.")
+  @OpenApiResponses.Ok
+  @OpenApiResponses.Authenticated
+  @ApiResponse(
+      responseCode = "400",
+      description =
+          "The draft is missing, or the document cannot be imported; a rejected document is answered with the preview, whose failure names the reason",
+      content = {
+        @Content(
+            mediaType = APPLICATION_JSON,
+            schema = @Schema(implementation = ConfigurationTemplateImportPreview.class)),
+        @Content(mediaType = "text/plain", schema = @Schema(implementation = String.class))
+      })
+  @OpenApiResponses.NotFound
+  @ApiResponse(
+      responseCode = "409",
+      description =
+          "The draft no longer identifies the persisted asset; the preview failure is DRAFT_MISMATCH",
+      content =
+          @Content(
+              mediaType = APPLICATION_JSON,
+              schema = @Schema(implementation = ConfigurationTemplateImportPreview.class)))
+  ConfigurationTemplateImportPreview previewConfigurationTemplateImport(
+      @BeanParam RequestParams requestParams,
+      @Parameter(description = ASSET_ID, example = EXAMPLE_ASSET_ID) @PathParam("assetId")
+          String assetId,
+      @RequestBody(
+              required = true,
+              description =
+                  "The asset draft being edited and the contents of the selected configuration file.")
+          @NotNull ConfigurationTemplateImportRequest request);
+
+  /**
    * Updates an attribute of an asset. Regular users can only update assets in their authenticated
    * realm, the superuser can update assets in other (all) realms. A 403 status is returned if a
    * regular user tries to update an asset in a realm different than its authenticated realm, or if

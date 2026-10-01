@@ -176,6 +176,8 @@
   --lumo-font-family: "Inter", -apple-system, BlinkMacSystemFont, "Roboto", "Segoe UI", Helvetica, Arial, sans-serif;
   --lumo-border-radius-m: 0.5em;
   --lumo-border-radius-l: 0.75em;
+  /* Not --lumo-border-radius-m, which is em based and shrinks with the smaller text of badges */
+  --vaadin-badge-border-radius: 0.5rem;
   --vaadin-field-default-width: 100%;
   --vaadin-button-margin: 0;
   --lumo-clickable-cursor: pointer;
