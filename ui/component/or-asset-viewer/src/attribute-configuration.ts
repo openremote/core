@@ -29,6 +29,7 @@ import {
 import { i18next } from "@openremote/or-translate";
 import "@openremote/or-icon";
 import "@openremote/or-translate";
+import type { OrIcon } from "@openremote/or-icon";
 import "@openremote/or-vaadin-components/or-vaadin-button";
 import "@openremote/or-vaadin-components/or-vaadin-checkbox";
 import "@openremote/or-vaadin-components/or-vaadin-dialog";
@@ -44,59 +45,124 @@ import {
   getConfirmDialogContent,
   showConfirmDialog,
   showErrorDialog,
+  type OrVaadinConfirmDialog,
 } from "@openremote/or-vaadin-components/or-vaadin-confirm-dialog";
 import { showSnackbar } from "@openremote/or-mwc-components/or-mwc-snackbar";
 
 export type AssetAttributes = { [index: string]: Attribute<any> };
 
+const DIALOG_WIDTH = "550px";
+
 // language=CSS
 const dialogStyle = html`
   <style>
-    .dialog-text {
-      margin: 0 0 16px 0;
+    .ac-body {
+      display: flex;
+      flex-direction: column;
+      gap: var(--lumo-space-s);
     }
-    .dialog-section {
-      margin-bottom: 16px;
+    .ac-card {
+      display: flex;
+      flex-direction: column;
+      gap: var(--lumo-space-m);
+      background-color: var(--lumo-base-color);
+      border-radius: var(--lumo-border-radius-m);
+      padding: var(--lumo-space-m);
     }
-    .dialog-section-title {
-      font-size: 12px;
-      font-weight: bold;
-      text-transform: uppercase;
-      margin-bottom: 8px;
+    .ac-rows {
+      display: flex;
+      flex-direction: column;
+      gap: var(--lumo-space-s);
     }
-    .attribute-row {
-      border: 1px solid var(--lumo-contrast-10pct);
-      border-radius: 4px;
-      padding: 8px;
-      margin-bottom: 8px;
+    .ac-row {
+      display: flex;
+      flex-direction: column;
+      gap: var(--lumo-space-xs);
+      background-color: var(--lumo-contrast-5pct);
+      border-radius: var(--lumo-border-radius-m);
+      padding: var(--lumo-space-s);
     }
-    .attribute-row-header {
+    .ac-row-header {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: var(--lumo-space-s);
     }
-    .meta-count {
-      background-color: var(--lumo-contrast-10pct);
-      border-radius: 10px;
-      font-size: 12px;
-      padding: 0 8px;
+    .ac-row-header .ac-expander {
+      margin-left: auto;
     }
-    .meta-names {
+    .ac-row-details {
+      display: none;
+      flex-direction: column;
+      gap: var(--lumo-space-xs);
+      background-color: var(--lumo-contrast-5pct);
+      border-radius: var(--lumo-border-radius-m);
+      padding: var(--lumo-space-m);
       color: var(--lumo-secondary-text-color);
-      font-size: 14px;
-      margin: 4px 0 0 8px;
     }
-    .warning {
+    .ac-row.ac-expanded .ac-row-details {
+      display: flex;
+    }
+    .ac-badge {
+      background-color: var(--lumo-contrast-10pct);
+      border-radius: var(--lumo-border-radius-m);
+      color: var(--lumo-secondary-text-color);
+      font-size: var(--lumo-font-size-xs);
+      line-height: 1;
+      padding: 4px 10px;
+    }
+    .ac-block {
+      display: flex;
+      flex-direction: column;
+      gap: var(--lumo-space-s);
+      background-color: var(--lumo-contrast-5pct);
+      border-radius: var(--lumo-border-radius-m);
+      padding: var(--lumo-space-m);
+    }
+    .ac-block-title {
+      font-size: var(--lumo-font-size-l);
+      font-weight: 600;
+      color: var(--lumo-body-text-color);
+    }
+    .ac-block ul {
+      margin: 0;
+      padding-inline-start: 24px;
+    }
+    .ac-file-name {
+      color: var(--lumo-body-text-color);
+    }
+    .ac-placeholder {
+      color: var(--lumo-disabled-text-color);
+    }
+    .ac-file-row {
       display: flex;
       align-items: center;
-      gap: 8px;
-      color: var(--lumo-error-text-color);
-      margin-bottom: 16px;
+      gap: var(--lumo-space-s);
     }
-    .file-row {
+    .ac-warning {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: var(--lumo-space-s);
+      color: var(--lumo-warning-text-color);
+      --or-icon-fill: var(--lumo-warning-text-color);
+    }
+    .ac-dialog-header {
+      display: flex;
+      align-items: center;
+      gap: var(--lumo-space-s);
+      width: 100%;
+    }
+    .ac-dialog-header h2 {
+      flex: 1;
+      margin: 0;
+      font-size: var(--lumo-font-size-xl);
+      font-weight: 600;
+      color: var(--lumo-header-text-color);
+    }
+    .ac-dialog-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
     }
   </style>
 `;
@@ -119,7 +185,14 @@ export function showExportAttributeConfigurationDialog(host: Node, asset: Asset)
   }
 
   const selected = new Set<string>(attributes.map((attribute) => attribute.name!));
+  let templateName = `${asset.name}-attribute-config.json`;
   const exportBtn: Ref<OrVaadinButton> = createRef();
+
+  const updateExportBtn = () => {
+    if (exportBtn.value) {
+      exportBtn.value.disabled = selected.size === 0 || templateName.trim() === "";
+    }
+  };
 
   const onToggle = (name: string, checked: boolean) => {
     if (checked) {
@@ -127,59 +200,78 @@ export function showExportAttributeConfigurationDialog(host: Node, asset: Asset)
     } else {
       selected.delete(name);
     }
-    if (exportBtn.value) {
-      exportBtn.value.disabled = selected.size === 0;
-    }
+    updateExportBtn();
+  };
+
+  const onTemplateNameChange = (name: string) => {
+    templateName = name;
+    updateExportBtn();
   };
 
   const dialog = showDialog(
     host,
     html`
       <or-vaadin-dialog
-        width="550px"
-        ${dialogHeaderRenderer(
-          () => html`<h2><or-translate value="attributeConfiguration.exportHeading"></or-translate></h2>`
-        )}
+        width=${DIALOG_WIDTH}
+        ${dialogHeaderRenderer(() => getHeaderTemplate("attributeConfiguration.exportHeading", () => dialog?.close()))}
         ${dialogRenderer(
           () => html`
             ${dialogStyle}
-            <p class="dialog-text"><or-translate value="attributeConfiguration.exportDescription"></or-translate></p>
-            <div class="dialog-section-title">
-              <or-translate value="attributeConfiguration.selectAttributes"></or-translate>
-            </div>
-            ${attributes.map(
-              (attribute) => html`
-                <div class="attribute-row">
-                  <div class="attribute-row-header">
-                    <or-vaadin-checkbox
-                      checked
-                      label=${attributeLabel(asset, attribute)}
-                      @change=${(ev: Event) => onToggle(attribute.name!, (ev.currentTarget as OrVaadinCheckbox).checked)}
-                    ></or-vaadin-checkbox>
-                    <span class="meta-count">${Object.keys(attribute.meta || {}).length}</span>
-                  </div>
-                  <div class="meta-names">${metaLabels(asset, attribute).join(", ")}</div>
+            <div class="ac-body">
+              <or-translate value="attributeConfiguration.exportDescription"></or-translate>
+              <div class="ac-card">
+                <or-vaadin-text-field
+                  label=${i18next.t("attributeConfiguration.templateName")}
+                  .value=${templateName}
+                  @value-changed=${(ev: CustomEvent<{ value: string }>) => onTemplateNameChange(ev.detail.value)}
+                ></or-vaadin-text-field>
+              </div>
+              <div class="ac-card">
+                <or-translate value="attributeConfiguration.selectAttributes"></or-translate>
+                <div class="ac-rows">
+                  ${attributes.map(
+                    (attribute) => html`
+                      <div class="ac-row">
+                        <div class="ac-row-header">
+                          <or-vaadin-checkbox
+                            checked
+                            label=${attributeLabel(asset, attribute)}
+                            @change=${(ev: Event) =>
+                              onToggle(attribute.name!, (ev.currentTarget as OrVaadinCheckbox).checked)}
+                          ></or-vaadin-checkbox>
+                          <span class="ac-badge">${Object.keys(attribute.meta || {}).length}</span>
+                          <or-vaadin-button class="ac-expander" theme="tertiary icon" @click=${toggleRow}>
+                            <or-icon icon="chevron-down"></or-icon>
+                          </or-vaadin-button>
+                        </div>
+                        <div class="ac-row-details">
+                          ${metaLabels(asset, attribute).map((label) => html`<span>${label}</span>`)}
+                        </div>
+                      </div>
+                    `
+                  )}
                 </div>
-              `
-            )}
+              </div>
+            </div>
           `
         )}
         ${dialogFooterRenderer(
           () => html`
-            <or-vaadin-button theme="tertiary" @click=${() => dialog?.close()}>
-              <or-translate value="cancel"></or-translate>
-            </or-vaadin-button>
-            <or-vaadin-button
-              theme="primary"
-              ${ref(exportBtn)}
-              @click=${() => {
-                dialog?.close();
-                downloadAttributeConfiguration(asset, Array.from(selected));
-              }}
-            >
-              <or-icon slot="prefix" icon="download"></or-icon>
-              <or-translate value="attributeConfiguration.export"></or-translate>
-            </or-vaadin-button>
+            <div class="ac-dialog-actions">
+              <or-vaadin-button theme="tertiary contrast" @click=${() => dialog?.close()}>
+                <or-translate value="cancel"></or-translate>
+              </or-vaadin-button>
+              <or-vaadin-button
+                theme="primary"
+                ${ref(exportBtn)}
+                @click=${() => {
+                  dialog?.close();
+                  downloadAttributeConfiguration(asset, Array.from(selected), templateName);
+                }}
+              >
+                <or-translate value="attributeConfiguration.export"></or-translate>
+              </or-vaadin-button>
+            </div>
           `
         )}
       ></or-vaadin-dialog>
@@ -194,30 +286,32 @@ export function showExportAttributeConfigurationDialog(host: Node, asset: Asset)
 export function showImportAttributeConfigurationDialog(
   host: Node,
   asset: Asset,
-  onImported: (attributes: AssetAttributes) => void
+  onImported: (attributes: AssetAttributes) => void,
+  selectedFile?: File
 ) {
-  let file: File | undefined;
+  let file = selectedFile;
   const fileName: Ref<HTMLSpanElement> = createRef();
   const fileInput: Ref<HTMLInputElement> = createRef();
-  const continueBtn: Ref<OrVaadinButton> = createRef();
+  const importBtn: Ref<OrVaadinButton> = createRef();
 
   const onFileSelected = () => {
     file = fileInput.value?.files?.[0];
     if (fileName.value) {
       fileName.value.textContent = file ? file.name : i18next.t("attributeConfiguration.noFileSelected");
+      fileName.value.classList.toggle("ac-placeholder", !file);
     }
-    if (continueBtn.value) {
-      continueBtn.value.disabled = !file;
+    if (importBtn.value) {
+      importBtn.value.disabled = !file;
     }
   };
 
-  const onContinue = async () => {
+  const onImport = async () => {
     if (!file) {
       return;
     }
 
-    const configuration = await file.text();
-    const selectedName = file.name;
+    const selected = file;
+    const configuration = await selected.text();
     dialog?.close();
 
     try {
@@ -225,7 +319,9 @@ export function showImportAttributeConfigurationDialog(
         draft: asset,
         document: configuration,
       });
-      showImportPreviewDialog(host, asset, selectedName, response.data, onImported);
+      showImportPreviewDialog(host, asset, selected.name, response.data, onImported, () =>
+        showImportAttributeConfigurationDialog(host, asset, onImported, selected)
+      );
     } catch (error) {
       showImportFailureDialog(host, error);
     }
@@ -235,38 +331,43 @@ export function showImportAttributeConfigurationDialog(
     host,
     html`
       <or-vaadin-dialog
-        width="550px"
-        ${dialogHeaderRenderer(
-          () => html`<h2><or-translate value="attributeConfiguration.importHeading"></or-translate></h2>`
-        )}
+        width=${DIALOG_WIDTH}
+        ${dialogHeaderRenderer(() => getHeaderTemplate("attributeConfiguration.importHeading", () => dialog?.close()))}
         ${dialogRenderer(
           () => html`
             ${dialogStyle}
-            <p class="dialog-text"><or-translate value="attributeConfiguration.selectFile"></or-translate></p>
-            <div class="file-row">
-              <input
-                ${ref(fileInput)}
-                type="file"
-                accept="application/json,.json"
-                style="display: none"
-                @change=${() => onFileSelected()}
-              />
-              <or-vaadin-button @click=${() => fileInput.value?.click()}>
-                <or-icon slot="prefix" icon="upload"></or-icon>
-                <or-translate value="attributeConfiguration.chooseFile"></or-translate>
-              </or-vaadin-button>
-              <span ${ref(fileName)}>${i18next.t("attributeConfiguration.noFileSelected")}</span>
+            <div class="ac-body">
+              <div class="ac-card">
+                <or-translate value="attributeConfiguration.selectFileDescription"></or-translate>
+                <div class="ac-file-row">
+                  <input
+                    ${ref(fileInput)}
+                    type="file"
+                    accept="application/json,.json"
+                    style="display: none"
+                    @change=${() => onFileSelected()}
+                  />
+                  <or-vaadin-button @click=${() => fileInput.value?.click()}>
+                    <or-translate value="selectFile"></or-translate>
+                  </or-vaadin-button>
+                  <span ${ref(fileName)} class=${file ? "" : "ac-placeholder"}>
+                    ${file ? file.name : i18next.t("attributeConfiguration.noFileSelected")}
+                  </span>
+                </div>
+              </div>
             </div>
           `
         )}
         ${dialogFooterRenderer(
           () => html`
-            <or-vaadin-button theme="tertiary" @click=${() => dialog?.close()}>
-              <or-translate value="cancel"></or-translate>
-            </or-vaadin-button>
-            <or-vaadin-button theme="primary" disabled ${ref(continueBtn)} @click=${() => onContinue()}>
-              <or-translate value="next"></or-translate>
-            </or-vaadin-button>
+            <div class="ac-dialog-actions">
+              <or-vaadin-button theme="tertiary contrast" @click=${() => dialog?.close()}>
+                <or-translate value="cancel"></or-translate>
+              </or-vaadin-button>
+              <or-vaadin-button theme="primary" ?disabled=${!file} ${ref(importBtn)} @click=${() => onImport()}>
+                <or-translate value="attributeConfiguration.import"></or-translate>
+              </or-vaadin-button>
+            </div>
           `
         )}
       ></or-vaadin-dialog>
@@ -274,13 +375,14 @@ export function showImportAttributeConfigurationDialog(
   );
 }
 
-/** Reports what the import would change and applies it once the user confirms. */
+/** Reports what the import would change, before the final overwrite warning. */
 function showImportPreviewDialog(
   host: Node,
   asset: Asset,
   fileName: string,
   preview: AttributeConfigurationImportPreview,
-  onImported: (attributes: AssetAttributes) => void
+  onImported: (attributes: AssetAttributes) => void,
+  onBack: () => void
 ) {
   const patchedAttributes = (preview.patchedAttributes || {}) as AssetAttributes;
   const importable = preview.importableAttributes || [];
@@ -289,58 +391,90 @@ function showImportPreviewDialog(
     host,
     html`
       <or-vaadin-dialog
-        width="550px"
-        ${dialogHeaderRenderer(
-          () => html`<h2><or-translate value="attributeConfiguration.importHeading"></or-translate></h2>`
-        )}
+        width=${DIALOG_WIDTH}
+        ${dialogHeaderRenderer(() => getHeaderTemplate("attributeConfiguration.importHeading", () => dialog?.close()))}
         ${dialogRenderer(
           () => html`
             ${dialogStyle}
-            <p class="dialog-text">${fileName}</p>
-            ${getAssetTypeMismatchTemplate(preview)}
-            <p class="dialog-text">
-              <or-translate value="attributeConfiguration.overwriteWarning"></or-translate>
-            </p>
-            <div class="dialog-section">
-              <div class="dialog-section-title">
-                <or-translate value="attributeConfiguration.willBeImported"></or-translate>
-              </div>
-              ${importable.map(
-                (attribute) => html`
-                  <div class="attribute-row">
-                    <div class="attribute-row-header">
-                      <span>${attributeLabel(asset, patchedAttributes[attribute.name!], attribute.name)}</span>
-                      <span class="meta-count">
-                        ${Object.keys(patchedAttributes[attribute.name!]?.meta || {}).length}
+            <div class="ac-body">
+              <span class="ac-file-name">${fileName}</span>
+              ${getAssetTypeMismatchTemplate(preview)}
+              <div class="ac-card">
+                <or-translate value="attributeConfiguration.overwriteWarning"></or-translate>
+                ${importable.map(
+                  (attribute) => html`
+                    <div class="ac-block">
+                      <span class="ac-block-title">
+                        ${attributeLabel(asset, patchedAttributes[attribute.name!], attribute.name)}
                       </span>
+                      <ul>
+                        ${metaLabels(asset, patchedAttributes[attribute.name!]).map((label) => html`<li>${label}</li>`)}
+                      </ul>
                     </div>
-                    <div class="meta-names">${metaLabels(asset, patchedAttributes[attribute.name!]).join(", ")}</div>
-                  </div>
-                `
-              )}
+                  `
+                )}
+              </div>
+              ${getSkippedTemplate(preview)}
             </div>
-            ${getSkippedTemplate(preview)}
           `
         )}
         ${dialogFooterRenderer(
           () => html`
-            <or-vaadin-button theme="tertiary" @click=${() => dialog?.close()}>
-              <or-translate value="cancel"></or-translate>
-            </or-vaadin-button>
-            <or-vaadin-button
-              theme="primary"
-              @click=${() => {
-                dialog?.close();
-                onImported(patchedAttributes);
-                showImportResultDialog(host, preview);
-              }}
-            >
-              <or-icon slot="prefix" icon="upload"></or-icon>
-              <or-translate value="attributeConfiguration.import"></or-translate>
-            </or-vaadin-button>
+            <div class="ac-dialog-actions">
+              <or-vaadin-button
+                theme="tertiary contrast"
+                @click=${() => {
+                  dialog?.close();
+                  onBack();
+                }}
+              >
+                <or-translate value="attributeConfiguration.back"></or-translate>
+              </or-vaadin-button>
+              <or-vaadin-button
+                theme="primary"
+                @click=${() => {
+                  dialog?.close();
+                  showOverwriteWarningDialog(
+                    host,
+                    () => showImportPreviewDialog(host, asset, fileName, preview, onImported, onBack),
+                    () => {
+                      onImported(patchedAttributes);
+                      showImportResultDialog(host, preview);
+                    }
+                  );
+                }}
+              >
+                <or-translate value="attributeConfiguration.next"></or-translate>
+              </or-vaadin-button>
+            </div>
           `
         )}
       ></or-vaadin-dialog>
+    `
+  );
+}
+
+/**
+ * The last step before the draft is changed. Back sits in the cancel slot, so the confirm dialog
+ * closes itself on its click. Escape and the close icon only close it.
+ */
+function showOverwriteWarningDialog(host: Node, onBack: () => void, onConfirm: () => void) {
+  const dialog: Ref<OrVaadinConfirmDialog> = createRef();
+
+  showConfirmDialog(
+    host,
+    html`
+      <or-vaadin-confirm-dialog ${ref(dialog)} @confirm=${() => onConfirm()}>
+        ${getConfirmDialogContent(
+          "",
+          getHeaderTemplate("attributeConfiguration.warningHeading", () => dialog.value?.close()),
+          "attributeConfiguration.overwriteConfirm",
+          "attributeConfiguration.confirm"
+        )}
+        <or-vaadin-button theme="tertiary contrast" slot="cancel-button" @click=${() => onBack()}>
+          <or-translate value="attributeConfiguration.back"></or-translate>
+        </or-vaadin-button>
+      </or-vaadin-confirm-dialog>
     `
   );
 }
@@ -354,7 +488,7 @@ function showImportResultDialog(host: Node, preview: AttributeConfigurationImpor
     html`
       <or-vaadin-confirm-dialog>
         ${getConfirmDialogContent(
-          "tertiary",
+          "",
           "attributeConfiguration.importHeading",
           html`
             <div>${i18next.t("attributeConfiguration.imported", { attributes: names })}</div>
@@ -378,17 +512,31 @@ function showImportFailureDialog(host: Node, error: unknown) {
   showErrorDialog(
     host,
     html`${dialogStyle}
-      <div class="dialog-text">${message}</div>
-      ${preview ? getSkippedTemplate(preview) : ``}`,
+      <div class="ac-body">
+        <span>${message}</span>
+        ${preview ? getSkippedTemplate(preview) : ``}
+      </div>`,
     "attributeConfiguration.importHeading"
   );
+}
+
+function getHeaderTemplate(titleKey: string, onClose: () => void): TemplateResult {
+  return html`
+    ${dialogStyle}
+    <div class="ac-dialog-header">
+      <h2><or-translate value=${titleKey}></or-translate></h2>
+      <or-vaadin-button theme="tertiary icon" @click=${() => onClose()}>
+        <or-icon icon="close"></or-icon>
+      </or-vaadin-button>
+    </div>
+  `;
 }
 
 function getAssetTypeMismatchTemplate(preview: AttributeConfigurationImportPreview): TemplateResult | string {
   return when(
     preview.assetTypeMismatch,
     () => html`
-      <div class="warning">
+      <div class="ac-warning">
         <or-icon icon="alert"></or-icon>
         <span>
           ${i18next.t("attributeConfiguration.assetTypeMismatch", {
@@ -411,36 +559,57 @@ function getSkippedTemplate(preview: AttributeConfigurationImportPreview): Templ
   }
 
   return html`
-    ${when(
-      missing.length > 0,
-      () => html`
-        <div class="dialog-section">
-          <div class="dialog-section-title">
-            <or-translate value="attributeConfiguration.skippedMissing"></or-translate>
+    <div class="ac-card">
+      ${when(
+        missing.length > 0,
+        () => html`
+          <div class="ac-block">
+            <span class="ac-block-title">
+              <or-translate value="attributeConfiguration.skippedMissing"></or-translate>
+            </span>
+            <ul>
+              ${missing.map((attribute) => html`<li>${attribute.name} (${attribute.type})</li>`)}
+            </ul>
           </div>
-          <div>${missing.map((attribute) => `${attribute.name} (${attribute.type})`).join(", ")}</div>
-        </div>
-      `
-    )}
-    ${when(
-      mismatches.length > 0,
-      () => html`
-        <div class="dialog-section">
-          <div class="dialog-section-title">
-            <or-translate value="attributeConfiguration.skippedTypeMismatch"></or-translate>
+        `
+      )}
+      ${when(
+        mismatches.length > 0,
+        () => html`
+          <div class="ac-block">
+            <span class="ac-block-title">
+              <or-translate value="attributeConfiguration.skippedTypeMismatch"></or-translate>
+            </span>
+            <ul>
+              ${mismatches.map(
+                (mismatch) => html`<li>${mismatch.name} (${mismatch.importedType} → ${mismatch.targetType})</li>`
+              )}
+            </ul>
           </div>
-          <div>
-            ${mismatches
-              .map((mismatch) => `${mismatch.name} (${mismatch.importedType} → ${mismatch.targetType})`)
-              .join(", ")}
-          </div>
-        </div>
-      `
-    )}
+        `
+      )}
+    </div>
   `;
 }
 
-async function downloadAttributeConfiguration(asset: Asset, attributeNames: string[]) {
+/** Expands or collapses the metadata of an attribute row. */
+function toggleRow(ev: Event) {
+  const button = ev.currentTarget as HTMLElement;
+  const row = button.closest(".ac-row");
+  const icon = button.querySelector("or-icon") as OrIcon | null;
+
+  if (!row) {
+    return;
+  }
+
+  row.classList.toggle("ac-expanded");
+
+  if (icon) {
+    icon.icon = row.classList.contains("ac-expanded") ? "chevron-up" : "chevron-down";
+  }
+}
+
+async function downloadAttributeConfiguration(asset: Asset, attributeNames: string[], templateName: string) {
   try {
     const response = await manager.rest.api.AssetResource.exportAttributeConfiguration(asset.id!, {
       attributeName: attributeNames,
@@ -449,7 +618,8 @@ async function downloadAttributeConfiguration(asset: Asset, attributeNames: stri
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.setAttribute("download", `${asset.name}-attribute-config.json`);
+    const fileName = templateName.trim();
+    link.setAttribute("download", fileName.toLowerCase().endsWith(".json") ? fileName : `${fileName}.json`);
     document.body.appendChild(link);
     link.click();
     link.remove();

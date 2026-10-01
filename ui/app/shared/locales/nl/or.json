@@ -1318,5 +1318,38 @@
         }
       }
     }
+  },
+  "attributeConfiguration": {
+    "import": "Importeren",
+    "export": "Exporteren",
+    "exportHeading": "Configuratiesjabloon exporteren",
+    "exportDescription": "Je kunt alle geconfigureerde attributen en hun configuratie-items als sjabloon opslaan, zodat je dit asset eenvoudig kunt reproduceren",
+    "templateName": "Sjabloonnaam",
+    "selectAttributes": "Sla deze attributen op",
+    "nothingToExport": "Geen van de attributen van dit asset heeft configuratie-items om te exporteren",
+    "saveBeforeExport": "Sla je wijzigingen op of maak ze ongedaan voordat je exporteert",
+    "importHeading": "Configuratiesjabloon importeren",
+    "selectFileDescription": "Selecteer een JSON-bestand om attribuutconfiguratie te importeren",
+    "noFileSelected": "geen bestand geselecteerd",
+    "overwriteWarning": "Je staat op het punt de volgende attribuutconfiguratie te importeren. Dit overschrijft de bestaande metadata van compatibele attributen in je huidige concept.",
+    "assetTypeMismatch": "Deze configuratie is geëxporteerd vanaf een {{imported}}, terwijl dit asset een {{target}} is.",
+    "skippedMissing": "Overgeslagen, geen attribuut van dit asset",
+    "skippedTypeMismatch": "Overgeslagen, het attribuut heeft een ander type",
+    "back": "Terug",
+    "next": "Volgende",
+    "warningHeading": "Waarschuwing",
+    "overwriteConfirm": "Je staat op het punt de bestaande attribuutconfiguratie(s) te overschrijven, weet je het zeker?",
+    "confirm": "Bevestigen",
+    "imported": "De configuratie van deze attributen is geïmporteerd: {{attributes}}",
+    "saveToPersist": "Sla het asset op om deze wijzigingen te behouden, of maak ze zoals gebruikelijk ongedaan.",
+    "forbidden": "Je hebt geen rechten om de attribuutconfiguratie in dit asset te importeren.",
+    "failure": {
+      "INVALID_JSON": "Het geselecteerde bestand bevat geen geldige JSON.",
+      "UNSUPPORTED_VERSION": "Het geselecteerde bestand bevat een niet-ondersteunde versie van de attribuutconfiguratie.",
+      "MISSING_REQUIRED_FIELD": "In het geselecteerde bestand ontbreekt een verplicht veld.",
+      "MALFORMED_ATTRIBUTE_ENTRY": "Het geselecteerde bestand bevat een ongeldige attribuutvermelding.",
+      "NO_IMPORTABLE_ATTRIBUTES": "Geen van de attributen in het geselecteerde bestand kan in dit asset worden geïmporteerd.",
+      "DRAFT_MISMATCH": "Dit asset is gewijzigd sinds je het opende; ververs het en probeer het opnieuw."
+    }
   }
 }
