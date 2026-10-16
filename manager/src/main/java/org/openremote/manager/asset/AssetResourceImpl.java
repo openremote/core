@@ -473,9 +473,18 @@ public class AssetResourceImpl extends ManagerWebResource implements AssetResour
 
   @Override
   public AttributeConfigurationDocument exportAttributeConfiguration(
-      RequestParams requestParams, String assetId, List<String> attributeNames) {
+      RequestParams requestParams,
+      String assetId,
+      List<String> attributeNames,
+      List<String> genericPaths) {
     // Reuses the read access rules of #get, including the protected view for a restricted user
-    return AttributeConfigurationUtil.export(get(requestParams, assetId), attributeNames);
+    Asset<?> asset = get(requestParams, assetId);
+
+    try {
+      return AttributeConfigurationUtil.export(asset, attributeNames, genericPaths);
+    } catch (IllegalArgumentException e) {
+      throw new BadRequestException(e.getMessage());
+    }
   }
 
   @Override
@@ -515,7 +524,8 @@ public class AssetResourceImpl extends ManagerWebResource implements AssetResour
     }
 
     AttributeConfigurationImportPreview preview =
-        AttributeConfigurationUtil.preview(draft, request.getDocument());
+        AttributeConfigurationUtil.preview(
+            draft, request.getDocument(), request.getGenericParameterValues());
 
     if (preview.getFailure() != null) {
       throw importFailure(preview);

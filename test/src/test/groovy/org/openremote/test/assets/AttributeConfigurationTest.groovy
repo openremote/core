@@ -18,6 +18,7 @@
  */
 package org.openremote.test.assets
 
+import com.fasterxml.jackson.databind.node.BooleanNode
 import jakarta.ws.rs.ForbiddenException
 import jakarta.ws.rs.WebApplicationException
 import org.openremote.manager.setup.SetupService
@@ -84,7 +85,7 @@ class AttributeConfigurationTest extends Specification implements ManagerContain
             ))
 
     when: "the attribute configuration of the source asset is exported"
-    def document = assetResource.exportAttributeConfiguration(null, source.id, [])
+    def document = assetResource.exportAttributeConfiguration(null, source.id, [], [])
 
     then: "only the attributes holding metadata are exported, with their type and metadata"
     document.version == 1
@@ -95,7 +96,7 @@ class AttributeConfigurationTest extends Specification implements ManagerContain
     document.attributes.temperature.meta.get(MetaItemType.READ_ONLY.name).asBoolean()
 
     when: "a subset of the attributes is exported"
-    def subset = assetResource.exportAttributeConfiguration(null, source.id, ["temperature"])
+    def subset = assetResource.exportAttributeConfiguration(null, source.id, ["temperature"], [])
 
     then: "only the requested attribute is exported"
     subset.attributes.keySet() == ["temperature"] as Set
@@ -173,6 +174,46 @@ class AttributeConfigurationTest extends Specification implements ManagerContain
       assert r.status == BAD_REQUEST.statusCode
       return true
     }
+
+    when: "the read only flag of the source asset is exported as a generic parameter"
+    def generic = assetResource.exportAttributeConfiguration(null, source.id, [], ["meta.readOnly"])
+
+    then: "the flag is recorded as a parameter instead of a value"
+    generic.genericParameters.readOnly.type == ValueType.BOOLEAN.name
+    generic.genericParameters.readOnly.paths == ["attributes.temperature.meta.readOnly"]
+    !generic.attributes.temperature.meta.has(MetaItemType.READ_ONLY.name)
+
+    when: "the document is imported without a value for the parameter"
+    assetResource.previewAttributeConfigurationImport(null, target.id,
+            new AttributeConfigurationImportRequest(target, ValueUtil.asJSON(generic).orElseThrow()))
+
+    then: "the import asks for the parameter"
+    WebApplicationException valuesRequired = thrown()
+    valuesRequired.response.withCloseable { r ->
+      assert r.status == BAD_REQUEST.statusCode
+      def report = r.readEntity(AttributeConfigurationImportPreview.class)
+      assert report.failure == GENERIC_PARAMETER_VALUES_REQUIRED
+      assert report.genericParameters.keySet() == ["readOnly"] as Set
+      return true
+    }
+
+    when: "the document is imported with a value for the parameter"
+    def withValue = assetResource.previewAttributeConfigurationImport(null, target.id,
+            new AttributeConfigurationImportRequest(target, ValueUtil.asJSON(generic).orElseThrow(), [readOnly: BooleanNode.FALSE]))
+
+    then: "the value is applied to the imported metadata"
+    withValue.failure == null
+    !withValue.patchedAttributes.get("temperature").get("meta").get(MetaItemType.READ_ONLY.name).asBoolean()
+
+    when: "a value that differs between the exported attributes is requested as a generic parameter"
+    assetResource.exportAttributeConfiguration(null, source.id, [], ["meta.label"])
+
+    then: "the export is rejected"
+    WebApplicationException notGeneric = thrown()
+    notGeneric.response.withCloseable { r ->
+      assert r.status == BAD_REQUEST.statusCode
+      return true
+    }
   }
 
   def "Attribute configuration import requires asset write access"() {
@@ -195,7 +236,7 @@ class AttributeConfigurationTest extends Specification implements ManagerContain
             .proxy(AssetResource.class)
 
     when: "the attribute configuration of an asset of the authenticated realm is exported"
-    def document = assetResource.exportAttributeConfiguration(null, managerTestSetup.apartment1LivingroomId, [])
+    def document = assetResource.exportAttributeConfiguration(null, managerTestSetup.apartment1LivingroomId, [], [])
 
     then: "the configuration is returned"
     document.version == 1

@@ -18,14 +18,23 @@
  */
 import { html, type TemplateResult } from "lit";
 import { createRef, ref, type Ref } from "lit/directives/ref.js";
+import { ifDefined } from "lit/directives/if-defined.js";
+import { live } from "lit/directives/live.js";
+import { repeat } from "lit/directives/repeat.js";
+import { until } from "lit/directives/until.js";
 import { when } from "lit/directives/when.js";
 import manager, { Util } from "@openremote/core";
 import {
   AssetModelUtil,
+  AttributeConfigurationImportFailure,
+  WellknownMetaItems,
+  WellknownValueTypes,
   type Asset,
   type Attribute,
+  type AttributeConfigurationGenericParameter,
   type AttributeConfigurationImportPreview,
 } from "@openremote/model";
+import { getAgentOptions, loadAgents } from "@openremote/or-attribute-input";
 import { i18next } from "@openremote/or-translate";
 import "@openremote/or-icon";
 import "@openremote/or-translate";
@@ -33,6 +42,9 @@ import type { OrIcon } from "@openremote/or-icon";
 import "@openremote/or-vaadin-components/or-vaadin-button";
 import "@openremote/or-vaadin-components/or-vaadin-checkbox";
 import "@openremote/or-vaadin-components/or-vaadin-dialog";
+import "@openremote/or-vaadin-components/or-vaadin-number-field";
+import "@openremote/or-vaadin-components/or-vaadin-select";
+import "@openremote/or-vaadin-components/or-vaadin-text-field";
 import type { OrVaadinButton } from "@openremote/or-vaadin-components/or-vaadin-button";
 import type { OrVaadinCheckbox } from "@openremote/or-vaadin-components/or-vaadin-checkbox";
 import {
@@ -50,6 +62,16 @@ import {
 import { showSnackbar } from "@openremote/or-mwc-components/or-mwc-snackbar";
 
 export type AssetAttributes = { [index: string]: Attribute<any> };
+
+/** A metadata value that can be left out of an export, for the user to supply on import. */
+export interface GenericPathCandidate {
+  /** Path relative to an attribute, e.g. meta.agentLink.id. */
+  path: string;
+  value: string | number | boolean;
+  attributes: Attribute<any>[];
+}
+
+type GenericParameterValues = { [name: string]: unknown };
 
 const DIALOG_WIDTH = "550px";
 
@@ -89,6 +111,10 @@ const dialogStyle = html`
     }
     .ac-row-header .ac-expander {
       margin-left: auto;
+    }
+    .ac-row-header .ac-input {
+      flex: 1;
+      min-width: 0;
     }
     .ac-row-details {
       display: none;
@@ -132,6 +158,14 @@ const dialogStyle = html`
     }
     .ac-placeholder {
       color: var(--lumo-disabled-text-color);
+    }
+    .ac-hint {
+      color: var(--lumo-secondary-text-color);
+      font-size: var(--lumo-font-size-s);
+    }
+    .ac-error {
+      color: var(--lumo-error-text-color);
+      font-size: var(--lumo-font-size-s);
     }
     .ac-file-row {
       display: flex;
@@ -185,6 +219,8 @@ export function showExportAttributeConfigurationDialog(host: Node, asset: Asset)
   }
 
   const selected = new Set<string>(attributes.map((attribute) => attribute.name!));
+  const genericPaths = new Set<string>();
+  let candidates = getGenericPathCandidates(attributes);
   let templateName = `${asset.name}-attribute-config.json`;
   const exportBtn: Ref<OrVaadinButton> = createRef();
 
@@ -201,6 +237,23 @@ export function showExportAttributeConfigurationDialog(host: Node, asset: Asset)
       selected.delete(name);
     }
     updateExportBtn();
+
+    // A value only stays a candidate while the selected attributes holding it agree on it
+    candidates = getGenericPathCandidates(attributes.filter((attribute) => selected.has(attribute.name!)));
+    genericPaths.forEach((path) => {
+      if (!candidates.some((candidate) => candidate.path === path)) {
+        genericPaths.delete(path);
+      }
+    });
+    dialog?.requestContentUpdate();
+  };
+
+  const onToggleGeneric = (path: string, checked: boolean) => {
+    if (checked) {
+      genericPaths.add(path);
+    } else {
+      genericPaths.delete(path);
+    }
   };
 
   const onTemplateNameChange = (name: string) => {
@@ -252,6 +305,46 @@ export function showExportAttributeConfigurationDialog(host: Node, asset: Asset)
                   )}
                 </div>
               </div>
+              ${when(
+                candidates.length > 0,
+                () => html`
+                  <div class="ac-card">
+                    <or-translate value="attributeConfiguration.genericParameters"></or-translate>
+                    <or-translate
+                      class="ac-hint"
+                      value="attributeConfiguration.genericParametersDescription"
+                    ></or-translate>
+                    <div class="ac-rows">
+                      ${repeat(
+                        candidates,
+                        (candidate) => candidate.path,
+                        (candidate) => html`
+                          <div class="ac-row">
+                            <div class="ac-row-header">
+                              <or-vaadin-checkbox
+                                label=${deriveGenericParameterName(candidate.path)}
+                                .checked=${live(genericPaths.has(candidate.path))}
+                                @change=${(ev: Event) =>
+                                  onToggleGeneric(candidate.path, (ev.currentTarget as OrVaadinCheckbox).checked)}
+                              ></or-vaadin-checkbox>
+                              <span class="ac-badge">${candidate.attributes.length}</span>
+                              <or-vaadin-button class="ac-expander" theme="tertiary icon" @click=${toggleRow}>
+                                <or-icon icon="chevron-down"></or-icon>
+                              </or-vaadin-button>
+                            </div>
+                            <div class="ac-row-details">
+                              <span>${candidate.path}: ${String(candidate.value)}</span>
+                              ${candidate.attributes.map(
+                                (attribute) => html`<span>${attributeLabel(asset, attribute)}</span>`
+                              )}
+                            </div>
+                          </div>
+                        `
+                      )}
+                    </div>
+                  </div>
+                `
+              )}
             </div>
           `
         )}
@@ -266,7 +359,7 @@ export function showExportAttributeConfigurationDialog(host: Node, asset: Asset)
                 ${ref(exportBtn)}
                 @click=${() => {
                   dialog?.close();
-                  downloadAttributeConfiguration(asset, Array.from(selected), templateName);
+                  downloadAttributeConfiguration(asset, Array.from(selected), Array.from(genericPaths), templateName);
                 }}
               >
                 <or-translate value="attributeConfiguration.export"></or-translate>
@@ -314,17 +407,9 @@ export function showImportAttributeConfigurationDialog(
     const configuration = await selected.text();
     dialog?.close();
 
-    try {
-      const response = await manager.rest.api.AssetResource.previewAttributeConfigurationImport(asset.id!, {
-        draft: asset,
-        document: configuration,
-      });
-      showImportPreviewDialog(host, asset, selected.name, response.data, onImported, () =>
-        showImportAttributeConfigurationDialog(host, asset, onImported, selected)
-      );
-    } catch (error) {
-      showImportFailureDialog(host, error);
-    }
+    previewImport(host, asset, selected.name, configuration, undefined, onImported, () =>
+      showImportAttributeConfigurationDialog(host, asset, onImported, selected)
+    );
   };
 
   const dialog = showDialog(
@@ -373,6 +458,299 @@ export function showImportAttributeConfigurationDialog(
       ></or-vaadin-dialog>
     `
   );
+}
+
+/**
+ * Asks the server what importing the configuration would do, first asking the user for any generic
+ * parameter values it needs. Going back from the generic parameter step calls onBack, and going back
+ * from the preview step calls onPreviewBack.
+ */
+async function previewImport(
+  host: Node,
+  asset: Asset,
+  fileName: string,
+  configuration: string,
+  values: GenericParameterValues | undefined,
+  onImported: (attributes: AssetAttributes) => void,
+  onBack: () => void,
+  onPreviewBack: () => void = onBack
+) {
+  try {
+    const response = await manager.rest.api.AssetResource.previewAttributeConfigurationImport(asset.id!, {
+      draft: asset,
+      document: configuration,
+      genericParameterValues: values,
+    });
+    showImportPreviewDialog(host, asset, fileName, response.data, onImported, onPreviewBack);
+  } catch (error) {
+    const preview = getFailurePreview(error);
+
+    if (
+      preview?.failure === AttributeConfigurationImportFailure.GENERIC_PARAMETER_VALUES_REQUIRED ||
+      preview?.failure === AttributeConfigurationImportFailure.INVALID_GENERIC_PARAMETER_VALUE
+    ) {
+      const showParameters = (
+        parametersPreview: AttributeConfigurationImportPreview,
+        previous: GenericParameterValues
+      ): void =>
+        showGenericParametersDialog(host, asset, fileName, parametersPreview, previous, onBack, (submitted) =>
+          // Values that reach the preview step were accepted, so going back shows them without errors
+          previewImport(host, asset, fileName, configuration, submitted, onImported, onBack, () =>
+            showParameters({ ...parametersPreview, invalidGenericParameters: undefined }, submitted)
+          )
+        );
+      showParameters(preview, values || {});
+    } else {
+      showImportFailureDialog(host, error);
+    }
+  }
+}
+
+/** Asks once for the value of each generic parameter, which the import applies to all its paths. */
+function showGenericParametersDialog(
+  host: Node,
+  asset: Asset,
+  fileName: string,
+  preview: AttributeConfigurationImportPreview,
+  previousValues: GenericParameterValues,
+  onBack: () => void,
+  onSubmit: (values: GenericParameterValues) => void
+) {
+  const parameters = Object.entries(preview.genericParameters || {});
+  const invalid = new Set(preview.invalidGenericParameters || []);
+  const values: GenericParameterValues = { ...previousValues };
+  const nextBtn: Ref<OrVaadinButton> = createRef();
+
+  parameters
+    .filter(([name, parameter]) => parameter.type === WellknownValueTypes.BOOLEAN && values[name] === undefined)
+    .forEach(([name]) => (values[name] = false));
+
+  const isComplete = () =>
+    parameters.every(([name, parameter]) => isGenericParameterValue(values[name], parameter.type));
+
+  const onChange = (name: string, value: unknown) => {
+    values[name] = value;
+    if (nextBtn.value) {
+      nextBtn.value.disabled = !isComplete();
+    }
+  };
+
+  const dialog = showDialog(
+    host,
+    html`
+      <or-vaadin-dialog
+        width=${DIALOG_WIDTH}
+        ${dialogHeaderRenderer(() => getHeaderTemplate("attributeConfiguration.importHeading", () => dialog?.close()))}
+        ${dialogRenderer(
+          () => html`
+            ${dialogStyle}
+            <div class="ac-body">
+              <span class="ac-file-name">${fileName}</span>
+              <div class="ac-card">
+                <or-translate value="attributeConfiguration.genericParameterValuesDescription"></or-translate>
+                <div class="ac-rows">
+                  ${parameters.map(
+                    ([name, parameter]) => html`
+                      <div class="ac-row">
+                        <div class="ac-row-header">
+                          ${getGenericParameterInputTemplate(name, parameter, values[name], (value) =>
+                            onChange(name, value)
+                          )}
+                          <span class="ac-badge">${parameter.paths?.length}</span>
+                          <or-vaadin-button class="ac-expander" theme="tertiary icon" @click=${toggleRow}>
+                            <or-icon icon="chevron-down"></or-icon>
+                          </or-vaadin-button>
+                        </div>
+                        ${when(
+                          invalid.has(name),
+                          () => html`
+                            <or-translate
+                              class="ac-error"
+                              value="attributeConfiguration.invalidGenericParameterValue"
+                            ></or-translate>
+                          `
+                        )}
+                        <div class="ac-row-details">
+                          ${(parameter.paths || [])
+                            .map((path) => path.split(".")[1])
+                            .map(
+                              (attributeName) =>
+                                html`<span
+                                  >${attributeLabel(asset, asset.attributes?.[attributeName], attributeName)}</span
+                                >`
+                            )}
+                        </div>
+                      </div>
+                    `
+                  )}
+                </div>
+              </div>
+            </div>
+          `
+        )}
+        ${dialogFooterRenderer(
+          () => html`
+            <div class="ac-dialog-actions">
+              <or-vaadin-button
+                theme="tertiary contrast"
+                @click=${() => {
+                  dialog?.close();
+                  onBack();
+                }}
+              >
+                <or-translate value="attributeConfiguration.back"></or-translate>
+              </or-vaadin-button>
+              <or-vaadin-button
+                theme="primary"
+                ?disabled=${!isComplete()}
+                ${ref(nextBtn)}
+                @click=${() => {
+                  dialog?.close();
+                  onSubmit(values);
+                }}
+              >
+                <or-translate value="attributeConfiguration.next"></or-translate>
+              </or-vaadin-button>
+            </div>
+          `
+        )}
+      ></or-vaadin-dialog>
+    `
+  );
+}
+
+/** The input for a generic parameter value, an agent picker when it is the id of agent links. */
+function getGenericParameterInputTemplate(
+  name: string,
+  parameter: AttributeConfigurationGenericParameter,
+  value: unknown,
+  onChange: (value: unknown) => void
+): TemplateResult {
+  if (isAgentLinkIdParameter(parameter)) {
+    return html`${until(
+      loadAgents().then(
+        (agents) => html`
+          <or-vaadin-select
+            class="ac-input"
+            label=${name}
+            placeholder=${i18next.t("selectAgent")}
+            .items=${getAgentOptions(agents).map(([id, label]) => ({ value: id, label }))}
+            .value=${(value as string | undefined) ?? ""}
+            @value-changed=${(ev: CustomEvent<{ value: string }>) => onChange(ev.detail.value)}
+          ></or-vaadin-select>
+        `
+      ),
+      html``
+    )}`;
+  }
+
+  switch (parameter.type) {
+    case WellknownValueTypes.BOOLEAN:
+      return html`
+        <or-vaadin-checkbox
+          class="ac-input"
+          label=${name}
+          .checked=${value === true}
+          @checked-changed=${(ev: CustomEvent<{ value: boolean }>) => onChange(ev.detail.value)}
+        ></or-vaadin-checkbox>
+      `;
+    case WellknownValueTypes.INTEGER:
+    case WellknownValueTypes.LONG:
+    case WellknownValueTypes.NUMBER:
+      return html`
+        <or-vaadin-number-field
+          class="ac-input"
+          label=${name}
+          step=${ifDefined(parameter.type === WellknownValueTypes.NUMBER ? undefined : "1")}
+          .value=${value === undefined ? "" : String(value)}
+          @value-changed=${(ev: CustomEvent<{ value: string }>) =>
+            onChange(ev.detail.value === "" ? undefined : Number(ev.detail.value))}
+        ></or-vaadin-number-field>
+      `;
+    default:
+      return html`
+        <or-vaadin-text-field
+          class="ac-input"
+          label=${name}
+          .value=${(value as string | undefined) ?? ""}
+          @value-changed=${(ev: CustomEvent<{ value: string }>) => onChange(ev.detail.value)}
+        ></or-vaadin-text-field>
+      `;
+  }
+}
+
+/** Whether every path of the parameter is the agent id of an agent link. */
+function isAgentLinkIdParameter(parameter: AttributeConfigurationGenericParameter): boolean {
+  const agentIdPath = `meta.${WellknownMetaItems.AGENTLINK}.id`;
+  return (parameter.paths || []).every((path) => path.split(".").slice(2).join(".") === agentIdPath);
+}
+
+/** Whether a value can be submitted for a generic parameter of the given type. */
+function isGenericParameterValue(value: unknown, type?: string): boolean {
+  switch (type) {
+    case WellknownValueTypes.BOOLEAN:
+      return typeof value === "boolean";
+    case WellknownValueTypes.INTEGER:
+      return Number.isInteger(value) && (value as number) >= -(2 ** 31) && (value as number) < 2 ** 31;
+    case WellknownValueTypes.LONG:
+      return Number.isSafeInteger(value);
+    case WellknownValueTypes.NUMBER:
+      return typeof value === "number" && Number.isFinite(value);
+    default:
+      return typeof value === "string" && value.trim() !== "";
+  }
+}
+
+/**
+ * The metadata values that can become a generic parameter: text, boolean and number values reached
+ * through object properties only, which are equal in every given attribute holding them.
+ */
+export function getGenericPathCandidates(attributes: Attribute<any>[]): GenericPathCandidate[] {
+  const candidates = new Map<string, GenericPathCandidate>();
+  const differing = new Set<string>();
+
+  attributes.forEach((attribute) =>
+    collectScalars(attribute.meta, "meta", (path, value) => {
+      const candidate = candidates.get(path);
+
+      if (!candidate) {
+        candidates.set(path, { path, value, attributes: [attribute] });
+        return;
+      }
+
+      candidate.attributes.push(attribute);
+      if (candidate.value !== value) {
+        differing.add(path);
+      }
+    })
+  );
+
+  return [...candidates.values()]
+    .filter((candidate) => !differing.has(candidate.path))
+    .sort(Util.sortByString((candidate) => candidate.path));
+}
+
+/** Names a generic parameter after its path, so meta.agentLink.id becomes agentLinkId. */
+function deriveGenericParameterName(path: string): string {
+  return path
+    .split(".")
+    .slice(1)
+    .map((segment, index) => (index === 0 ? segment : segment.charAt(0).toUpperCase() + segment.slice(1)))
+    .join("");
+}
+
+function collectScalars(
+  value: unknown,
+  path: string,
+  consumer: (path: string, value: string | number | boolean) => void
+) {
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    Object.entries(value)
+      .filter(([key]) => key !== "" && !key.includes("."))
+      .forEach(([key, child]) => collectScalars(child, `${path}.${key}`, consumer));
+  } else if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    consumer(path, value);
+  }
 }
 
 /** Reports what the import would change, before the final overwrite warning. */
@@ -609,10 +987,16 @@ function toggleRow(ev: Event) {
   }
 }
 
-async function downloadAttributeConfiguration(asset: Asset, attributeNames: string[], templateName: string) {
+async function downloadAttributeConfiguration(
+  asset: Asset,
+  attributeNames: string[],
+  genericPaths: string[],
+  templateName: string
+) {
   try {
     const response = await manager.rest.api.AssetResource.exportAttributeConfiguration(asset.id!, {
       attributeName: attributeNames,
+      genericPath: genericPaths,
     });
     const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: "application/json" });
     const url = window.URL.createObjectURL(blob);

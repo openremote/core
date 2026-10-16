@@ -20,8 +20,10 @@ package org.openremote.model.asset;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
+import java.util.Map;
 
 /**
  * An {@link AttributeConfigurationDocument} to import, together with the asset draft it is imported
@@ -39,11 +41,23 @@ public class AttributeConfigurationImportRequest {
   @Schema(description = "Contents of the selected attribute configuration file.")
   @NotNull protected String document;
 
+  @Schema(
+      description =
+          "Values of the generic parameters of the document, keyed by parameter name; absent until the user has supplied them.")
+  protected Map<String, JsonNode> genericParameterValues;
+
+  public AttributeConfigurationImportRequest(Asset<?> draft, String document) {
+    this(draft, document, null);
+  }
+
   @JsonCreator
   public AttributeConfigurationImportRequest(
-      @JsonProperty("draft") Asset<?> draft, @JsonProperty("document") String document) {
+      @JsonProperty("draft") Asset<?> draft,
+      @JsonProperty("document") String document,
+      @JsonProperty("genericParameterValues") Map<String, JsonNode> genericParameterValues) {
     this.draft = draft;
     this.document = document;
+    this.genericParameterValues = genericParameterValues;
   }
 
   public Asset<?> getDraft() {
@@ -52,5 +66,9 @@ public class AttributeConfigurationImportRequest {
 
   public String getDocument() {
     return document;
+  }
+
+  public Map<String, JsonNode> getGenericParameterValues() {
+    return genericParameterValues;
   }
 }

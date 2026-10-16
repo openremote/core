@@ -33,8 +33,23 @@ public enum AttributeConfigurationImportFailure {
   /** The attributes field or one of its entries does not hold a type and a metadata object. */
   MALFORMED_ATTRIBUTE_ENTRY,
 
+  /**
+   * The generic parameters field or one of its entries does not hold a supported type and paths to
+   * existing metadata of the document.
+   */
+  MALFORMED_GENERIC_PARAMETER,
+
   /** No attribute of the document exists on the target asset with the same type. */
   NO_IMPORTABLE_ATTRIBUTES,
+
+  /** A generic parameter of an importable attribute has no value. */
+  GENERIC_PARAMETER_VALUES_REQUIRED,
+
+  /**
+   * A generic parameter value does not match its type or the schema of the metadata it is applied
+   * to.
+   */
+  INVALID_GENERIC_PARAMETER_VALUE,
 
   /** The submitted draft no longer identifies the persisted target asset. */
   DRAFT_MISMATCH

@@ -347,7 +347,10 @@ public interface AssetResource {
   /**
    * Retrieve the attribute configuration of the asset as a user editable document, holding the type
    * and metadata of every attribute that has metadata. Repeat the attributeName query parameter to
-   * export a subset of them. Access follows the same rules as {@link #get}.
+   * export a subset of them, and the genericPath query parameter to leave values out for the user
+   * to supply on import. A 400 status is returned if a generic path does not hold the same text,
+   * boolean or number in every exported attribute holding it. Access follows the same rules as
+   * {@link #get}.
    */
   @GET
   @Path("{assetId}/attributeConfiguration")
@@ -357,7 +360,7 @@ public interface AssetResource {
       operationId = "exportAttributeConfiguration",
       summary = "Export the attribute configuration of an asset",
       description =
-          "Returns a versioned document holding the type and metadata of each attribute that has metadata, limited to the requested attribute names when any are given. Attributes without metadata are never included.")
+          "Returns a versioned document holding the type and metadata of each attribute that has metadata, limited to the requested attribute names when any are given. Attributes without metadata are never included. Values at the requested generic paths are left out and recorded as generic parameters, named after their path, for the user to supply on import.")
   @OpenApiResponses.Ok
   @OpenApiResponses.Authenticated
   @OpenApiResponses.BadRequest
@@ -372,15 +375,24 @@ public interface AssetResource {
               style = ParameterStyle.FORM,
               explode = Explode.TRUE)
           @QueryParam("attributeName")
-          List<String> attributeNames);
+          List<String> attributeNames,
+      @Parameter(
+              description =
+                  "Paths relative to an attribute, such as meta.agentLink.id, whose value becomes a generic parameter. Each must hold the same text, boolean or number in every exported attribute holding it. Repeat the query parameter for multiple paths.",
+              example = "meta.agentLink.id",
+              style = ParameterStyle.FORM,
+              explode = Explode.TRUE)
+          @QueryParam("genericPath")
+          List<String> genericPaths);
 
   /**
    * Validate an attribute configuration document against an asset draft and report what importing
    * it would do, without storing anything. The returned patched attributes are for the client to
    * apply to the draft once the user confirms, so the same access as {@link #update} is required. A
-   * 400 status is returned if no draft is given or the document cannot be imported, and a 409
-   * status if the draft no longer identifies the persisted asset. A rejected document is answered
-   * with the preview, whose failure names the reason.
+   * 400 status is returned if no draft is given or the document cannot be imported, including while
+   * its generic parameters lack a valid value, and a 409 status if the draft no longer identifies
+   * the persisted asset. A rejected document is answered with the preview, whose failure names the
+   * reason.
    */
   @POST
   @Path("{assetId}/attributeConfiguration/import")
@@ -391,7 +403,7 @@ public interface AssetResource {
       operationId = "previewAttributeConfigurationImport",
       summary = "Preview an attribute configuration import",
       description =
-          "Validates the document, matches its attributes against the draft by name and type, and returns the compatibility report together with the draft attributes holding the imported metadata. Nothing is stored; the client applies the patch after the user confirms.")
+          "Validates the document, matches its attributes against the draft by name and type, and returns the compatibility report together with the draft attributes holding the imported metadata. When the document has generic parameters, the report lists those needing a value and is rejected until valid values are submitted. Nothing is stored; the client applies the patch after the user confirms.")
   @OpenApiResponses.Ok
   @OpenApiResponses.Authenticated
   @ApiResponse(
@@ -420,7 +432,7 @@ public interface AssetResource {
       @RequestBody(
               required = true,
               description =
-                  "The asset draft being edited and the contents of the selected configuration file.")
+                  "The asset draft being edited, the contents of the selected configuration file and the values of its generic parameters.")
           @NotNull AttributeConfigurationImportRequest request);
 
   /**

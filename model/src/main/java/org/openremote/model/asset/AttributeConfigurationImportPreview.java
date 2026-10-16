@@ -23,12 +23,13 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
+import java.util.Map;
 
 /**
  * What importing an {@link AttributeConfigurationDocument} into an asset draft would do, for the
  * user to confirm or cancel. With a {@link #failure} nothing can be imported and there are no
  * patched attributes, but the other fields still hold what could be worked out, such as the skipped
- * attributes.
+ * attributes or the generic parameters that need a value.
  */
 @Schema(
     description =
@@ -58,6 +59,16 @@ public class AttributeConfigurationImportPreview {
 
   @Schema(
       description =
+          "Generic parameters that need a value, keyed by parameter name, listing only the paths of importable attributes.")
+  protected Map<String, AttributeConfigurationGenericParameter> genericParameters;
+
+  @Schema(
+      description =
+          "Names of the generic parameters whose value does not match their type or the schema of the metadata they are applied to.")
+  protected List<String> invalidGenericParameters;
+
+  @Schema(
+      description =
           "The submitted draft attributes with the metadata of every importable attribute replaced, keyed by attribute name.")
   protected ObjectNode patchedAttributes;
 
@@ -71,6 +82,9 @@ public class AttributeConfigurationImportPreview {
           List<AttributeConfigurationSummary> importableAttributes,
       @JsonProperty("missingAttributes") List<AttributeConfigurationSummary> missingAttributes,
       @JsonProperty("typeMismatches") List<AttributeConfigurationTypeMismatch> typeMismatches,
+      @JsonProperty("genericParameters")
+          Map<String, AttributeConfigurationGenericParameter> genericParameters,
+      @JsonProperty("invalidGenericParameters") List<String> invalidGenericParameters,
       @JsonProperty("patchedAttributes") ObjectNode patchedAttributes) {
     this.failure = failure;
     this.importedAssetType = importedAssetType;
@@ -79,13 +93,15 @@ public class AttributeConfigurationImportPreview {
     this.importableAttributes = importableAttributes;
     this.missingAttributes = missingAttributes;
     this.typeMismatches = typeMismatches;
+    this.genericParameters = genericParameters;
+    this.invalidGenericParameters = invalidGenericParameters;
     this.patchedAttributes = patchedAttributes;
   }
 
   public static AttributeConfigurationImportPreview failed(
       AttributeConfigurationImportFailure failure) {
     return new AttributeConfigurationImportPreview(
-        failure, null, null, false, List.of(), List.of(), List.of(), null);
+        failure, null, null, false, List.of(), List.of(), List.of(), Map.of(), List.of(), null);
   }
 
   public AttributeConfigurationImportFailure getFailure() {
@@ -114,6 +130,14 @@ public class AttributeConfigurationImportPreview {
 
   public List<AttributeConfigurationTypeMismatch> getTypeMismatches() {
     return typeMismatches;
+  }
+
+  public Map<String, AttributeConfigurationGenericParameter> getGenericParameters() {
+    return genericParameters;
+  }
+
+  public List<String> getInvalidGenericParameters() {
+    return invalidGenericParameters;
   }
 
   public ObjectNode getPatchedAttributes() {

@@ -42,6 +42,11 @@ public class AttributeConfigurationDocument {
   @Schema(description = "Asset type the configuration was exported from.")
   protected String assetType;
 
+  @Schema(
+      description =
+          "Values left out of the attribute configuration, keyed by parameter name, for the user to supply on import.")
+  protected Map<String, AttributeConfigurationGenericParameter> genericParameters;
+
   @Schema(description = "Attribute configuration keyed by attribute name.")
   protected Map<String, AttributeConfiguration> attributes;
 
@@ -49,9 +54,12 @@ public class AttributeConfigurationDocument {
   public AttributeConfigurationDocument(
       @JsonProperty("version") int version,
       @JsonProperty("assetType") String assetType,
+      @JsonProperty("genericParameters")
+          Map<String, AttributeConfigurationGenericParameter> genericParameters,
       @JsonProperty("attributes") Map<String, AttributeConfiguration> attributes) {
     this.version = version;
     this.assetType = assetType;
+    this.genericParameters = genericParameters;
     this.attributes = attributes;
   }
 
@@ -61,6 +69,10 @@ public class AttributeConfigurationDocument {
 
   public String getAssetType() {
     return assetType;
+  }
+
+  public Map<String, AttributeConfigurationGenericParameter> getGenericParameters() {
+    return genericParameters;
   }
 
   public Map<String, AttributeConfiguration> getAttributes() {

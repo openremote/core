@@ -320,6 +320,7 @@
   "linkedUsers": "Linked users",
   "setup": "Setup",
   "selectFile": "Select file",
+  "selectAgent": "Select an agent",
   "file": "File",
   "discoverAssets": "Discover assets",
   "discovering": "Discovering",
@@ -1356,13 +1357,20 @@
     "confirm": "Confirm",
     "imported": "The configuration of these attributes was imported: {{attributes}}",
     "saveToPersist": "Save the asset to keep these changes, or discard them as usual.",
+    "genericParameters": "Included generic parameters",
+    "genericParametersDescription": "Selected values are left out of the file and asked for once when it is imported.",
+    "genericParameterValuesDescription": "This configuration needs a value for the following parameters. Each value is applied to every attribute listed with it.",
+    "invalidGenericParameterValue": "This value does not fit the configuration it is applied to.",
     "forbidden": "You are not allowed to import attribute configuration into this asset.",
     "failure": {
       "INVALID_JSON": "The selected file does not hold valid JSON.",
       "UNSUPPORTED_VERSION": "The selected file holds an unsupported attribute configuration version.",
       "MISSING_REQUIRED_FIELD": "The selected file is missing a required field.",
       "MALFORMED_ATTRIBUTE_ENTRY": "The selected file holds a malformed attribute entry.",
+      "MALFORMED_GENERIC_PARAMETER": "The selected file holds a malformed generic parameter.",
       "NO_IMPORTABLE_ATTRIBUTES": "None of the attributes in the selected file can be imported into this asset.",
+      "GENERIC_PARAMETER_VALUES_REQUIRED": "The selected file needs a value for each of its generic parameters.",
+      "INVALID_GENERIC_PARAMETER_VALUE": "A generic parameter value does not fit the configuration it is applied to.",
       "DRAFT_MISMATCH": "This asset has changed since you opened it; refresh it and try again."
     }
   }
