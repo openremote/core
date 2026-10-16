@@ -1295,6 +1295,9 @@
               },
               "writeValueFilters": {
                 "description": "Podobné jako valueFilter, ale použije se na odchozí hodnoty, což umožňuje inverzní filtrování."
+              },
+              "id": {
+                "label": ""
               }
             }
           }
@@ -1320,6 +1323,13 @@
                 "recurrence": {
                   "description": "Plán opakování se řídí formátem RFC 5545 RRULE."
                 }
+              }
+            }
+          },
+          "modbus": {
+            "ModbusAgentLink": {
+              "unitId": {
+                "label": ""
               }
             }
           }

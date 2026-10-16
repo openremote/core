@@ -45,7 +45,9 @@ import org.openremote.model.value.ValueFilter;
 @TsIgnoreTypeParams
 public abstract class AgentLink<T extends AgentLink<?>> implements Serializable {
 
+  @JsonSchemaTitle("Agent ID")
   @JsonSchemaFormat("or-agent-id")
+  @JsonSchemaTemplateParameter
   protected String id;
 
   @JsonSchemaDescription(
