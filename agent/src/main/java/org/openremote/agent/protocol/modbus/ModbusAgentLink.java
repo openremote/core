@@ -23,11 +23,15 @@ import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import jakarta.validation.constraints.Min;
 import java.math.BigInteger;
 import org.openremote.model.asset.agent.AgentLink;
+import org.openremote.model.util.JSONSchemaUtil.JsonSchemaTemplateParameter;
+import org.openremote.model.util.JSONSchemaUtil.JsonSchemaTitle;
 
 public class ModbusAgentLink extends AgentLink<ModbusAgentLink> {
 
   @JsonPropertyDescription(
       "Modbus unit ID (1-255). Required for Serial, optional for TCP (defaults to 1)")
+  @JsonSchemaTitle("Unit ID")
+  @JsonSchemaTemplateParameter
   @Min(1) private Integer unitId;
 
   @JsonPropertyDescription(

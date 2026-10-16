@@ -211,6 +211,19 @@ public class JSONSchemaUtil {
     String supplier();
   }
 
+  /**
+   * Marks a field whose value a configuration template asks for on import, such as the agent of an
+   * agent link. Only mark fields that the standard JSON Forms renderers can render, as the import
+   * renders them outside of their custom renderers.
+   */
+  @Retention(RetentionPolicy.RUNTIME)
+  @Target(ElementType.FIELD)
+  public @interface JsonSchemaTemplateParameter {
+    String keyword() default "templateParameter";
+
+    String value() default "true";
+  }
+
   private static class CustomModule implements Module {
 
     private final ObjectMapper mapper;
@@ -338,6 +351,7 @@ public class JSONSchemaUtil {
                   applyFieldAnnotation(fieldScope, JsonSchemaFormat.class, attrs);
                   applyFieldAnnotation(fieldScope, JsonSchemaDefault.class, attrs);
                   applyFieldAnnotation(fieldScope, JsonSchemaExamples.class, attrs);
+                  applyFieldAnnotation(fieldScope, JsonSchemaTemplateParameter.class, attrs);
 
                   String key = getCanonicalMemberKey(fieldScope);
                   if (!applyI18nAnnotation(
