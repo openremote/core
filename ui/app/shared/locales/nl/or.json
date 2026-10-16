@@ -317,6 +317,7 @@
   "linkedUsers": "Gekoppelde gebruikers",
   "setup": "Instellingen",
   "selectFile": "Kies bestand",
+  "selectAgent": "Selecteer een agent",
   "file": "Bestand",
   "discoverAssets": "Haal assets op",
   "discovering": "Assets ophalen",
@@ -1291,6 +1292,9 @@
               },
               "writeValueFilters": {
                 "description": ""
+              },
+              "id": {
+                "label": ""
               }
             }
           }
@@ -1318,6 +1322,13 @@
                 }
               }
             }
+          },
+          "modbus": {
+            "ModbusAgentLink": {
+              "unitId": {
+                "label": ""
+              }
+            }
           }
         }
       }
@@ -1342,6 +1353,10 @@
     "back": "Terug",
     "next": "Volgende",
     "json": "JSON",
+    "parametersDescription": "Kies welke Agent Link parameterwaarden je wilt opnemen",
+    "parametersHeading": "{{type}} parameters",
+    "unknownAgent": "De agent uit de template bestaat hier niet. Kies een andere.",
+    "noAgentOfType": "Er is nog geen agent voor een {{type}}. Voeg er een toe om verder te gaan; deze lijst werkt bij zodra die bestaat.",
     "forbidden": "Je hebt geen rechten om een configuratie template in dit asset te importeren.",
     "failure": {
       "INVALID_JSON": "Het geselecteerde bestand bevat geen geldige JSON.",
