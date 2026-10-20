@@ -37,6 +37,7 @@ dependencies {
   implementation libs.angusMail
   implementation libs.swaggerJaxrs2Jakarta
   implementation libs.camelUndertow
+  implementation libs.twelveMonkeysImageIoBmp
 
   // Indirect dep from org.apache.activemq:artemis-mqtt-protocol
   api(libs.nettyCodecMqtt) {

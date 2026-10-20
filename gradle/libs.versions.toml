@@ -72,6 +72,7 @@ suncalc = "3.11"
 swagger = "2.2.53"
 swaggerUi = "5.32.11"
 testLogger = "4.0.0"
+twelveMonkeys = "3.15.2"
 typescriptGenerator = "4.1.1"
 undertow = "2.3.26.Final"
 uuidGenerator = "5.2.0"
@@ -190,6 +191,7 @@ swaggerAnnotations = { module = "io.swagger.core.v3:swagger-annotations", versio
 swaggerJaxrs2Jakarta = { module = "io.swagger.core.v3:swagger-jaxrs2-jakarta", version.ref = "swagger" }
 swaggerUi = { module = "org.webjars:swagger-ui", version.ref = "swaggerUi" }
 sshdNetty = { module = "org.apache.sshd:sshd-netty", version.ref = "apacheSshd" }
+twelveMonkeysImageIoBmp = { module = "com.twelvemonkeys.imageio:imageio-bmp", version.ref = "twelveMonkeys" }
 typescriptGeneratorCore = { module = "cz.habarta.typescript-generator:typescript-generator-core", version.ref = "typescriptGenerator" }
 undertowCore = { module = "io.undertow:undertow-core", version.ref = "undertow" }
 undertowWebsocketsJsr = { module = "io.undertow:undertow-websockets-jsr", version.ref = "undertow" }

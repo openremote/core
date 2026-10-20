@@ -19,6 +19,7 @@
 package org.openremote.manager.map;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import jakarta.ws.rs.ForbiddenException;
 import jakarta.ws.rs.ServerErrorException;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.HttpHeaders;
@@ -46,6 +47,9 @@ public class MapResourceImpl extends WebResource implements MapResource {
 
   @Override
   public ObjectNode saveSettings(RequestParams requestParams, MapConfig mapConfig) {
+    if (!isSuperUser()) {
+      throw new ForbiddenException("Only super admin can save map settings");
+    }
     return mapService.saveMapConfig(mapConfig);
   }
 
@@ -70,6 +74,10 @@ public class MapResourceImpl extends WebResource implements MapResource {
 
   @Override
   public ObjectNode uploadMap(RequestParams requestParams, String filename) {
+    if (!isSuperUser()) {
+      throw new ForbiddenException("Only super admin can upload images");
+    }
+
     // Starting with Resteasy 6.2.15.Final, request.getContentLength() returns -1 if Content-Length
     // header is not set
     if (request.getContentLength() > mapService.customMapLimit) {
@@ -100,6 +108,10 @@ public class MapResourceImpl extends WebResource implements MapResource {
 
   @Override
   public ObjectNode deleteMap(RequestParams requestParams) {
+    if (!isSuperUser()) {
+      throw new ForbiddenException("Only super admin can delete maps");
+    }
+
     try {
       mapService.deleteUploadedFile();
       return mapService.getMapSettings(
