@@ -21,13 +21,17 @@ The rule of thumb is whether one change would fix everything you are describing.
 
 ### Behaviour That Is Intended
 
-Some features exist to let OpenRemote reach other systems. Reports that only show these features doing what they are for are closed without an advisory.
+Some features exist to let OpenRemote reach other systems or to allow limited anonymous access for public apps/dashboards. Reports that only show these features doing what they are for are closed without an advisory.
 
 #### Outbound connections to user-defined addresses
 
 Integrations connect to whatever address they are configured with, internal addresses included. This covers webhook actions in rules, the HTTP agent and every other agent protocol that opens a connection (MQTT, WebSocket, TCP, UDP, SNMP, Modbus TCP, KNX, mail and others). Reaching devices and services on private networks is the reason these features exist, so we do not restrict destinations in the application.
 
 Creating these needs `write:rules` or `write:assets`, and we treat holding those roles as permission to define integrations for the realm. Restricting where the manager can connect is the job of the deployment: run it in its own network segment and apply egress rules, for example blocking cloud metadata addresses such as `169.254.169.254`.
+
+#### Notification acknowledgement and delivery
+
+The HTTP API endpoints for notification delivery and acknowledgement do not require authentication but do require the notification ID and target ID, this is by design for anonymous consoles.
 
 The following are still in scope:
 
