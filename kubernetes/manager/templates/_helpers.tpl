@@ -62,6 +62,13 @@ Create the name of the service account to use
 {{- end }}
 
 {{/*
+Return the PVC used for manager data.
+*/}}
+{{- define "manager.persistence.claimName" -}}
+{{- default (include "manager.fullname" .) .Values.persistence.existingClaim -}}
+{{- end }}
+
+{{/*
 Create the name of the mqtt service to use
 */}}
 {{- define "manager.mqttServiceName" -}}

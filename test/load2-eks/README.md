@@ -1,10 +1,12 @@
 # Load Tests
 
-Scripts and configuration files to setup an OpenRemote stack running in an EKS cluster appropriate for load testing.
-This includes configuring the cluster to use a more powerful machine
-and adapting the values files to configure the memory usage on the different pods.  
-For the manager, JVM parameters are used to make use of the extra memory available to the container.  
-There are different "profiles" available depending on the power required and the tests to be run:
+Deploy load2 with `test/or-eks-load`, which selects its profile and calls
+`kubernetes/or-eks-cluster` and `kubernetes/or-eks-stack`.
+Create a dedicated cluster or deploy independently into an existing compatible
+cluster. Each stack has its own namespace, credentials, storage, and endpoints.
+Run the commands below from the **repository root**.
+
+Profiles select the node size and per-component CPU/memory budgets:
 
 - large: minimal set-up useful to test memory leaks and pressure condition
 - xlarge-minimal: gives Manager 2Gi more memory than large (3840Mi vs 1792Mi), with room for further increases
@@ -13,7 +15,13 @@ There are different "profiles" available depending on the power required and the
 - 4xlarge: bigger setup using all capacity on 16 CPU/64 GB cluster
 - 8xlarge: bigger setup using all capacity on 32 CPU/128 GB cluster
 
-The profile is selected by setting the OR_PROFILE environment variable in the `eks-common.sh` script.
+Select a profile through `LOAD_PROFILE` in the deployment config. Each directory contains an
+`or-eks-cluster --config` template and the four shared component values files:
+`manager.yaml`, `postgresql.yaml`, `keycloak.yaml`, and `proxy.yaml`. Both the
+CLI workflow and the legacy ACM/NLB scripts use these files.
+All profiles provision a 32 GiB Manager PVC and a 256 GiB PostgreSQL PVC,
+preserving the intended sizes from the old provisioning configuration. The old
+per-chart `volumeSize: 16Gi` keys were no longer consumed by the charts.
 
 The `large` and `xlarge-minimal` profiles now use 768Mi for Keycloak.
 The old 512Mi allocation caused Keycloak 26 to be OOMKilled
@@ -47,6 +55,8 @@ The setup creates:
 - OR_SETUP_USERS restricted service users, linked to the corresponding Building asset,
   with appropriate permission to push attribute values
 
+## Creating the load test Manager image
+
 Build and push the custom Manager image from the repository root using the
 checkout you want to test. All profiles use the custom `load2` tag, so upgrading
 the Manager chart's `appVersion` does not upgrade this image. Rebuild and push
@@ -74,17 +84,28 @@ and allow login, but the custom load-test setup provider is absent and no test
 users or assets are created. During a clean initialization, Manager logs should
 identify `org.openremote.setup.load2.SetupTasks` as a custom setup provider.
 
-You might want to update the stack without re-creating the whole cluster, as re-creating the cluster takes time and
-requires re-generating a new certificate (on which we have some limits).  
-To do so, keep the proxy running and uninstall the other charts
+## Deploy the cluster and stack
 
-```shell
-helm uninstall manager postgresql keycloak
+Copy the example configuration and edit its hostname, image repository, and
+AWS profile settings:
+
+```bash
+mkdir -p .local
+cp test/load2-eks/deployment.env.example .local/loadtest.env
 ```
 
-then use the `eks-deploy-load.sh` script to properly re-deploy those charts.
-That script sets `or.setupRunOnRestart=true` to reset and rebuild the test
-dataset; this procedure does not preserve your existing test data.
+Then deploy and retrieve credentials:
+
+```bash
+test/or-eks-load up --config .local/loadtest.env
+test/or-eks-load credentials --config .local/loadtest.env
+```
+
+The [shared deployment guide](../README-eks-load.md) explains prerequisites,
+configuration, verification, and cleanup. The Bash helper discovers the DNS
+zone, configures the cluster's DNS role, and prepares component values
+automatically. Use `cluster-up` and `deploy` separately when managing an
+existing cluster. Selecting another profile does not resize existing nodes.
 
 ## Switching an existing Deployment to Recreate
 
@@ -142,7 +163,11 @@ still encounter the issue if it starts with `RollingUpdate` and switches later.
 See the Kubernetes documentation on [patching API objects](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/update-api-object-kubectl-patch/)
 and [server-side apply](https://kubernetes.io/docs/reference/using-api/server-side-apply/).
 
-## Running load tests
+## Running tests
+
+Before starting a load run, verify browser login, asset creation/editing, and
+an authenticated MQTTS publish using a provisioned test account. On clean
+startup, Manager logs should identify `org.openremote.setup.load2.SetupTasks`.
 
 Once deployed, running the load tests can be done using the same clients as for load testing a VM,
 but using the scenarios present under `scenarios` in this folder instead.  
@@ -179,7 +204,7 @@ THREAD_COUNT: Number of parallel accounts that will connect and publish in paral
 RAMP_RATE: Number of thread to add per second during ramp-up. Default is 50.  
 MILLIS_BETWEEN_PUBLISHES: Delay between each publishing iteration. Default is 30000.
 
-## Multi-proxy test
+## Legacy ACM/NLB multi-proxy experiment
 
 As part of [Test using multiple HAProxy replicas under EKS · Issue #2568 · openremote/core](https://github.com/openremote/core/issues/2568),
 a setup terminating TLS at the AWS NLB level and using ACM to manage certificates, while still using HAProxy pod(s) has been implemented.  

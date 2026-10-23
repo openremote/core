@@ -9,6 +9,8 @@ if [ -z "$CLUSTER_VPC_ID" ] || [ "$CLUSTER_VPC_ID" = "None" ]; then
 fi
 
 CERTIFICATE_ARN=$(kubectl get ingress manager -o jsonpath='{.metadata.annotations.\alb\.ingress\.kubernetes\.io\/certificate-arn}')
+MANAGER_PV_NAME=$(kubectl get pvc manager -o jsonpath='{.spec.volumeName}' 2>/dev/null || true)
+PSQL_PV_NAME=$(kubectl get pvc postgresql -o jsonpath='{.spec.volumeName}' 2>/dev/null || true)
 
 DNS_RECORD_NAME=$(aws acm describe-certificate --certificate-arn $CERTIFICATE_ARN --profile or --query "Certificate.DomainValidationOptions[0].ResourceRecord.Name")
 DNS_RECORD_VALUE=$(aws acm describe-certificate --certificate-arn $CERTIFICATE_ARN --profile or --query "Certificate.DomainValidationOptions[0].ResourceRecord.Value")
@@ -100,12 +102,14 @@ if (( i > MAX_RETRIES )); then
   echo "⚠️ Timed out trying to delete certificate $CERTIFICATE_ARN after $MAX_RETRIES attempts."
 fi
 
-MANAGER_VOLUMEID=$(kubectl get pv manager-data-pv -o=jsonpath='{.spec.awsElasticBlockStore.volumeID}')
-PSQL_VOLUMEID=$(kubectl get pv postgresql-data-pv -o=jsonpath='{.spec.awsElasticBlockStore.volumeID}')
-kubectl delete pv manager-data-pv
-kubectl delete pv postgresql-data-pv
-aws ec2 delete-volume --volume-id $MANAGER_VOLUMEID
-aws ec2 delete-volume --volume-id $PSQL_VOLUMEID
+# The component charts retain their PVCs on Helm uninstall. This legacy full
+# cleanup explicitly purges them; the StorageClass then deletes their EBS volumes.
+kubectl delete pvc manager postgresql --ignore-not-found --wait=true
+for pv_name in "$MANAGER_PV_NAME" "$PSQL_PV_NAME"; do
+  if [ -n "$pv_name" ] && kubectl get "pv/$pv_name" >/dev/null 2>&1; then
+    kubectl wait --for=delete "pv/$pv_name" --timeout=5m
+  fi
+done
 helm uninstall or-setup
 
 # Manually deleting all addons, this should not be required but otherwise the delete cluster fails

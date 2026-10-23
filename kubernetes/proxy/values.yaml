@@ -5,6 +5,11 @@
 # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
 replicaCount: 1
 
+# The proxy writes certificate state to a ReadWriteOnce volume. Recreate avoids
+# a rolling update trying to mount that volume on old and new Pods at once.
+strategy:
+  type: Recreate
+
 # This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
 image:
   repository: openremote/proxy
@@ -57,12 +62,67 @@ service:
     # This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
     port: 80
     annotations: {}
+  https:
+    enabled: true
+    port: 443
+  mqtts:
+    # MQTTS is opt-in. In HAProxy exposure mode this port is added to the main
+    # Service and HAProxy terminates TLS. In EKS Ingress mode, separate creates
+    # a dedicated NLB Service whose listener terminates TLS before forwarding
+    # plaintext MQTT to the namespace-local proxy gateway.
+    enabled: false
+    separate: false
+    type: LoadBalancer
+    port: 8883
+    annotations: {}
+    dns:
+      enabled: false
+      hostname: ""
   metrics:
     enabled: true
     # Service type, typically use ClusterIP for local deployment and LoadBalancer for cloud deployments
     type: ClusterIP
     port: 8404
     annotations: {}
+
+# Route HTTP(S) traffic to the proxy through a Kubernetes Ingress. In this
+# mode, the Ingress controller terminates TLS and the proxy provides the
+# namespace-local gateway to Manager and Keycloak.
+ingress:
+  enabled: false
+  className: ""
+  hostname: localhost
+  annotations: {}
+  path: /
+  pathType: Prefix
+  tls: []
+
+# Declare the public hostname to an ExternalDNS controller. or-stack enables
+# this only on the single public resource for the selected exposure mode:
+# the Ingress in ingress mode or the LoadBalancer Service in HAProxy mode.
+dns:
+  enabled: false
+  hostname: ""
+
+# Persist the proxy's /deployment directory, which contains the Certbot account,
+# generated certificates, and renewal state. Set existingClaim to use a PVC
+# managed outside this chart.
+persistence:
+  enabled: true
+  size: "1Gi"
+  storageClass: ""
+  existingClaim: ""
+  volumeName: ""
+  accessModes:
+    - ReadWriteOnce
+  # Preserve the chart-managed PVC when Helm uninstalls the release.
+  retain: true
+  annotations: {}
+
+certificate:
+  # Optional Secret containing one or more full-chain PEM files, including
+  # private keys. Its keys are mounted as files in CUSTOM_CERT_DIR.
+  existingSecret: ""
 
 resources: {}
   # We usually recommend not to specify default resources and to leave this as a conscious
@@ -132,6 +192,10 @@ or:
 
   # USE A CUSTOM PROXY CONFIG - COPY FROM https://raw.githubusercontent.com/openremote/proxy/main/haproxy.cfg
   haproxyConfig: "/etc/haproxy/haproxy.cfg"
+
+  # Disable proxy-managed ACME certificates, for example when TLS terminates
+  # at an Ingress controller.
+  disableAcme: false
 
   # Email address for SSL certificate issuance and expiration notifications.
   leEmail: ""

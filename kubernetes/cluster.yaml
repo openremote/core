@@ -27,6 +27,12 @@ nodeGroups:
     desiredCapacity: 2
 
 addons:
+  - name: vpc-cni
+    version: latest
+    attachPolicyARNs:
+      - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+    configurationValues: '{"enableNetworkPolicy":"true"}'
+    resolveConflicts: overwrite
   - name: aws-ebs-csi-driver
     version: latest
     wellKnownPolicies:

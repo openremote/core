@@ -1,0 +1,6 @@
+networkPolicy:
+  proxy:
+    enabled: true
+    ports:
+      - protocol: TCP
+        port: 8080

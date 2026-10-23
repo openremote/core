@@ -2,6 +2,8 @@
 
 set -eo pipefail
 
+# Legacy ACM/NLB experiment only. Use the CLIs for normal deployments.
+
 if [ -z "$AWS_ACCOUNT_ID" ]; then
     echo "Error: AWS_ACCOUNT_ID environment variable is not set"
     echo "Please set it to the ID of the account you want to deploy the cluster into with: export AWS_ACCOUNT_ID=your-account-id"
@@ -14,16 +16,18 @@ if [ -z "$AWS_DEVELOPERS_ACCOUNT_ID" ]; then
 fi
 
 OR_KUBERNETES_PATH=../../kubernetes
-export OR_PROFILE=large
+export OR_PROFILE=${OR_PROFILE:-large}
 
 # Name of cluster, not exposed but must be unique within account
-export CLUSTER_NAME=loadtest-cluster
+export CLUSTER_NAME=${CLUSTER_NAME:-load2-legacy-cluster}
 
 # Hostname to use for public access to this instance, always under the openremote.app domain
-HOSTNAME=load2
-FQDN=$HOSTNAME.openremote.app
+FQDN=${FQDN:-load2-legacy.openremote.app}
 
-export AWS_REGION="eu-west-1"
+export AWS_REGION="${AWS_REGION:-eu-west-1}"
+K_CONTEXT=${K_CONTEXT:-$CLUSTER_NAME@$AWS_REGION}
+
+printf '%s\n' "Legacy load2 workflow: dedicated cluster $CLUSTER_NAME, default namespace." >&2
 
 DNSCHG_ROLE_ARN="arn:aws:iam::$AWS_DEVELOPERS_ACCOUNT_ID:role/route53-full-access"
 

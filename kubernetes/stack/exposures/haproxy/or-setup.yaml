@@ -1,0 +1,3 @@
+networkPolicy:
+  proxy:
+    enabled: true

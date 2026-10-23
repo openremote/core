@@ -6,6 +6,19 @@ Expand the name of the chart.
 {{- end }}
 
 {{/*
+The CLI supplies a complete public URL, including any custom port and /auth.
+Keep the existing HTTPS /auth default for direct Helm users and legacy scripts
+that supply only a hostname.
+*/}}
+{{- define "keycloak.publicUrl" -}}
+{{- if or (hasPrefix "https://" .Values.or.hostname) (hasPrefix "http://" .Values.or.hostname) -}}
+{{- .Values.or.hostname -}}
+{{- else -}}
+{{- printf "https://%s/auth" .Values.or.hostname -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Create a default fully qualified app name.
 We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
 If release name contains chart name it will be used as a full name.

@@ -1,0 +1,20 @@
+# The Ingress controller terminates TLS. This private HAProxy gateway gives the
+# external data plane one namespaced target without exposing Manager or
+# Keycloak directly to other namespaces.
+persistence:
+  enabled: false
+
+service:
+  http:
+    type: ClusterIP
+  https:
+    enabled: false
+  mqtts:
+    enabled: false
+
+ingress:
+  enabled: true
+
+or:
+  haproxyConfig: /etc/haproxy/haproxy-edge-terminated-tls.cfg
+  disableAcme: true

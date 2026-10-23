@@ -1,0 +1,48 @@
+# Single-node load profiles cannot assume spare capacity for surge Pods.
+strategy:
+  type: Recreate
+
+# Render this template with LOAD_MANAGER_REPOSITORY before applying; see README.
+image:
+  repository: "${LOAD_MANAGER_REPOSITORY}"
+  pullPolicy: Always
+  tag: "load1"
+
+livenessProbe:
+  httpGet:
+    path: /
+    port: 8080
+  periodSeconds: 5
+readinessProbe:
+  httpGet:
+    path: /
+    port: 8080
+  periodSeconds: 5
+startupProbe:
+  httpGet:
+    path: /
+    port: 8080
+  failureThreshold: 500
+  periodSeconds: 10
+
+resources:
+  limits:
+    cpu: 3200m
+    memory: 13Gi
+  requests:
+    cpu: 3000m
+    memory: 13Gi
+
+persistence:
+  size: "16Gi"
+
+or:
+  env:
+    - name: OR_SETUP_REGULAR_USERS
+      value: "1000"
+    - name: OR_SETUP_DEVICES
+      value: "10000"
+    - name: OR_SETUP_DEVICES_SKIP_COUNT
+      value: "100"
+    - name: JAVA_OPTS_APPEND
+      value: "-Dhibernate.generate_statistics=true"

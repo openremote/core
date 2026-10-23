@@ -1,0 +1,506 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KUBERNETES_DIR="$(cd "$TEST_DIR/.." && pwd)"
+TEST_TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/or-eks-cluster-test.XXXXXX")"
+CALL_LOG="$TEST_TEMP_DIR/calls.log"
+IAM_CONFIG_LOG="$TEST_TEMP_DIR/iam-config.log"
+TEST_CNI_ROLE_ARN="arn:aws:iam::123456789012:role/test-vpc-cni"
+TEST_SHARED_CERTIFICATE_ARN="arn:aws:acm:eu-west-1:123456789012:certificate/test-certificate"
+TEST_DEFAULT_VPC_CNI_CONFIGURATION='{}'
+TEST_EMPTY_RESOURCE_LIST='{"items":[]}'
+EXTERNAL_DNS_ROUTE53_ROLE_TEMPLATE="$KUBERNETES_DIR/cluster/eks/external-dns-route53-role.yaml"
+
+cleanup_test() {
+  cleanup
+  rm -rf "$TEST_TEMP_DIR"
+}
+
+# Source the command so its cluster operations can be replaced with deterministic
+# stubs. Its main function is guarded when sourced.
+source "$KUBERNETES_DIR/or-eks-cluster"
+trap cleanup_test EXIT
+
+fail() {
+  printf 'FAIL: %s\n' "$*" >&2
+  exit 1
+}
+
+log_call() {
+  local line="$1"
+  shift
+  for argument in "$@"; do
+    line+=$'\t'"$argument"
+  done
+  printf '%s\n' "$line" >> "$CALL_LOG"
+}
+
+require_command() {
+  :
+}
+
+require_kube_context() {
+  :
+}
+
+aws_eks() {
+  log_call aws-eks "$@"
+  case " $* " in
+    *" describe-addon "*)
+      jq -cn \
+        --arg configuration "${OR_EKS_TEST_VPC_CNI_CONFIGURATION-$TEST_DEFAULT_VPC_CNI_CONFIGURATION}" \
+        --arg role "${OR_EKS_TEST_ADDON_ROLE_ARN-$TEST_CNI_ROLE_ARN}" \
+        '{configurationValues: $configuration} +
+          (if $role == "" then {} else {serviceAccountRoleArn: $role} end)'
+      ;;
+    *" update-addon "*)
+      printf '%s\n' "${OR_EKS_TEST_UPDATE_ID:-test-update}"
+      ;;
+    *" wait addon-active "*)
+      [ "${OR_EKS_TEST_ADDON_WAIT_SUCCESS:-true}" = "true" ]
+      ;;
+    *" describe-update "*)
+      printf '%s\n' '{"Id":"test-update","Status":"Failed","Errors":[{"errorCode":"test-error"}]}'
+      ;;
+  esac
+}
+
+eksctl_with_profile() {
+  local argument
+  local config_file=""
+  local previous_argument=""
+
+  log_call eksctl "$@"
+  case " $* " in
+    *" get iamserviceaccount "*)
+      printf '%s\n' "${OR_EKS_TEST_IAM_SERVICE_ACCOUNTS:-[]}"
+      ;;
+    *" create iamserviceaccount "*|*" update iamserviceaccount "*)
+      for argument in "$@"; do
+        if [ "$previous_argument" = "--config-file" ]; then
+          config_file="$argument"
+          break
+        fi
+        previous_argument="$argument"
+      done
+      [ -n "$config_file" ] || fail "IAM service account command has no config file"
+      cp "$config_file" "$IAM_CONFIG_LOG"
+      ;;
+  esac
+}
+
+helm() {
+  log_call helm "$@"
+  case " $* " in
+    *" show crds "*)
+      printf '%s\n' 'apiVersion: apiextensions.k8s.io/v1' 'kind: CustomResourceDefinition'
+      ;;
+  esac
+}
+
+kubectl() {
+  log_call kubectl "$@"
+  if [ -n "${OR_EKS_TEST_FAILED_RESOURCE:-}" ] && \
+     [[ " $* " == *" get $OR_EKS_TEST_FAILED_RESOURCE "* ]]; then
+    return 1
+  fi
+  case " $* " in
+    *" get configmap openremote-hostnames "*)
+      printf '%s' "${OR_EKS_TEST_REGISTRY_JSON:-}"
+      ;;
+    *" apply -f - "*)
+      while IFS= read -r _; do
+        :
+      done
+      ;;
+    *" get ingressclass openremote-alb "*"go-template"*)
+      printf '%s' "${OR_EKS_TEST_SHARED_CERTIFICATE_ARN-$TEST_SHARED_CERTIFICATE_ARN}"
+      ;;
+    *" get serviceaccount external-dns "*)
+      printf '%s' "${OR_EKS_TEST_EXTERNAL_DNS_IRSA_ROLE_ARN:-arn:aws:iam::123456789012:role/openremote-test-cluster-eu-west-1-external-dns}"
+      ;;
+    *" get deployment openremote-external-dns "*)
+      printf '%s\n' "${OR_EKS_TEST_EXTERNAL_DNS_ARGS:---source=service
+--source=ingress
+--source=crd
+--txt-owner-id=test-cluster-eu-west-1
+--dry-run}"
+      ;;
+    *" get customresourcedefinition/dnsendpoints.externaldns.k8s.io "*)
+      if [ "${OR_EKS_TEST_DNS_ENDPOINT_CRD:-true}" = "true" ]; then
+        printf '%s\n' 'customresourcedefinition.apiextensions.k8s.io/dnsendpoints.externaldns.k8s.io'
+      elif [[ " $* " != *" --ignore-not-found "* ]]; then
+        return 1
+      fi
+      ;;
+    *" get ingress --all-namespaces "*)
+      printf '%s\n' "${OR_EKS_TEST_INGRESSES-$TEST_EMPTY_RESOURCE_LIST}"
+      ;;
+    *" get services --all-namespaces "*)
+      printf '%s\n' "${OR_EKS_TEST_SERVICES-$TEST_EMPTY_RESOURCE_LIST}"
+      ;;
+    *" get persistentvolumeclaims --all-namespaces "*)
+      printf '%s\n' "${OR_EKS_TEST_PVCS-$TEST_EMPTY_RESOURCE_LIST}"
+      ;;
+    *" get namespaces -o json "*)
+      printf '%s\n' "${OR_EKS_TEST_NAMESPACES-$TEST_EMPTY_RESOURCE_LIST}"
+      ;;
+    *" get deployments,statefulsets,daemonsets,replicasets,replicationcontrollers,jobs,cronjobs --all-namespaces "*)
+      printf '%s\n' "${OR_EKS_TEST_WORKLOAD_CONTROLLERS-$TEST_EMPTY_RESOURCE_LIST}"
+      ;;
+    *" get persistentvolumes -o json "*)
+      printf '%s\n' "${OR_EKS_TEST_PVS-$TEST_EMPTY_RESOURCE_LIST}"
+      ;;
+    *" get pods --all-namespaces "*)
+      printf '%s\n' "${OR_EKS_TEST_PODS-$TEST_EMPTY_RESOURCE_LIST}"
+      ;;
+    *" get dnsendpoints --all-namespaces "*)
+      printf '%s\n' "${OR_EKS_TEST_DNS_ENDPOINTS-$TEST_EMPTY_RESOURCE_LIST}"
+      ;;
+    *" get serviceaccount aws-node "*)
+      printf '%s' "${OR_EKS_TEST_SERVICE_ACCOUNT_ROLE_ARN-$TEST_CNI_ROLE_ARN}"
+      ;;
+    *" get daemonset aws-node "*)
+      printf '%s' "${OR_EKS_TEST_CNI_CONTAINERS:-aws-node aws-eks-nodeagent}"
+      ;;
+    *" get customresourcedefinition/policyendpoints.networking.k8s.aws "*)
+      [ "${OR_EKS_TEST_POLICY_CRD:-true}" = "true" ]
+      ;;
+  esac
+}
+
+assert_contains() {
+  local expected="$1"
+  grep -F -- "$expected" "$CALL_LOG" >/dev/null || fail \
+    "Expected command log to contain: $expected"
+}
+
+assert_not_contains() {
+  local unexpected="$1"
+  if grep -F -- "$unexpected" "$CALL_LOG" >/dev/null; then
+    fail "Expected command log not to contain: $unexpected"
+  fi
+}
+
+set_external_dns_test_configuration() {
+  MANAGE_EXTERNAL_DNS=true
+  EXTERNAL_DNS_HOSTED_ZONE_ID=Z0123456789
+  EXTERNAL_DNS_DOMAIN=example.com
+  EXTERNAL_DNS_ASSUME_ROLE_ARN=arn:aws:iam::210987654321:role/openremote-route53
+  EXTERNAL_DNS_ASSUME_ROLE_EXTERNAL_ID=test-external-id
+  EXTERNAL_DNS_OWNER_ID=test-cluster-eu-west-1
+  EXTERNAL_DNS_IRSA_ROLE_NAME=openremote-test-cluster-eu-west-1-external-dns
+  EXTERNAL_DNS_DRY_RUN=true
+}
+
+CLUSTER_NAME=test-cluster
+AWS_REGION_NAME=eu-west-1
+AWS_PROFILE_NAME=
+KUBE_CONTEXT=test-cluster@eu-west-1
+
+set_external_dns_test_configuration
+validate_external_dns_configuration
+
+SHARED_CERTIFICATE_ARN="$TEST_SHARED_CERTIFICATE_ARN"
+CLEAR_SHARED_CERTIFICATE=false
+MANAGE_LOAD_BALANCER_CONTROLLER=true
+validate_shared_certificate_configuration
+
+if (SHARED_CERTIFICATE_ARN="arn:aws:acm:us-east-1:123456789012:certificate/test" \
+    validate_shared_certificate_configuration) >/dev/null 2>&1; then
+  fail "A shared certificate from another region was accepted"
+fi
+if (CLEAR_SHARED_CERTIFICATE=true \
+    validate_shared_certificate_configuration) >/dev/null 2>&1; then
+  fail "Setting and clearing the shared certificate together was accepted"
+fi
+if (MANAGE_LOAD_BALANCER_CONTROLLER=false \
+    validate_shared_certificate_configuration) >/dev/null 2>&1; then
+  fail "Shared certificate configuration was accepted while skipping its IngressClass"
+fi
+
+: > "$CALL_LOG"
+: > "$IAM_CONFIG_LOG"
+reconcile_external_dns
+assert_contains $'eksctl\tget\tiamserviceaccount'
+assert_contains $'eksctl\tcreate\tiamserviceaccount'
+assert_contains $'--include\tkube-system/external-dns'
+assert_contains $'helm\tupgrade\t--install\topenremote-external-dns\texternal-dns/external-dns'
+assert_contains $'helm\tshow\tcrds\texternal-dns/external-dns\t--version\t1.21.1'
+assert_contains $'kubectl\t--context\ttest-cluster@eu-west-1\twait\t--for=condition=Established\tcustomresourcedefinition/dnsendpoints.externaldns.k8s.io\t--timeout\t2m'
+assert_contains $'--version\t1.21.1'
+assert_contains $'image.tag=v0.22.0'
+assert_contains $'sources[2]=crd'
+assert_contains $'policy=sync'
+assert_contains $'registry=txt'
+assert_contains $'txtOwnerId=test-cluster-eu-west-1'
+assert_contains $'labelFilter=openremote.io/managed-dns=true'
+assert_contains $'extraArgs.aws-zone-type=public'
+assert_contains $'extraArgs.zone-id-filter=Z0123456789'
+assert_contains $'domainFilters[0]=example.com'
+assert_contains $'extraArgs.aws-assume-role=arn:aws:iam::210987654321:role/openremote-route53'
+assert_contains $'extraArgs.aws-assume-role-external-id=test-external-id'
+assert_contains $'extraArgs.dry-run=true'
+grep -F -- 'roleName: "openremote-test-cluster-eu-west-1-external-dns"' \
+  "$IAM_CONFIG_LOG" >/dev/null || fail "IRSA config does not use the deterministic role name"
+grep -F -- 'Action:' "$IAM_CONFIG_LOG" >/dev/null || fail \
+  "IRSA config has no inline policy"
+grep -F -- '- sts:AssumeRole' "$IAM_CONFIG_LOG" >/dev/null || fail \
+  "IRSA config does not permit assuming the DNS-account role"
+grep -F -- 'Resource: "arn:aws:iam::210987654321:role/openremote-route53"' \
+  "$IAM_CONFIG_LOG" >/dev/null || fail "IRSA policy is not scoped to the DNS-account role"
+
+: > "$CALL_LOG"
+OR_EKS_TEST_IAM_SERVICE_ACCOUNTS='[{"metadata":{"name":"external-dns"}}]' \
+  reconcile_external_dns
+assert_contains $'eksctl\tupdate\tiamserviceaccount'
+assert_not_contains $'eksctl\tcreate\tiamserviceaccount'
+
+: > "$CALL_LOG"
+EXTERNAL_DNS_DRY_RUN=false \
+EXTERNAL_DNS_ASSUME_ROLE_EXTERNAL_ID= \
+OR_EKS_TEST_IAM_SERVICE_ACCOUNTS='[{"metadata":{"name":"external-dns"}}]' \
+  reconcile_external_dns
+assert_not_contains 'extraArgs.aws-assume-role-external-id='
+assert_not_contains 'extraArgs.dry-run=true'
+
+: > "$CALL_LOG"
+MANAGE_EXTERNAL_DNS=false reconcile_external_dns
+assert_not_contains $'eksctl\tget\tiamserviceaccount'
+assert_not_contains $'helm\tupgrade'
+
+if (set_external_dns_test_configuration; EXTERNAL_DNS_DOMAIN=; \
+    validate_external_dns_configuration) >/dev/null 2>&1; then
+  fail "Incomplete ExternalDNS configuration was accepted"
+fi
+
+grep -F -- 'route53:ChangeResourceRecordSetsNormalizedRecordNames' \
+  "$EXTERNAL_DNS_ROUTE53_ROLE_TEMPLATE" >/dev/null || fail \
+    "DNS-account role does not restrict writable record names"
+grep -F -- 'route53:ChangeResourceRecordSetsRecordTypes' \
+  "$EXTERNAL_DNS_ROUTE53_ROLE_TEMPLATE" >/dev/null || fail \
+    "DNS-account role does not restrict writable record types"
+grep -F -- 'aws:PrincipalArn:' "$EXTERNAL_DNS_ROUTE53_ROLE_TEMPLATE" >/dev/null || fail \
+  "DNS-account role does not restrict its cluster-account principal"
+grep -F -- 'arn:${AWS::Partition}:route53:::hostedzone/${HostedZoneId}' \
+  "$EXTERNAL_DNS_ROUTE53_ROLE_TEMPLATE" >/dev/null || fail \
+    "DNS-account role does not restrict writes to the configured hosted zone"
+
+: > "$CALL_LOG"
+external_dns_status_output="$(show_external_dns_status)"
+assert_contains $'kubectl\t--context\ttest-cluster@eu-west-1\t--namespace\tkube-system\tget\tdeployments,pods'
+grep -Fx -- 'ExternalDNS TXT owner ID: test-cluster-eu-west-1' \
+  <<< "$external_dns_status_output" >/dev/null || fail \
+    "ExternalDNS status did not report the deployed TXT owner ID"
+grep -Fx -- 'ExternalDNS dry run: true' <<< "$external_dns_status_output" >/dev/null || fail \
+  "ExternalDNS status did not report dry-run mode"
+grep -Fx -- 'ExternalDNS DNSEndpoint CRD installed: true' \
+  <<< "$external_dns_status_output" >/dev/null || fail \
+    "ExternalDNS status did not report the DNSEndpoint CRD"
+grep -Fx -- 'ExternalDNS DNSEndpoint source enabled: true' \
+  <<< "$external_dns_status_output" >/dev/null || fail \
+    "ExternalDNS status did not report the CRD source"
+
+external_dns_status_output="$(OR_EKS_TEST_DNS_ENDPOINT_CRD=false \
+  OR_EKS_TEST_EXTERNAL_DNS_ARGS=$'--source=service\n--source=ingress' \
+  show_external_dns_status)"
+grep -Fx -- 'ExternalDNS DNSEndpoint CRD installed: false' \
+  <<< "$external_dns_status_output" >/dev/null || fail \
+    "ExternalDNS status did not report a missing DNSEndpoint CRD"
+grep -Fx -- 'ExternalDNS DNSEndpoint source enabled: false' \
+  <<< "$external_dns_status_output" >/dev/null || fail \
+    "ExternalDNS status did not report a disabled CRD source"
+
+: > "$CALL_LOG"
+destroy_preflight
+assert_contains $'kubectl\t--context\ttest-cluster@eu-west-1\tget\tdnsendpoints\t--all-namespaces\t-o\tjson'
+
+: > "$CALL_LOG"
+set +e
+destroy_failure="$(OR_EKS_TEST_DNS_ENDPOINTS='{"items":[{"metadata":{"namespace":"stack-a","name":"acm-validation"}}]}' \
+  destroy_preflight 2>&1)"
+destroy_status=$?
+set -e
+[ "$destroy_status" -ne 0 ] || fail \
+  "Cluster destruction preflight accepted a retained DNSEndpoint"
+grep -Fx -- '  DNSEndpoints: 1' <<< "$destroy_failure" >/dev/null || fail \
+  "Cluster destruction preflight did not report the retained DNSEndpoint"
+
+assert_destroy_blocked() {
+  local fixture_variable="$1"
+  local fixture="$2"
+  local expected="$3"
+  local output
+  : > "$CALL_LOG"
+  if output="$(
+    export "$fixture_variable=$fixture"
+    require_existing_cluster() { :; }
+    CONFIRM_CLUSTER_NAME="$CLUSTER_NAME"
+    destroy_cluster 2>&1
+  )"; then
+    fail "Cluster destruction accepted $fixture_variable=$fixture"
+  fi
+  grep -F -- "$expected" <<< "$output" >/dev/null || fail \
+    "Cluster destruction did not report '$expected': $output"
+  assert_not_contains $'helm\tuninstall'
+  assert_not_contains $'eksctl\tdelete\tcluster'
+}
+
+# These fixtures have no reservations, Pods, PVCs, or public endpoints, so each
+# exercises state that the earlier resource counts alone could not detect.
+for stack_label in openremote.io/stack app.kubernetes.io/part-of; do
+  namespace_fixture="$(jq -cn --arg label "$stack_label" '
+    {items:[{metadata:{name:"retained-stack",labels:{($label):"openremote"}}}]}')"
+  assert_destroy_blocked OR_EKS_TEST_NAMESPACES "$namespace_fixture" 'Namespace/retained-stack'
+done
+
+for controller_kind in Deployment StatefulSet DaemonSet ReplicaSet ReplicationController Job CronJob; do
+  controller_fixture="$(jq -cn --arg kind "$controller_kind" '
+    {items:[{kind:$kind,metadata:{namespace:"user-workload",name:"idle"},
+      spec:{replicas:0,suspend:true}}]}')"
+  assert_destroy_blocked OR_EKS_TEST_WORKLOAD_CONTROLLERS "$controller_fixture" \
+    "$controller_kind/user-workload/idle"
+done
+
+assert_destroy_blocked OR_EKS_TEST_PVS \
+  '{"items":[{"metadata":{"name":"retained-data"},"spec":{"persistentVolumeReclaimPolicy":"Retain"},"status":{"phase":"Released"}}]}' \
+  'PersistentVolume/retained-data'
+
+for resource in namespaces deployments,statefulsets,daemonsets,replicasets,replicationcontrollers,jobs,cronjobs persistentvolumes; do
+  assert_destroy_blocked OR_EKS_TEST_FAILED_RESOURCE "$resource" 'Unable to inspect'
+done
+assert_destroy_blocked OR_EKS_TEST_PVS '{invalid-json' 'Unable to inspect PersistentVolumes'
+
+# Shared system controllers and empty unrelated namespaces must still permit
+# deletion once all stack state has been removed.
+: > "$CALL_LOG"
+(
+  require_existing_cluster() { :; }
+  CONFIRM_CLUSTER_NAME="$CLUSTER_NAME"
+  OR_EKS_TEST_NAMESPACES='{"items":[{"metadata":{"name":"default"}},{"metadata":{"name":"kube-system"}}]}'
+  OR_EKS_TEST_WORKLOAD_CONTROLLERS="$(jq -cn '{items:[
+    ["kube-system","kube-public","kube-node-lease"][] |
+    {kind:"Deployment",metadata:{namespace:.,name:"system-controller"}}]}')"
+  destroy_cluster
+)
+assert_contains $'helm\tuninstall\topenremote-external-dns'
+assert_contains $'eksctl\tdelete\tcluster'
+
+: > "$CALL_LOG"
+MANAGE_EXTERNAL_DNS=true uninstall_external_dns
+assert_contains $'helm\tuninstall\topenremote-external-dns'
+
+: > "$CALL_LOG"
+MANAGE_EXTERNAL_DNS=false uninstall_external_dns
+assert_not_contains $'helm\tuninstall\topenremote-external-dns'
+
+: > "$CALL_LOG"
+reconcile_load_balancer_controller
+assert_contains $'helm\tupgrade\t--install\taws-load-balancer-controller'
+assert_contains $'kubectl\t--context\ttest-cluster@eu-west-1\twait\t--for=condition=Established\tcustomresourcedefinition/ingressclassparams.elbv2.k8s.aws'
+assert_contains $'kubectl\t--context\ttest-cluster@eu-west-1\tapply\t-f\t'"$DEFAULT_INGRESS_CLASS_FILE"
+assert_contains $'kubectl\t--context\ttest-cluster@eu-west-1\tannotate\tingressclass\topenremote-alb\topenremote.io/shared-certificate-arn='"$TEST_SHARED_CERTIFICATE_ARN"$'\t--overwrite'
+
+grep -F -- 'name: openremote-stacks' "$DEFAULT_INGRESS_CLASS_FILE" >/dev/null || fail \
+  "Shared ALB group is missing from the IngressClass manifest"
+grep -F -- 'app.kubernetes.io/part-of: openremote' "$DEFAULT_INGRESS_CLASS_FILE" >/dev/null || fail \
+  "Shared ALB IngressClass does not restrict namespace membership"
+grep -F -- 'targetType: ip' "$DEFAULT_INGRESS_CLASS_FILE" >/dev/null || fail \
+  "Shared ALB IngressClass does not use VPC CNI Pod IP targets"
+grep -F -- 'sslRedirectPort: "443"' "$DEFAULT_INGRESS_CLASS_FILE" >/dev/null || fail \
+  "Shared ALB IngressClass does not enforce HTTPS redirection"
+
+: > "$CALL_LOG"
+SHARED_CERTIFICATE_ARN= CLEAR_SHARED_CERTIFICATE=true reconcile_load_balancer_controller
+assert_contains $'kubectl\t--context\ttest-cluster@eu-west-1\tannotate\tingressclass\topenremote-alb\topenremote.io/shared-certificate-arn-'
+
+: > "$CALL_LOG"
+OR_EKS_TEST_SHARED_CERTIFICATE_ARN= SHARED_CERTIFICATE_ARN= \
+  CLEAR_SHARED_CERTIFICATE=true reconcile_load_balancer_controller
+assert_not_contains $'kubectl\t--context\ttest-cluster@eu-west-1\tannotate\tingressclass\topenremote-alb\topenremote.io/shared-certificate-arn-'
+
+: > "$CALL_LOG"
+SHARED_CERTIFICATE_ARN= CLEAR_SHARED_CERTIFICATE=false reconcile_load_balancer_controller
+assert_not_contains $'kubectl\t--context\ttest-cluster@eu-west-1\tannotate\tingressclass'
+
+: > "$CALL_LOG"
+SHARED_CERTIFICATE_ARN= CLEAR_SHARED_CERTIFICATE=false \
+  MANAGE_LOAD_BALANCER_CONTROLLER=false reconcile_load_balancer_controller
+assert_not_contains $'helm\tupgrade'
+
+shared_certificate_status_output="$(show_shared_certificate_status)"
+grep -Fx -- "Shared ACM certificate ARN: $TEST_SHARED_CERTIFICATE_ARN" \
+  <<< "$shared_certificate_status_output" >/dev/null || fail \
+    "Cluster status did not report its shared certificate ARN"
+shared_certificate_status_output="$(OR_EKS_TEST_SHARED_CERTIFICATE_ARN= \
+  show_shared_certificate_status)"
+grep -Fx -- 'Shared ACM certificate ARN: not configured' \
+  <<< "$shared_certificate_status_output" >/dev/null || fail \
+    "Cluster status did not report missing shared certificate configuration"
+
+: > "$CALL_LOG"
+OR_EKS_TEST_VPC_CNI_CONFIGURATION='{"env":{"WARM_IP_TARGET":"2"}}' \
+  reconcile_network_policy_support
+assert_contains $'aws-eks\tupdate-addon\t--cluster-name\ttest-cluster\t--addon-name\tvpc-cni'
+assert_contains $'--configuration-values\t{"env":{"WARM_IP_TARGET":"2"},"enableNetworkPolicy":"true"}'
+assert_contains $'--service-account-role-arn\tarn:aws:iam::123456789012:role/test-vpc-cni'
+assert_contains $'aws-eks\twait\taddon-active'
+assert_contains $'kubectl\t--context\ttest-cluster@eu-west-1\t--namespace\tkube-system\trollout\tstatus\tdaemonset/aws-node'
+
+: > "$CALL_LOG"
+OR_EKS_TEST_VPC_CNI_CONFIGURATION='{"enableNetworkPolicy":true}' \
+  reconcile_network_policy_support
+assert_not_contains $'aws-eks\tupdate-addon'
+
+: > "$CALL_LOG"
+OR_EKS_TEST_VPC_CNI_CONFIGURATION='{"enableNetworkPolicy":true}' \
+OR_EKS_TEST_SERVICE_ACCOUNT_ROLE_ARN='' \
+  reconcile_network_policy_support
+assert_contains $'kubectl\t--context\ttest-cluster@eu-west-1\t--namespace\tkube-system\tannotate\tserviceaccount\taws-node'
+assert_contains $'aws-eks\tupdate-addon'
+
+: > "$CALL_LOG"
+if (OR_EKS_TEST_VPC_CNI_CONFIGURATION='{"enableNetworkPolicy":true}' \
+    OR_EKS_TEST_CNI_CONTAINERS='aws-node aws-network-policy-agent' \
+    reconcile_network_policy_support) >/dev/null 2>&1; then
+  fail "NetworkPolicy reconciliation accepted the image name instead of the aws-eks-nodeagent container"
+fi
+
+: > "$CALL_LOG"
+if (OR_EKS_TEST_POLICY_CRD=false reconcile_network_policy_support) >/dev/null 2>&1; then
+  fail "NetworkPolicy reconciliation succeeded without the PolicyEndpoint CRD"
+fi
+
+: > "$CALL_LOG"
+if (OR_EKS_TEST_CNI_CONTAINERS=aws-node reconcile_network_policy_support) >/dev/null 2>&1; then
+  fail "NetworkPolicy reconciliation succeeded without the policy agent"
+fi
+
+: > "$CALL_LOG"
+show_vpc_cni_diagnostics >/dev/null 2>&1
+assert_contains $'aws-eks\tdescribe-addon'
+assert_contains $'kubectl\t--context\ttest-cluster@eu-west-1\t--namespace\tkube-system\tget\tdaemonset\taws-node'
+assert_contains $'kubectl\t--context\ttest-cluster@eu-west-1\t--namespace\tkube-system\tget\tpods\t--selector\tk8s-app=aws-node'
+
+: > "$CALL_LOG"
+set +e
+failure_output="$(OR_EKS_TEST_ADDON_WAIT_SUCCESS=false \
+  reconcile_network_policy_support 2>&1)"
+failure_status=$?
+set -e
+if [ "$failure_status" -eq 0 ]; then
+  fail "NetworkPolicy reconciliation succeeded while the managed add-on was unhealthy"
+fi
+grep -F -- 'Amazon VPC CNI add-on diagnostics:' <<< "$failure_output" >/dev/null || fail \
+  "Unhealthy add-on failure did not include diagnostics"
+
+registry="$(jq -cn '{metadata:{labels:{"app.kubernetes.io/managed-by":"or-stack"}},data:{"stack-a.example.com":({namespace:"stack-a",namespaceUID:"uid-stack-a",target:"eks",dns:"external-dns",exposure:"haproxy"}|tojson)}}')"
+: > "$CALL_LOG"
+if (OR_EKS_TEST_REGISTRY_JSON="$registry" destroy_preflight) >/dev/null 2>&1; then
+  fail "Cluster destruction accepted an outstanding hostname reservation"
+fi
+assert_not_contains $'helm\tuninstall'
+
+printf 'or-eks-cluster tests passed\n'

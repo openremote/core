@@ -1,0 +1,21 @@
+# Manual deployments for custom projects, must be called from a workflow_dispatch workflow
+name: Custom deploy
+
+on:
+  workflow_call:
+    inputs:
+      INPUTS:
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deployment:
+    name: Deployment
+    uses: "./.github/workflows/deployment.yml"
+    with:
+      INPUTS: ${{ inputs.INPUTS }}
+      COMMIT: ${{ fromJSON(inputs.INPUTS || '{}').COMMIT }}
+    secrets: inherit

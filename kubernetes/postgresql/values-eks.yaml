@@ -1,12 +1,5 @@
 requiresPermissionsFix: true
 useSubPath: true
 
-affinity:
-  nodeAffinity:
-    requiredDuringSchedulingIgnoredDuringExecution:
-      nodeSelectorTerms:
-        - matchExpressions:
-            - key: topology.kubernetes.io/zone
-              operator: In
-              values:
-                - eu-west-1a
+persistence:
+  storageClass: openremote-ebs

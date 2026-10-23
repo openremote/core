@@ -60,3 +60,10 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+Return the PVC used for PostgreSQL data.
+*/}}
+{{- define "postgresql.persistence.claimName" -}}
+{{- default (include "postgresql.fullname" .) .Values.persistence.existingClaim -}}
+{{- end }}

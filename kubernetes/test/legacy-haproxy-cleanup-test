@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+
+# Exercise the legacy cleanup script with local command stubs only.
+set -Eeuo pipefail
+
+TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KUBERNETES_DIR="$(cd "$TEST_DIR/.." && pwd)"
+TEST_TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/legacy-haproxy-cleanup-test.XXXXXX")"
+export CALL_LOG="$TEST_TEMP_DIR/calls.log"
+trap 'rm -rf "$TEST_TEMP_DIR"' EXIT
+
+fail() {
+  printf 'FAIL: %s\n' "$*" >&2
+  exit 1
+}
+
+# The script sources ./eks-common.sh. Supply an isolated replacement so no AWS
+# configuration, credentials, or real cluster commands are touched.
+cat > "$TEST_TEMP_DIR/eks-common.sh" <<'SH'
+set -eo pipefail
+CLUSTER_NAME=test-cluster
+FQDN=test.example.com
+
+log_call() {
+  local argument
+  printf '%s' "$1" >> "$CALL_LOG"
+  shift
+  for argument in "$@"; do
+    printf '\t%s' "$argument" >> "$CALL_LOG"
+  done
+  printf '\n' >> "$CALL_LOG"
+}
+
+aws() {
+  log_call aws "$@"
+  case "$1 $2" in
+    "eks describe-cluster") printf 'vpc-test\n' ;;
+    "elbv2 describe-load-balancers") printf '[]\n' ;;
+    "ec2 describe-vpc-peering-connections"|"route53 change-resource-record-sets") ;;
+    *) return 99 ;;
+  esac
+}
+
+helm() { log_call helm "$@"; }
+eksctl() { log_call eksctl "$@"; }
+
+kubectl() {
+  log_call kubectl "$@"
+  case "$1 $2" in
+    "get pvc")
+      if [ "$3" = proxy ]; then
+        case "${PROXY_STATE:-bound}" in
+          missing) return 1 ;;
+          unbound) return 0 ;;
+        esac
+      fi
+      printf 'pvc-%s-test\n' "$3"
+      ;;
+    "get pv/"*) ;;
+    "delete pvc") ;;
+    "wait --for=delete")
+      if [ "$3" = pv/pvc-proxy-test ] && [ "${PROXY_WAIT_FAIL:-false}" = true ]; then
+        return 1
+      fi
+      ;;
+    *) return 99 ;;
+  esac
+}
+SH
+
+run_cleanup() (
+  cd "$TEST_TEMP_DIR"
+  bash "$KUBERNETES_DIR/eks-cleanup-haproxy.sh"
+)
+
+assert_before() {
+  local first_line
+  local second_line
+  first_line="$(grep -nF -- "$1" "$CALL_LOG" | head -n 1 | cut -d: -f1)" || fail \
+    "Missing command: $1"
+  second_line="$(grep -nF -- "$2" "$CALL_LOG" | head -n 1 | cut -d: -f1)" || fail \
+    "Missing command: $2"
+  [ "$first_line" -lt "$second_line" ] || fail \
+    "Expected '$1' before '$2'"
+}
+
+delete_claims=$'kubectl\tdelete\tpvc\tmanager\tpostgresql\tproxy\t--ignore-not-found\t--wait=true'
+delete_driver=$'eksctl\tdelete\taddon\t--cluster\ttest-cluster\t--name\taws-ebs-csi-driver'
+
+run_cleanup > "$TEST_TEMP_DIR/output.log" 2>&1 || fail "Cleanup failed"
+for component in manager postgresql proxy; do
+  assert_before $'kubectl\tget\tpvc\t'"$component"$'\t' $'helm\tuninstall\t'"$component"
+  assert_before $'helm\tuninstall\t'"$component" "$delete_claims"
+  assert_before "$delete_claims" $'kubectl\twait\t--for=delete\tpv/pvc-'"$component"$'-test\t'
+  assert_before $'kubectl\twait\t--for=delete\tpv/pvc-'"$component"$'-test\t' "$delete_driver"
+done
+
+for state in missing unbound; do
+  : > "$CALL_LOG"
+  PROXY_STATE="$state" run_cleanup > "$TEST_TEMP_DIR/output.log" 2>&1 || fail \
+    "Cleanup failed with a $state proxy claim"
+  assert_before "$delete_claims" "$delete_driver"
+  if grep -F -- $'kubectl\twait\t--for=delete\tpv/pvc-proxy-test' "$CALL_LOG" >/dev/null; then
+    fail "Cleanup waited for a volume belonging to a $state proxy claim"
+  fi
+done
+
+: > "$CALL_LOG"
+if PROXY_WAIT_FAIL=true run_cleanup > "$TEST_TEMP_DIR/output.log" 2>&1; then
+  fail "Cleanup succeeded despite the proxy volume deletion failing"
+fi
+if grep -F -- $'eksctl\tdelete' "$CALL_LOG" >/dev/null; then
+  fail "Cleanup removed cluster infrastructure before the proxy volume was deleted"
+fi
+
+printf 'Legacy HAProxy cleanup tests passed\n'

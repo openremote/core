@@ -1,0 +1,5 @@
+requiresPermissionsFix: true
+useSubPath: true
+
+persistence:
+  storageClass: openremote-ebs

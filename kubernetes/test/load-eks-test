@@ -1,0 +1,317 @@
+#!/usr/bin/env python3
+"""Offline load-profile checks using the real CLI and Helm, with kubectl stubbed.
+
+Requires Python 3, Bash, Helm, jq, and envsubst, like the existing CLI tests.
+No AWS credentials or Kubernetes cluster are used.
+"""
+
+import os
+import json
+from pathlib import Path
+import re
+import shutil
+import shlex
+import subprocess
+import tempfile
+
+
+ROOT = Path(__file__).resolve().parents[2]
+KUBERNETES = ROOT / "kubernetes"
+STUBS = KUBERNETES / "test/command-stubs"
+HELM = shutil.which("helm")
+REPOSITORY = "123456789012.dkr.ecr.eu-west-1.amazonaws.com/openremote/manager"
+CERTIFICATE = "arn:aws:acm:eu-west-1:123456789012:certificate/load-test"
+PROFILES = [ROOT / "test/load1-eks", *sorted((ROOT / "test/load2-eks/profiles").iterdir())]
+
+
+def run(args, **kwargs):
+    result = subprocess.run(args, text=True, capture_output=True, **kwargs)
+    if result.returncode:
+        raise AssertionError(f"Command failed: {args}\n{result.stdout}\n{result.stderr}")
+    return result.stdout
+
+
+def contains(text, expected):
+    assert expected in text, f"Missing {expected!r} in:\n{text}"
+
+
+def documents(text, kind):
+    return [doc for doc in text.split("\n---") if f"\nkind: {kind}\n" in doc]
+
+
+def helm_options(arguments):
+    """Reuse the exact values/set options chosen by or-stack, without a cluster."""
+    result = []
+    index = 0
+    while index < len(arguments):
+        arg = arguments[index]
+        if arg == "--wait":
+            index += 1
+        elif arg in ("--kube-context", "--timeout"):
+            index += 2
+        else:
+            assert arg in ("--namespace", "--values", "--set", "--set-string"), arg
+            result.extend(arguments[index:index + 2])
+            index += 2
+    return result
+
+
+def check_profile(profile, temporary):
+    load = "load1" if profile.name == "load1-eks" else "load2"
+    name = "load1" if load == "load1" else f"load2-{profile.name}"
+    values = temporary / name
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith(("OR_STACK_", "OR_EKS_"))}
+    env.update(LOAD_MANAGER_REPOSITORY=REPOSITORY, CLUSTER_NAME=f"{name}-cluster",
+               AWS_REGION="eu-west-1")
+    config = temporary / f"{name}.env"
+    settings = {"LOAD_TEST": load, "LOAD_MANAGER_REPOSITORY": REPOSITORY}
+    if load == "load2":
+        settings["LOAD_PROFILE"] = profile.name
+    config.write_text("".join(f"{key}={shlex.quote(value)}\n" for key, value in settings.items()))
+    preparation = [str(ROOT / "test/or-eks-load"), "prepare", "--config", str(config),
+                   "--values-dir", str(values)]
+    run(preparation, env=env)
+    for component in ("manager", "postgresql", "keycloak", "proxy"):
+        assert "${" not in (values / f"{component}.yaml").read_text()
+    cluster = run(["envsubst", "${CLUSTER_NAME} ${AWS_REGION}"],
+                  input=(profile / "cluster.yaml").read_text(), env=env)
+    contains(cluster, f"name: {name}-cluster")
+    contains(cluster, "region: eu-west-1")
+    contains(cluster, 'configurationValues: \'{"enableNetworkPolicy":"true"}\'')
+    contains(cluster, "name: aws-ebs-csi-driver")
+    contains(cluster, "withOIDC: true")
+    assert "${" not in cluster
+
+    for exposure in ("haproxy", "ingress", "none"):
+        namespace = f"{name}-{exposure}"
+        hostname = f"{namespace}.example.com"
+        call_log = temporary / f"{namespace}.log"
+        env.update(PATH=f"{STUBS}:{os.environ['PATH']}", OR_STACK_TEST_LOG=str(call_log),
+                   OR_STACK_TEST_CONTEXT="test-context", OR_STACK_TEST_NAMESPACE_EXISTS="false")
+        args = [str(KUBERNETES / "or-stack"), "apply", "--name", namespace,
+                "--kube-context", "test-context", "--target", "eks",
+                "--exposure", exposure, "--values-dir", str(values), "--timeout", "90m"]
+        if exposure != "none":
+            args += ["--hostname", hostname, "--dns", "external-dns", "--mqtts"]
+        if exposure == "ingress":
+            args += ["--certificate-arn", CERTIFICATE, "--mqtts-certificate-arn", CERTIFICATE,
+                     "--mqtts-hostname", f"mqtt-{hostname}"]
+        run(args, env=env)
+        releases = {}
+        for line in call_log.read_text().splitlines():
+            command = line.split("\t")
+            if command[:3] != ["helm", "upgrade", "--install"]:
+                continue
+            component, chart = command[3:5]
+            options = helm_options(command[5:])
+            assert options[options.index("--namespace") + 1] == namespace
+            if component != "or-setup":
+                assert str(values / f"{component}.yaml") in options
+            run([HELM, "lint", chart, "--strict", *options])
+            releases[component] = run([HELM, "template", component, chart, *options])
+
+        expected = {"or-setup", "postgresql", "keycloak", "manager"}
+        if exposure != "none":
+            expected.add("proxy")
+        assert releases.keys() == expected
+        all_manifests = "\n".join(releases.values())
+        assert not documents(all_manifests, "PersistentVolume")
+        assert "namespace: default" not in all_manifests
+        assert "volumeName:" not in all_manifests
+        assert "kind: NetworkPolicy" in releases["or-setup"]
+        for component in ("manager", "postgresql"):
+            size = "16Gi" if load == "load1" else ("32Gi" if component == "manager" else "256Gi")
+            pvc, = documents(releases[component], "PersistentVolumeClaim")
+            contains(pvc, f"storage: {size}")
+            contains(pvc, 'storageClassName: "openremote-ebs"')
+            contains(pvc, "helm.sh/resource-policy: keep")
+        for component in ("manager", "keycloak"):
+            deployment, = documents(releases[component], "Deployment")
+            contains(deployment, "type: Recreate")
+            # Preserve each profile's resource budget through CLI layering.
+            requests = (values / f"{component}.yaml").read_text().split("  requests:\n", 1)[1]
+            for resource, value in re.findall(r"^    (cpu|memory): (\S+)", requests, re.M):
+                contains(deployment, f"{resource}: {value}")
+        manager = releases["manager"]
+        contains(manager, f'image: "{REPOSITORY}:{load}"')
+        contains(manager, "imagePullPolicy: Always")
+        contains(manager, "name: OR_SETUP_REGULAR_USERS" if load == "load1" else "name: OR_SETUP_USERS")
+        assert re.search(r'name: OR_SETUP_RUN_ON_RESTART\s+value: "false"', manager)
+        if load == "load2":
+            contains(manager, "name: manager-jmx")
+        assert not documents(manager, "Ingress")
+        assert "type: LoadBalancer" not in manager
+        if exposure != "none":
+            contains(releases["keycloak"], f'value: "https://{hostname}/auth"')
+            assert re.search(r'name: OR_HOSTNAME\s+value: "' + re.escape(hostname) + '"', manager)
+            proxy = releases["proxy"]
+            contains(proxy, f"manager.{namespace}.svc.cluster.local")
+            contains(proxy, f"keycloak.{namespace}.svc.cluster.local")
+            contains(proxy, "port: 8883")
+            contains(proxy, f'external-dns.kubernetes.io/hostname: "{hostname}"')
+            if exposure == "haproxy":
+                assert not documents(proxy, "Ingress")
+                assert len(documents(proxy, "PersistentVolumeClaim")) == 1
+                assert "name: proxy-mqtts" not in proxy
+            else:
+                assert len(documents(proxy, "Ingress")) == 1
+                assert not documents(proxy, "PersistentVolumeClaim")
+                contains(proxy, "name: proxy-mqtts")
+                contains(proxy, f'external-dns.kubernetes.io/hostname: "mqtt-{hostname}"')
+        else:
+            assert not documents(all_manifests, "Ingress")
+            assert "type: LoadBalancer" not in all_manifests
+        print(f"PASS: {name} / {exposure}", flush=True)
+
+
+def check_legacy_scripts(temporary):
+    for folder in (ROOT / "test/load1-eks", ROOT / "test/load2-eks"):
+        for script in sorted(folder.glob("eks-*.sh")):
+            run(["bash", "-n", str(script)])
+            if folder.name == "load2-eks" and script.name != "eks-setup-load.sh":
+                continue
+            # No external commands are available: migration guidance must fail
+            # before attempting AWS, Kubernetes, or credential changes.
+            result = subprocess.run(["/bin/bash", str(script)], text=True,
+                                    capture_output=True, cwd="/", env={"PATH": "/nonexistent"})
+            assert result.returncode == 1
+            contains(result.stderr, "or-eks-cluster")
+            contains(result.stderr, "or-eks-stack")
+            assert "command not found" not in result.stderr
+
+    # Exercise the retained experiment with command stubs, then render its
+    # actual Helm arguments. Never invoke real AWS or Kubernetes commands.
+    binaries = temporary / "legacy-bin"
+    binaries.mkdir()
+    call_log = temporary / "legacy-calls.jsonl"
+    stub = binaries / "stub"
+    stub.write_text('''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+command = Path(sys.argv[0]).name
+args = sys.argv[1:]
+with open(os.environ["LEGACY_CALL_LOG"], "a") as log:
+    log.write(json.dumps([command, *args]) + "\\n")
+if command == "eksctl" and "create" in args:
+    config = sys.stdin.read()
+    assert "name: legacy-test" in config and "${" not in config
+elif command == "kubectl":
+    if "kube-dns" in args:
+        print("10.100.0.10:53")
+    if "namespaces" in args and os.environ.get("CLI_STACK_PRESENT"):
+        print("namespace/another-stack")
+elif command == "dig":
+    print("192.0.2.10")
+elif command == "aws":
+    if "assume-role" in args:
+        print("fake-key\\tfake-secret\\tfake-token")
+    elif "describe-cluster" in args:
+        print("vpc-legacy")
+    elif "request-certificate" in args:
+        print("arn:aws:acm:eu-west-1:123456789012:certificate/legacy")
+    elif "describe-certificate" in args:
+        print("_validation.example.com")
+    elif "describe-load-balancers" in args:
+        query = args[args.index("--query") + 1]
+        if "CanonicalHostedZoneId" in query:
+            print('"Z12345678"')
+        elif "DNSName" in query:
+            print('"legacy.elb.amazonaws.com"')
+        else:
+            print('{"Code": "active"}')
+''')
+    stub.chmod(0o755)
+    for command in ("aws", "eksctl", "kubectl", "helm", "dig"):
+        (binaries / command).symlink_to(stub)
+    env = dict(PATH=f"{binaries}:{os.environ['PATH']}", LEGACY_CALL_LOG=str(call_log),
+               AWS_ACCOUNT_ID="123456789012", AWS_DEVELOPERS_ACCOUNT_ID="210987654321",
+               CLUSTER_NAME="legacy-test", AWS_REGION="eu-west-1", OR_PROFILE="large",
+               FQDN="legacy.example.com", K_CONTEXT="legacy-test@eu-west-1")
+    folder = ROOT / "test/load2-eks"
+    for profile in PROFILES:
+        if profile.name == "load1-eks":
+            continue
+        env["OR_PROFILE"] = profile.name
+        for script in ("eks-setup-load-acm.sh", "eks-deploy-load.sh"):
+            call_log.write_text("")
+            run(["bash", f"./{script}"], cwd=folder, env=env)
+            calls = [json.loads(line) for line in call_log.read_text().splitlines()]
+            setup = script == "eks-setup-load-acm.sh"
+            assert not any("create-volume" in call for call in calls)
+            if setup:
+                assert any("certificate-validated" in call for call in calls)
+                assert any("apply" in call and any("storage-class.yaml" in arg for arg in call) for call in calls)
+            rendered = {}
+            for call in calls:
+                if call[0] == "kubectl":
+                    assert call[call.index("--context") + 1] == env["K_CONTEXT"]
+                if call[0] != "helm" or call[1] not in ("install", "upgrade"):
+                    continue
+                # Both --kube-context=value and --kube-context value are used.
+                call = [part for arg in call for part in
+                        (arg.split("=", 1) if arg.startswith("--kube-context=") else [arg])]
+                assert call[call.index("--kube-context") + 1] == env["K_CONTEXT"]
+                if "aws-load-balancer-controller" in call:
+                    continue
+                assert call[call.index("--namespace") + 1] == "default"
+                component_index = next(i for i, arg in enumerate(call)
+                                       if arg in ("or-setup", "postgresql", "manager", "keycloak", "proxy"))
+                component, chart = call[component_index:component_index + 2]
+                options = call[component_index + 2:]
+                if component != "or-setup":
+                    shared_values = f"profiles/{profile.name}/{component}.yaml"
+                    assert shared_values in options
+                    if component == "proxy":
+                        assert options.index(shared_values) < options.index("values-proxy-acm-load.yaml")
+                run([HELM, "lint", chart, "--strict", *options], cwd=folder)
+                rendered[component] = run([HELM, "template", component, chart, *options], cwd=folder)
+                assert "${LOAD_MANAGER_REPOSITORY}" not in rendered[component]
+                if component != "or-setup":
+                    requests = (profile / f"{component}.yaml").read_text().split("  requests:\n", 1)[1]
+                    for resource, value in re.findall(r"^    (cpu|memory): (\S+)", requests, re.M):
+                        contains(rendered[component], f"{resource}: {value}")
+                if component in ("manager", "keycloak"):
+                    contains(rendered[component], "type: Recreate")
+            expected = {"postgresql", "manager", "keycloak"}
+            if setup:
+                expected |= {"or-setup", "proxy"}
+                proxy = rendered["proxy"]
+                assert not documents(proxy, "PersistentVolumeClaim")
+                assert not documents(proxy, "Ingress")
+                contains(proxy, 'aws-load-balancer-ssl-ports: 443,8883')
+                assert re.search(r"port: 443\s+targetPort: 8080", proxy)
+                assert re.search(r"port: 8883\s+targetPort: 1883", proxy)
+                contains(proxy, "haproxy-edge-terminated-tls.cfg")
+                assert proxy.count("name: DISABLE_ACME") == 1
+            assert rendered.keys() == expected
+            for component in ("manager", "postgresql"):
+                size = re.search(r'persistence:\n  size: "([^"\n]+)"',
+                                 (profile / f"{component}.yaml").read_text()).group(1)
+                contains(rendered[component], f"storage: {size}")
+            contains(rendered["manager"], 'image: "210987654321.dkr.ecr.eu-west-1.amazonaws.com/openremote/manager:load2"')
+            contains(rendered["keycloak"], 'value: "https://legacy.example.com/auth"')
+            assert re.search(r'name: OR_HOSTNAME\s+value: "legacy.example.com"', rendered["manager"])
+            reset = "false" if setup else "true"
+            assert re.search(r'name: OR_SETUP_RUN_ON_RESTART\s+value: "' + reset + '"', rendered["manager"])
+            print(f"PASS: legacy {profile.name} / {script}", flush=True)
+
+    # A CLI stack must stop legacy cluster cleanup before AWS calls or changes.
+    call_log.write_text("")
+    env["CLI_STACK_PRESENT"] = "true"
+    result = subprocess.run(["bash", "./eks-cleanup-load.sh"], cwd=folder, env=env,
+                            capture_output=True, text=True)
+    assert result.returncode == 1
+    contains(result.stderr, "Refusing legacy cleanup")
+    cleanup_calls = [json.loads(line) for line in call_log.read_text().splitlines()]
+    assert len(cleanup_calls) == 1 and cleanup_calls[0][0] == "kubectl"
+    print("PASS: legacy ACM/NLB deployment and shared-cluster cleanup guard", flush=True)
+
+
+if __name__ == "__main__":
+    assert HELM, "helm is required"
+    with tempfile.TemporaryDirectory(prefix="load-eks-test.") as directory:
+        for profile in PROFILES:
+            check_profile(profile, Path(directory))
+        check_legacy_scripts(Path(directory))
+    print("PASS: all CLI load profiles and the retained legacy ACM experiment")

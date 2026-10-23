@@ -1,0 +1,1168 @@
+#!/usr/bin/env bash
+
+# Cluster lifecycle only; OpenRemote stack lifecycle is managed separately.
+
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KUBERNETES_DIR="$SCRIPT_DIR"
+source "$SCRIPT_DIR/lib/hostname-reservations"
+
+DEFAULT_CONFIG_FILE="$KUBERNETES_DIR/cluster.yaml"
+DEFAULT_STORAGE_CLASS_FILE="$KUBERNETES_DIR/cluster/eks/storage-class.yaml"
+DEFAULT_INGRESS_CLASS_FILE="$KUBERNETES_DIR/cluster/eks/ingress-class.yaml"
+DEFAULT_AWS_REGION="eu-west-1"
+DEFAULT_LOAD_BALANCER_CONTROLLER_CHART_VERSION="1.14.0"
+DEFAULT_EXTERNAL_DNS_CHART_VERSION="1.21.1"
+DEFAULT_EXTERNAL_DNS_IMAGE_TAG="v0.22.0"
+EXTERNAL_DNS_RELEASE_NAME="openremote-external-dns"
+EXTERNAL_DNS_SERVICE_ACCOUNT_NAME="external-dns"
+EXTERNAL_DNS_ENDPOINT_CRD="dnsendpoints.externaldns.k8s.io"
+SHARED_CERTIFICATE_ARN_ANNOTATION="openremote.io/shared-certificate-arn"
+
+COMMAND=""
+CLUSTER_NAME="${OR_EKS_CLUSTER_NAME:-}"
+AWS_REGION_NAME="${OR_EKS_AWS_REGION:-${AWS_REGION:-$DEFAULT_AWS_REGION}}"
+# Only --profile selects an explicit profile; otherwise leave credential
+# resolution to AWS and eksctl, including their standard environment settings.
+AWS_PROFILE_NAME=""
+CONFIG_FILE="${OR_EKS_CONFIG_FILE:-$DEFAULT_CONFIG_FILE}"
+KUBE_CONTEXT="${OR_EKS_KUBE_CONTEXT:-}"
+LOAD_BALANCER_CONTROLLER_CHART_VERSION="${OR_EKS_LOAD_BALANCER_CONTROLLER_CHART_VERSION:-$DEFAULT_LOAD_BALANCER_CONTROLLER_CHART_VERSION}"
+EXTERNAL_DNS_CHART_VERSION="${OR_EKS_EXTERNAL_DNS_CHART_VERSION:-$DEFAULT_EXTERNAL_DNS_CHART_VERSION}"
+EXTERNAL_DNS_IMAGE_TAG="${OR_EKS_EXTERNAL_DNS_IMAGE_TAG:-$DEFAULT_EXTERNAL_DNS_IMAGE_TAG}"
+EXTERNAL_DNS_HOSTED_ZONE_ID="${OR_EKS_EXTERNAL_DNS_HOSTED_ZONE_ID:-}"
+EXTERNAL_DNS_DOMAIN="${OR_EKS_EXTERNAL_DNS_DOMAIN:-}"
+EXTERNAL_DNS_ASSUME_ROLE_ARN="${OR_EKS_EXTERNAL_DNS_ASSUME_ROLE_ARN:-}"
+EXTERNAL_DNS_ASSUME_ROLE_EXTERNAL_ID="${OR_EKS_EXTERNAL_DNS_ASSUME_ROLE_EXTERNAL_ID:-}"
+EXTERNAL_DNS_OWNER_ID="${OR_EKS_EXTERNAL_DNS_OWNER_ID:-}"
+EXTERNAL_DNS_IRSA_ROLE_NAME="${OR_EKS_EXTERNAL_DNS_IRSA_ROLE_NAME:-}"
+EXTERNAL_DNS_DRY_RUN="${OR_EKS_EXTERNAL_DNS_DRY_RUN:-false}"
+SHARED_CERTIFICATE_ARN="${OR_EKS_SHARED_CERTIFICATE_ARN:-}"
+CONFIRM_CLUSTER_NAME=""
+MANAGE_LOAD_BALANCER_CONTROLLER=true
+MANAGE_EXTERNAL_DNS=true
+CLEAR_SHARED_CERTIFICATE=false
+RENDERED_CONFIG_FILE=""
+EXTERNAL_DNS_IAM_CONFIG_FILE=""
+
+usage() {
+  cat <<'EOF'
+Manage the shared Amazon EKS cluster used to host OpenRemote stacks.
+
+Usage:
+  or-eks-cluster create [options]
+  or-eks-cluster apply [options]
+  or-eks-cluster status [options]
+  or-eks-cluster kubeconfig [options]
+  or-eks-cluster destroy --confirm <cluster-name> [options]
+
+Commands:
+  create             Create the EKS cluster and reconcile shared resources.
+  apply              Reconcile shared cluster resources. Does not change the
+                     Kubernetes minor version or node-group infrastructure.
+  status             Show EKS, node, add-on, and controller status.
+  kubeconfig         Create or refresh the stable kubeconfig context.
+  destroy            Delete an empty cluster after an exact-name confirmation.
+
+Options:
+  --name <name>       EKS cluster name. Env: OR_EKS_CLUSTER_NAME.
+  --region <region>   AWS region. Env: OR_EKS_AWS_REGION. Default: eu-west-1.
+  --profile <name>    Explicit AWS profile. Default: no profile argument;
+                     use the normal AWS credential chain. An empty value
+                     also leaves profile selection to AWS.
+  --config <path>     eksctl ClusterConfig template. Env: OR_EKS_CONFIG_FILE.
+  --kube-context <c>  Stable kubeconfig context. Defaults to <name>@<region>.
+  --load-balancer-controller-version <version>
+                      Helm chart version to reconcile. Env:
+                      OR_EKS_LOAD_BALANCER_CONTROLLER_CHART_VERSION.
+  --skip-load-balancer-controller
+                      Do not install or reconcile the controller.
+  --shared-certificate-arn <arn>
+                      Record an externally managed ACM certificate as the
+                      cluster's shared Ingress certificate. Env:
+                      OR_EKS_SHARED_CERTIFICATE_ARN.
+  --clear-shared-certificate
+                      Remove the configured shared certificate reference.
+                      The ACM certificate itself is never modified or deleted.
+  --external-dns-zone-id <id>
+                      Public Route 53 hosted-zone ID. Env:
+                      OR_EKS_EXTERNAL_DNS_HOSTED_ZONE_ID.
+  --external-dns-domain <domain>
+                      DNS suffix managed in that zone. Env:
+                      OR_EKS_EXTERNAL_DNS_DOMAIN.
+  --external-dns-role-arn <arn>
+                      DNS-account role for ExternalDNS to assume. Env:
+                      OR_EKS_EXTERNAL_DNS_ASSUME_ROLE_ARN.
+  --external-dns-external-id <id>
+                      Optional external ID required by the DNS-account role.
+                      Env: OR_EKS_EXTERNAL_DNS_ASSUME_ROLE_EXTERNAL_ID.
+  --external-dns-owner-id <id>
+                      Stable, cluster-unique TXT registry owner. Env:
+                      OR_EKS_EXTERNAL_DNS_OWNER_ID.
+  --external-dns-irsa-role-name <name>
+                      Cluster-account IRSA role name. Defaults to
+                      openremote-<cluster>-<region>-external-dns. Env:
+                      OR_EKS_EXTERNAL_DNS_IRSA_ROLE_NAME.
+  --external-dns-chart-version <version>
+                      Helm chart version. Env:
+                      OR_EKS_EXTERNAL_DNS_CHART_VERSION. Default: 1.21.1.
+  --external-dns-image-tag <tag>
+                      ExternalDNS image tag. Env:
+                      OR_EKS_EXTERNAL_DNS_IMAGE_TAG. Default: v0.22.0.
+  --external-dns-dry-run
+                      Report desired DNS changes without applying them.
+                      Env: OR_EKS_EXTERNAL_DNS_DRY_RUN.
+  --skip-external-dns
+                      Do not install, reconcile, or uninstall ExternalDNS;
+                      use this for a bring-your-own controller.
+  --confirm <name>    Required exact cluster name for destroy.
+  -h, --help          Show this help.
+
+The command manages only cluster-scoped infrastructure and add-ons. It never
+installs or removes an OpenRemote stack, stack namespace, certificate, or stack
+data volume. A shared certificate ARN is configuration only; the certificate
+remains externally managed. Its optional ExternalDNS add-on reconciles only
+explicitly labeled stack endpoints.
+EOF
+}
+
+log() {
+  printf '[or-eks-cluster] %s\n' "$*"
+}
+
+warn() {
+  printf '[or-eks-cluster] WARNING: %s\n' "$*" >&2
+}
+
+die() {
+  printf '[or-eks-cluster] ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+cleanup() {
+  if [ -n "$RENDERED_CONFIG_FILE" ] && [ -f "$RENDERED_CONFIG_FILE" ]; then
+    rm -f "$RENDERED_CONFIG_FILE"
+  fi
+  if [ -n "$EXTERNAL_DNS_IAM_CONFIG_FILE" ] && [ -f "$EXTERNAL_DNS_IAM_CONFIG_FILE" ]; then
+    rm -f "$EXTERNAL_DNS_IAM_CONFIG_FILE"
+  fi
+}
+
+trap cleanup EXIT
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || die "Required command '$1' was not found in PATH."
+}
+
+aws_eks() {
+  if [ -n "$AWS_PROFILE_NAME" ]; then
+    aws eks "$@" --region "$AWS_REGION_NAME" --profile "$AWS_PROFILE_NAME"
+  else
+    aws eks "$@" --region "$AWS_REGION_NAME"
+  fi
+}
+
+eksctl_with_profile() {
+  if [ -n "$AWS_PROFILE_NAME" ]; then
+    eksctl "$@" --profile "$AWS_PROFILE_NAME"
+  else
+    eksctl "$@"
+  fi
+}
+
+parse_arguments() {
+  if [ "$#" -eq 0 ]; then
+    usage >&2
+    exit 1
+  fi
+
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    create|apply|status|kubeconfig|destroy)
+      COMMAND="$1"
+      shift
+      ;;
+    *)
+      die "Unknown command '$1'. Run with --help for usage."
+      ;;
+  esac
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --name)
+        [ "$#" -ge 2 ] || die "Option --name requires a value."
+        CLUSTER_NAME="$2"
+        shift 2
+        ;;
+      --region)
+        [ "$#" -ge 2 ] || die "Option --region requires a value."
+        AWS_REGION_NAME="$2"
+        shift 2
+        ;;
+      --profile)
+        [ "$#" -ge 2 ] || die "Option --profile requires a value."
+        AWS_PROFILE_NAME="$2"
+        shift 2
+        ;;
+      --config)
+        [ "$#" -ge 2 ] || die "Option --config requires a value."
+        CONFIG_FILE="$2"
+        shift 2
+        ;;
+      --kube-context)
+        [ "$#" -ge 2 ] || die "Option --kube-context requires a value."
+        KUBE_CONTEXT="$2"
+        shift 2
+        ;;
+      --load-balancer-controller-version)
+        [ "$#" -ge 2 ] || die "Option --load-balancer-controller-version requires a value."
+        LOAD_BALANCER_CONTROLLER_CHART_VERSION="$2"
+        shift 2
+        ;;
+      --skip-load-balancer-controller)
+        MANAGE_LOAD_BALANCER_CONTROLLER=false
+        shift
+        ;;
+      --shared-certificate-arn)
+        [ "$#" -ge 2 ] || die "Option --shared-certificate-arn requires a value."
+        SHARED_CERTIFICATE_ARN="$2"
+        shift 2
+        ;;
+      --clear-shared-certificate)
+        CLEAR_SHARED_CERTIFICATE=true
+        shift
+        ;;
+      --external-dns-zone-id)
+        [ "$#" -ge 2 ] || die "Option --external-dns-zone-id requires a value."
+        EXTERNAL_DNS_HOSTED_ZONE_ID="$2"
+        shift 2
+        ;;
+      --external-dns-domain)
+        [ "$#" -ge 2 ] || die "Option --external-dns-domain requires a value."
+        EXTERNAL_DNS_DOMAIN="$2"
+        shift 2
+        ;;
+      --external-dns-role-arn)
+        [ "$#" -ge 2 ] || die "Option --external-dns-role-arn requires a value."
+        EXTERNAL_DNS_ASSUME_ROLE_ARN="$2"
+        shift 2
+        ;;
+      --external-dns-external-id)
+        [ "$#" -ge 2 ] || die "Option --external-dns-external-id requires a value."
+        EXTERNAL_DNS_ASSUME_ROLE_EXTERNAL_ID="$2"
+        shift 2
+        ;;
+      --external-dns-owner-id)
+        [ "$#" -ge 2 ] || die "Option --external-dns-owner-id requires a value."
+        EXTERNAL_DNS_OWNER_ID="$2"
+        shift 2
+        ;;
+      --external-dns-irsa-role-name)
+        [ "$#" -ge 2 ] || die "Option --external-dns-irsa-role-name requires a value."
+        EXTERNAL_DNS_IRSA_ROLE_NAME="$2"
+        shift 2
+        ;;
+      --external-dns-chart-version)
+        [ "$#" -ge 2 ] || die "Option --external-dns-chart-version requires a value."
+        EXTERNAL_DNS_CHART_VERSION="$2"
+        shift 2
+        ;;
+      --external-dns-image-tag)
+        [ "$#" -ge 2 ] || die "Option --external-dns-image-tag requires a value."
+        EXTERNAL_DNS_IMAGE_TAG="$2"
+        shift 2
+        ;;
+      --external-dns-dry-run)
+        EXTERNAL_DNS_DRY_RUN=true
+        shift
+        ;;
+      --skip-external-dns)
+        MANAGE_EXTERNAL_DNS=false
+        shift
+        ;;
+      --confirm)
+        [ "$#" -ge 2 ] || die "Option --confirm requires a value."
+        CONFIRM_CLUSTER_NAME="$2"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        die "Unknown option '$1'. Run with --help for usage."
+        ;;
+    esac
+  done
+
+  [ -n "$CLUSTER_NAME" ] || die "Cluster name is required; use --name or OR_EKS_CLUSTER_NAME."
+
+  if [ -z "$KUBE_CONTEXT" ]; then
+    KUBE_CONTEXT="${CLUSTER_NAME}@${AWS_REGION_NAME}"
+  fi
+
+  EXTERNAL_DNS_HOSTED_ZONE_ID="${EXTERNAL_DNS_HOSTED_ZONE_ID#/hostedzone/}"
+  EXTERNAL_DNS_DOMAIN="${EXTERNAL_DNS_DOMAIN%.}"
+  if [ -z "$EXTERNAL_DNS_IRSA_ROLE_NAME" ]; then
+    EXTERNAL_DNS_IRSA_ROLE_NAME="openremote-${CLUSTER_NAME}-${AWS_REGION_NAME}-external-dns"
+  fi
+}
+
+validate_shared_certificate_configuration() {
+  if [ -n "$SHARED_CERTIFICATE_ARN" ] && [ "$CLEAR_SHARED_CERTIFICATE" = true ]; then
+    die "Options --shared-certificate-arn and --clear-shared-certificate cannot be used together."
+  fi
+  if { [ -n "$SHARED_CERTIFICATE_ARN" ] || [ "$CLEAR_SHARED_CERTIFICATE" = true ]; } && \
+     [ "$MANAGE_LOAD_BALANCER_CONTROLLER" != true ]; then
+    die "Shared certificate configuration requires management of the openremote-alb IngressClass."
+  fi
+  if [ -z "$SHARED_CERTIFICATE_ARN" ]; then
+    return
+  fi
+  if [[ ! "$SHARED_CERTIFICATE_ARN" =~ ^arn:[^:]+:acm:([a-z0-9-]+):[0-9]{12}:certificate/[A-Za-z0-9-]+$ ]]; then
+    die "Shared certificate ARN must be a valid ACM certificate ARN."
+  fi
+  [ "${BASH_REMATCH[1]}" = "$AWS_REGION_NAME" ] || die \
+    "Shared certificate '$SHARED_CERTIFICATE_ARN' is not in cluster region '$AWS_REGION_NAME'."
+}
+
+external_dns_configuration_present() {
+  [ -n "$EXTERNAL_DNS_HOSTED_ZONE_ID" ] || \
+    [ -n "$EXTERNAL_DNS_DOMAIN" ] || \
+    [ -n "$EXTERNAL_DNS_ASSUME_ROLE_ARN" ] || \
+    [ -n "$EXTERNAL_DNS_ASSUME_ROLE_EXTERNAL_ID" ] || \
+    [ -n "$EXTERNAL_DNS_OWNER_ID" ] || \
+    [ "$EXTERNAL_DNS_DRY_RUN" = true ]
+}
+
+validate_external_dns_configuration() {
+  case "$EXTERNAL_DNS_DRY_RUN" in
+    true|false)
+      ;;
+    *)
+      die "OR_EKS_EXTERNAL_DNS_DRY_RUN must be true or false."
+      ;;
+  esac
+
+  if [ "$MANAGE_EXTERNAL_DNS" != true ]; then
+    return
+  fi
+  if ! external_dns_configuration_present; then
+    return
+  fi
+
+  [ -n "$EXTERNAL_DNS_HOSTED_ZONE_ID" ] || die \
+    "ExternalDNS requires --external-dns-zone-id."
+  [ -n "$EXTERNAL_DNS_DOMAIN" ] || die \
+    "ExternalDNS requires --external-dns-domain."
+  [ -n "$EXTERNAL_DNS_ASSUME_ROLE_ARN" ] || die \
+    "ExternalDNS requires --external-dns-role-arn."
+  [ -n "$EXTERNAL_DNS_OWNER_ID" ] || die \
+    "ExternalDNS requires --external-dns-owner-id."
+  [ -n "$EXTERNAL_DNS_CHART_VERSION" ] || die \
+    "A pinned ExternalDNS chart version is required."
+  [ -n "$EXTERNAL_DNS_IMAGE_TAG" ] || die \
+    "A pinned ExternalDNS image tag is required."
+
+  [[ "$EXTERNAL_DNS_HOSTED_ZONE_ID" =~ ^Z[A-Z0-9]+$ ]] || die \
+    "ExternalDNS hosted-zone ID must be a Route 53 ID such as Z0123456789."
+  [[ "$EXTERNAL_DNS_DOMAIN" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$ ]] || die \
+    "ExternalDNS domain must be a lowercase DNS suffix without a trailing dot."
+  [[ "$EXTERNAL_DNS_ASSUME_ROLE_ARN" =~ ^arn:[^:]+:iam::[0-9]{12}:role/[A-Za-z0-9_+=,.@/-]+$ ]] || die \
+    "ExternalDNS role ARN must be a valid IAM role ARN."
+  [[ "$EXTERNAL_DNS_OWNER_ID" =~ ^[A-Za-z0-9._-]+$ ]] || die \
+    "ExternalDNS owner ID may contain only letters, numbers, dots, underscores, and hyphens."
+  [ "${#EXTERNAL_DNS_IRSA_ROLE_NAME}" -le 64 ] && \
+    [[ "$EXTERNAL_DNS_IRSA_ROLE_NAME" =~ ^[A-Za-z0-9_+=,.@-]+$ ]] || die \
+      "ExternalDNS IRSA role name must be a valid IAM role name of at most 64 characters."
+}
+
+cluster_exists() {
+  local output
+  local status
+
+  set +e
+  output="$(aws_eks describe-cluster --name "$CLUSTER_NAME" --output json 2>&1)"
+  status=$?
+  set -e
+
+  if [ "$status" -eq 0 ]; then
+    return 0
+  fi
+
+  case "$output" in
+    *ResourceNotFoundException*) return 1 ;;
+    *) die "Unable to query EKS cluster '$CLUSTER_NAME': $output" ;;
+  esac
+}
+
+require_existing_cluster() {
+  cluster_exists || die "EKS cluster '$CLUSTER_NAME' does not exist in region '$AWS_REGION_NAME'."
+}
+
+render_cluster_config() {
+  [ -f "$CONFIG_FILE" ] || die "Cluster configuration '$CONFIG_FILE' does not exist."
+  require_command envsubst
+
+  RENDERED_CONFIG_FILE="$(mktemp "${TMPDIR:-/tmp}/or-eks-cluster.XXXXXX")"
+  export CLUSTER_NAME
+  export AWS_REGION="$AWS_REGION_NAME"
+  envsubst '${CLUSTER_NAME} ${AWS_REGION}' < "$CONFIG_FILE" > "$RENDERED_CONFIG_FILE"
+
+  if grep -q '\${CLUSTER_NAME}\|\${AWS_REGION}' "$RENDERED_CONFIG_FILE"; then
+    die "Cluster configuration still contains an unexpanded cluster name or AWS region."
+  fi
+}
+
+configured_kubernetes_version() {
+  awk '/^[[:space:]]+version:[[:space:]]*/ { gsub(/"/, "", $2); print $2; exit }' "$RENDERED_CONFIG_FILE"
+}
+
+current_kubernetes_version() {
+  aws_eks describe-cluster \
+    --name "$CLUSTER_NAME" \
+    --query 'cluster.version' \
+    --output text
+}
+
+configure_kube_context() {
+  log "Writing kubeconfig context '$KUBE_CONTEXT'."
+  if [ -n "$AWS_PROFILE_NAME" ]; then
+    aws eks update-kubeconfig \
+      --name "$CLUSTER_NAME" \
+      --region "$AWS_REGION_NAME" \
+      --profile "$AWS_PROFILE_NAME" \
+      --alias "$KUBE_CONTEXT" >/dev/null
+  else
+    aws eks update-kubeconfig \
+      --name "$CLUSTER_NAME" \
+      --region "$AWS_REGION_NAME" \
+      --alias "$KUBE_CONTEXT" >/dev/null
+  fi
+}
+
+kube_context_exists() {
+  kubectl config get-contexts "$KUBE_CONTEXT" -o name 2>/dev/null | grep -Fx "$KUBE_CONTEXT" >/dev/null 2>&1
+}
+
+require_kube_context() {
+  local expected_endpoint
+  local context_endpoint
+
+  kube_context_exists || die "Kubeconfig context '$KUBE_CONTEXT' does not exist; run the kubeconfig command first."
+
+  expected_endpoint="$(aws_eks describe-cluster \
+    --name "$CLUSTER_NAME" \
+    --query 'cluster.endpoint' \
+    --output text)"
+  context_endpoint="$(kubectl --context "$KUBE_CONTEXT" config view \
+    --minify \
+    -o jsonpath='{.clusters[0].cluster.server}')"
+
+  [ "$context_endpoint" = "$expected_endpoint" ] || die \
+    "Kubeconfig context '$KUBE_CONTEXT' does not point to EKS cluster '$CLUSTER_NAME'."
+}
+
+reconcile_load_balancer_controller() {
+  local deployed_shared_certificate_arn
+
+  if [ "$MANAGE_LOAD_BALANCER_CONTROLLER" != true ]; then
+    log "Skipping AWS Load Balancer Controller reconciliation."
+    return
+  fi
+
+  [ -n "$LOAD_BALANCER_CONTROLLER_CHART_VERSION" ] || die \
+    "A pinned AWS Load Balancer Controller chart version is required."
+  [ -f "$DEFAULT_INGRESS_CLASS_FILE" ] || die \
+    "IngressClass manifest '$DEFAULT_INGRESS_CLASS_FILE' does not exist."
+
+  require_command helm
+  require_command kubectl
+  require_kube_context
+
+  kubectl --context "$KUBE_CONTEXT" \
+    --namespace kube-system \
+    get serviceaccount aws-load-balancer-controller >/dev/null 2>&1 || die \
+      "ServiceAccount kube-system/aws-load-balancer-controller is missing from the cluster configuration."
+
+  log "Refreshing the AWS EKS Helm repository."
+  helm repo add eks https://aws.github.io/eks-charts --force-update >/dev/null
+  helm repo update eks >/dev/null
+
+  log "Reconciling AWS Load Balancer Controller CRDs."
+  helm show crds eks/aws-load-balancer-controller \
+    --version "$LOAD_BALANCER_CONTROLLER_CHART_VERSION" | \
+    kubectl --context "$KUBE_CONTEXT" apply -f - >/dev/null
+  kubectl --context "$KUBE_CONTEXT" wait \
+    --for=condition=Established \
+    customresourcedefinition/ingressclassparams.elbv2.k8s.aws \
+    --timeout 2m >/dev/null
+
+  log "Reconciling AWS Load Balancer Controller chart $LOAD_BALANCER_CONTROLLER_CHART_VERSION."
+  helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
+    --kube-context "$KUBE_CONTEXT" \
+    --namespace kube-system \
+    --version "$LOAD_BALANCER_CONTROLLER_CHART_VERSION" \
+    --set "clusterName=$CLUSTER_NAME" \
+    --set serviceAccount.create=false \
+    --set serviceAccount.name=aws-load-balancer-controller \
+    --wait \
+    --timeout 10m
+
+  log "Reconciling the shared OpenRemote ALB IngressClass."
+  kubectl --context "$KUBE_CONTEXT" apply -f "$DEFAULT_INGRESS_CLASS_FILE"
+
+  if [ -n "$SHARED_CERTIFICATE_ARN" ]; then
+    log "Recording the externally managed shared ACM certificate."
+    kubectl --context "$KUBE_CONTEXT" annotate ingressclass openremote-alb \
+      "$SHARED_CERTIFICATE_ARN_ANNOTATION=$SHARED_CERTIFICATE_ARN" \
+      --overwrite >/dev/null
+  elif [ "$CLEAR_SHARED_CERTIFICATE" = true ]; then
+    deployed_shared_certificate_arn="$(kubectl --context "$KUBE_CONTEXT" \
+      get ingressclass openremote-alb \
+      -o "go-template={{with index .metadata.annotations \"$SHARED_CERTIFICATE_ARN_ANNOTATION\"}}{{.}}{{end}}")" || die \
+        "Unable to inspect the shared ACM certificate configuration."
+    if [ -n "$deployed_shared_certificate_arn" ]; then
+      log "Removing the shared ACM certificate reference."
+      kubectl --context "$KUBE_CONTEXT" annotate ingressclass openremote-alb \
+        "$SHARED_CERTIFICATE_ARN_ANNOTATION-" >/dev/null
+    else
+      log "No shared ACM certificate reference is configured."
+    fi
+  fi
+}
+
+render_external_dns_iam_config() {
+  if [ -n "$EXTERNAL_DNS_IAM_CONFIG_FILE" ] && [ -f "$EXTERNAL_DNS_IAM_CONFIG_FILE" ]; then
+    rm -f "$EXTERNAL_DNS_IAM_CONFIG_FILE"
+  fi
+  EXTERNAL_DNS_IAM_CONFIG_FILE="$(mktemp "${TMPDIR:-/tmp}/or-eks-external-dns-iam.XXXXXX")"
+  cat > "$EXTERNAL_DNS_IAM_CONFIG_FILE" <<EOF
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: "$CLUSTER_NAME"
+  region: "$AWS_REGION_NAME"
+
+iam:
+  withOIDC: true
+  serviceAccounts:
+    - metadata:
+        name: $EXTERNAL_DNS_SERVICE_ACCOUNT_NAME
+        namespace: kube-system
+      roleName: "$EXTERNAL_DNS_IRSA_ROLE_NAME"
+      attachPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Resource: "$EXTERNAL_DNS_ASSUME_ROLE_ARN"
+EOF
+}
+
+reconcile_external_dns_iam_service_account() {
+  local iam_service_accounts
+  local get_status
+  local service_account_role_arn
+
+  require_command eksctl
+  require_command jq
+  require_command kubectl
+  require_kube_context
+  render_external_dns_iam_config
+
+  set +e
+  iam_service_accounts="$(eksctl_with_profile get iamserviceaccount \
+    --cluster "$CLUSTER_NAME" \
+    --region "$AWS_REGION_NAME" \
+    --namespace kube-system \
+    --name "$EXTERNAL_DNS_SERVICE_ACCOUNT_NAME" \
+    --output json 2>&1)"
+  get_status=$?
+  set -e
+
+  if [ "$get_status" -ne 0 ]; then
+    case "$iam_service_accounts" in
+      *"no iamserviceaccounts"*) iam_service_accounts='[]' ;;
+      *) die "Unable to inspect the ExternalDNS IAM service account: $iam_service_accounts" ;;
+    esac
+  fi
+
+  if jq -e 'type == "array" and length > 0' <<< "$iam_service_accounts" >/dev/null; then
+    log "Reconciling the ExternalDNS IRSA role '$EXTERNAL_DNS_IRSA_ROLE_NAME'."
+    eksctl_with_profile update iamserviceaccount \
+      --config-file "$EXTERNAL_DNS_IAM_CONFIG_FILE" \
+      --include "kube-system/$EXTERNAL_DNS_SERVICE_ACCOUNT_NAME" \
+      --approve
+  else
+    log "Creating the ExternalDNS IRSA role '$EXTERNAL_DNS_IRSA_ROLE_NAME'."
+    eksctl_with_profile create iamserviceaccount \
+      --config-file "$EXTERNAL_DNS_IAM_CONFIG_FILE" \
+      --include "kube-system/$EXTERNAL_DNS_SERVICE_ACCOUNT_NAME" \
+      --override-existing-serviceaccounts \
+      --approve
+  fi
+
+  if ! service_account_role_arn="$(kubectl --context "$KUBE_CONTEXT" \
+    --namespace kube-system \
+    get serviceaccount "$EXTERNAL_DNS_SERVICE_ACCOUNT_NAME" \
+    -o 'jsonpath={.metadata.annotations.eks\.amazonaws\.com/role-arn}')"; then
+    die "Unable to inspect the ExternalDNS ServiceAccount after IRSA reconciliation."
+  fi
+  [ -n "$service_account_role_arn" ] || die \
+    "ServiceAccount kube-system/$EXTERNAL_DNS_SERVICE_ACCOUNT_NAME has no IRSA role annotation."
+}
+
+reconcile_external_dns() {
+  local helm_args
+
+  if [ "$MANAGE_EXTERNAL_DNS" != true ]; then
+    log "Skipping ExternalDNS reconciliation."
+    return
+  fi
+  if ! external_dns_configuration_present; then
+    log "ExternalDNS is not configured; skipping this optional add-on."
+    return
+  fi
+
+  require_command helm
+  reconcile_external_dns_iam_service_account
+
+  log "Refreshing the ExternalDNS Helm repository."
+  helm repo add external-dns https://kubernetes-sigs.github.io/external-dns/ \
+    --force-update >/dev/null
+  helm repo update external-dns >/dev/null
+
+  log "Reconciling the ExternalDNS DNSEndpoint CRD."
+  helm show crds external-dns/external-dns \
+    --version "$EXTERNAL_DNS_CHART_VERSION" | \
+    kubectl --context "$KUBE_CONTEXT" apply -f - >/dev/null
+  kubectl --context "$KUBE_CONTEXT" wait \
+    --for=condition=Established \
+    "customresourcedefinition/$EXTERNAL_DNS_ENDPOINT_CRD" \
+    --timeout 2m >/dev/null
+
+  helm_args=(
+    upgrade --install "$EXTERNAL_DNS_RELEASE_NAME" external-dns/external-dns
+    --kube-context "$KUBE_CONTEXT"
+    --namespace kube-system
+    --version "$EXTERNAL_DNS_CHART_VERSION"
+    --set-string "image.tag=$EXTERNAL_DNS_IMAGE_TAG"
+    --set provider.name=aws
+    --set 'sources[0]=service'
+    --set 'sources[1]=ingress'
+    --set 'sources[2]=crd'
+    --set policy=sync
+    --set registry=txt
+    --set-string "txtOwnerId=$EXTERNAL_DNS_OWNER_ID"
+    --set-string 'labelFilter=openremote.io/managed-dns=true'
+    --set triggerLoopOnEvent=true
+    --set serviceAccount.create=false
+    --set "serviceAccount.name=$EXTERNAL_DNS_SERVICE_ACCOUNT_NAME"
+    --set extraArgs.aws-zone-type=public
+    --set-string "extraArgs.zone-id-filter=$EXTERNAL_DNS_HOSTED_ZONE_ID"
+    --set-string "domainFilters[0]=$EXTERNAL_DNS_DOMAIN"
+    --set-string "extraArgs.aws-assume-role=$EXTERNAL_DNS_ASSUME_ROLE_ARN"
+    --wait
+    --timeout 10m
+  )
+  if [ -n "$EXTERNAL_DNS_ASSUME_ROLE_EXTERNAL_ID" ]; then
+    helm_args+=(--set-string \
+      "extraArgs.aws-assume-role-external-id=$EXTERNAL_DNS_ASSUME_ROLE_EXTERNAL_ID")
+  fi
+  if [ "$EXTERNAL_DNS_DRY_RUN" = true ]; then
+    helm_args+=(--set extraArgs.dry-run=true)
+    warn "ExternalDNS dry-run is enabled; DNS changes will only be logged."
+  fi
+
+  log "Reconciling ExternalDNS chart $EXTERNAL_DNS_CHART_VERSION with image $EXTERNAL_DNS_IMAGE_TAG."
+  helm "${helm_args[@]}"
+}
+
+reconcile_storage_class() {
+  [ -f "$DEFAULT_STORAGE_CLASS_FILE" ] || die \
+    "StorageClass manifest '$DEFAULT_STORAGE_CLASS_FILE' does not exist."
+
+  require_command kubectl
+  require_kube_context
+
+  log "Reconciling the OpenRemote EBS StorageClass."
+  kubectl --context "$KUBE_CONTEXT" apply -f "$DEFAULT_STORAGE_CLASS_FILE"
+}
+
+verify_network_policy_support() {
+  local vpc_cni_containers
+
+  vpc_cni_containers="$(kubectl --context "$KUBE_CONTEXT" --namespace kube-system \
+    get daemonset aws-node \
+    -o 'jsonpath={.spec.template.spec.containers[*].name}')" || die \
+      "Unable to inspect the Amazon VPC CNI DaemonSet."
+
+  case " $vpc_cni_containers " in
+    *" aws-eks-nodeagent "*)
+      ;;
+    *)
+      die "The Amazon VPC CNI NetworkPolicy agent is not installed."
+      ;;
+  esac
+
+  kubectl --context "$KUBE_CONTEXT" get \
+    customresourcedefinition/policyendpoints.networking.k8s.aws >/dev/null 2>&1 || die \
+      "The Amazon VPC CNI NetworkPolicy PolicyEndpoint CRD is unavailable."
+}
+
+show_vpc_cni_diagnostics() {
+  warn "Amazon VPC CNI add-on diagnostics:"
+  aws_eks describe-addon \
+    --cluster-name "$CLUSTER_NAME" \
+    --addon-name vpc-cni \
+    --query 'addon.{Status:status,Version:addonVersion,ServiceAccountRoleArn:serviceAccountRoleArn,Configuration:configurationValues,Issues:health.issues}' \
+    --output json >&2 || true
+  kubectl --context "$KUBE_CONTEXT" --namespace kube-system get daemonset aws-node \
+    -o custom-columns='NAME:.metadata.name,DESIRED:.status.desiredNumberScheduled,UPDATED:.status.updatedNumberScheduled,READY:.status.numberReady,AVAILABLE:.status.numberAvailable,CONTAINERS:.spec.template.spec.containers[*].name' >&2 || true
+  kubectl --context "$KUBE_CONTEXT" --namespace kube-system get pods \
+    --selector k8s-app=aws-node -o wide >&2 || true
+}
+
+reconcile_network_policy_support() {
+  local addon
+  local current_configuration
+  local current_service_account_role_arn
+  local desired_configuration
+  local service_account_role_arn
+  local update_id=""
+  local update_required=false
+  local update_args
+
+  require_command jq
+  require_command kubectl
+  require_kube_context
+
+  if ! addon="$(aws_eks describe-addon \
+    --cluster-name "$CLUSTER_NAME" \
+    --addon-name vpc-cni \
+    --query addon \
+    --output json)"; then
+    die "The managed vpc-cni add-on is required for EKS NetworkPolicy enforcement."
+  fi
+
+  current_configuration="$(jq -r '.configurationValues // "{}"' <<< "$addon")" || die \
+    "The vpc-cni add-on returned an unreadable configuration."
+  service_account_role_arn="$(jq -r '.serviceAccountRoleArn // empty' <<< "$addon")" || die \
+    "The vpc-cni add-on returned an unreadable service account role."
+
+  if [ -z "$current_configuration" ] || [ "$current_configuration" = "None" ]; then
+    current_configuration='{}'
+  fi
+
+  desired_configuration="$(jq -c '.enableNetworkPolicy = "true"' <<< "$current_configuration")" || die \
+    "The vpc-cni add-on returned invalid configuration values."
+
+  if [ -n "$service_account_role_arn" ]; then
+    if ! current_service_account_role_arn="$(kubectl --context "$KUBE_CONTEXT" --namespace kube-system \
+      get serviceaccount aws-node \
+      -o 'jsonpath={.metadata.annotations.eks\.amazonaws\.com/role-arn}')"; then
+      die "Unable to inspect the Amazon VPC CNI aws-node ServiceAccount."
+    fi
+
+    if [ "$current_service_account_role_arn" != "$service_account_role_arn" ]; then
+      log "Associating the Amazon VPC CNI IAM role with the aws-node ServiceAccount."
+      kubectl --context "$KUBE_CONTEXT" --namespace kube-system annotate serviceaccount aws-node \
+        "eks.amazonaws.com/role-arn=$service_account_role_arn" \
+        --overwrite >/dev/null
+      update_required=true
+    fi
+  else
+    warn "The managed vpc-cni add-on has no dedicated service account role; it must obtain its EC2 permissions from the node IAM role."
+  fi
+
+  if jq -e '(.enableNetworkPolicy | tostring) == "true"' \
+    <<< "$current_configuration" >/dev/null; then
+    log "Amazon VPC CNI NetworkPolicy enforcement is already enabled."
+  else
+    log "Enabling Amazon VPC CNI NetworkPolicy enforcement."
+    update_required=true
+  fi
+
+  if [ "$update_required" = true ]; then
+    update_args=(
+      update-addon
+      --cluster-name "$CLUSTER_NAME"
+      --addon-name vpc-cni
+      --resolve-conflicts PRESERVE
+      --configuration-values "$desired_configuration"
+    )
+    if [ -n "$service_account_role_arn" ]; then
+      update_args+=(--service-account-role-arn "$service_account_role_arn")
+    fi
+
+    if ! update_id="$(aws_eks "${update_args[@]}" --query 'update.id' --output text)"; then
+      show_vpc_cni_diagnostics
+      die "Unable to enable NetworkPolicy on the current vpc-cni version; update the add-on to a supported version before retrying."
+    fi
+
+    log "Waiting for Amazon VPC CNI add-on update '$update_id'."
+  fi
+
+  if ! aws_eks wait addon-active \
+      --cluster-name "$CLUSTER_NAME" \
+      --addon-name vpc-cni; then
+    if [ -n "$update_id" ]; then
+      aws_eks describe-update \
+        --name "$CLUSTER_NAME" \
+        --addon-name vpc-cni \
+        --update-id "$update_id" \
+        --query 'update.{Id:id,Status:status,Errors:errors}' \
+        --output json >&2 || true
+    fi
+    show_vpc_cni_diagnostics
+    die "Amazon VPC CNI did not become active; resolve the reported add-on or Pod health issue before retrying."
+  fi
+
+  kubectl --context "$KUBE_CONTEXT" --namespace kube-system rollout status \
+    daemonset/aws-node --timeout 10m
+  verify_network_policy_support
+}
+
+create_cluster() {
+  require_command aws
+  require_command eksctl
+  require_command kubectl
+  validate_shared_certificate_configuration
+  validate_external_dns_configuration
+  render_cluster_config
+
+  if cluster_exists; then
+    die "EKS cluster '$CLUSTER_NAME' already exists; use apply instead of create."
+  fi
+
+  log "Creating EKS cluster '$CLUSTER_NAME' in '$AWS_REGION_NAME'."
+  eksctl_with_profile create cluster --config-file "$RENDERED_CONFIG_FILE"
+  configure_kube_context
+  reconcile_network_policy_support
+  reconcile_storage_class
+  reconcile_load_balancer_controller
+  reconcile_external_dns
+  log "EKS cluster '$CLUSTER_NAME' is ready."
+}
+
+apply_cluster() {
+  local current_version
+  local desired_version
+
+  require_command aws
+  require_command kubectl
+  validate_shared_certificate_configuration
+  validate_external_dns_configuration
+  require_existing_cluster
+  render_cluster_config
+
+  current_version="$(current_kubernetes_version)"
+  desired_version="$(configured_kubernetes_version)"
+  if [ -n "$desired_version" ] && [ "$desired_version" != "$current_version" ]; then
+    die "Cluster configuration requests Kubernetes $desired_version but the cluster runs $current_version; Kubernetes version changes are outside the scope of this first-phase command."
+  fi
+
+  reconcile_network_policy_support
+  reconcile_storage_class
+  reconcile_load_balancer_controller
+  reconcile_external_dns
+  log "Shared cluster resources are reconciled. Node-group infrastructure updates remain outside apply until the cluster definition moves to CloudFormation."
+}
+
+show_external_dns_status() {
+  local crd_installed=false
+  local crd_source_enabled=false
+  local dry_run=false
+  local external_dns_args
+  local owner_id=""
+  local service_account_role_arn=""
+
+  log "ExternalDNS"
+  if ! helm status "$EXTERNAL_DNS_RELEASE_NAME" \
+      --kube-context "$KUBE_CONTEXT" \
+      --namespace kube-system >/dev/null 2>&1; then
+    log "Optional OpenRemote-managed ExternalDNS add-on is not installed."
+    return
+  fi
+  helm status "$EXTERNAL_DNS_RELEASE_NAME" \
+    --kube-context "$KUBE_CONTEXT" \
+    --namespace kube-system
+  kubectl --context "$KUBE_CONTEXT" \
+    --namespace kube-system \
+    get deployments,pods \
+    --selector "app.kubernetes.io/instance=$EXTERNAL_DNS_RELEASE_NAME" \
+    -o wide
+
+  if external_dns_args="$(kubectl --context "$KUBE_CONTEXT" \
+      --namespace kube-system \
+      get deployment "$EXTERNAL_DNS_RELEASE_NAME" \
+      -o 'go-template={{range (index .spec.template.spec.containers 0).args}}{{println .}}{{end}}' \
+      2>/dev/null)"; then
+    owner_id="$(sed -n 's/^--txt-owner-id=//p' <<< "$external_dns_args" | head -n 1)"
+    if grep -Eq '^--dry-run(=true)?$' <<< "$external_dns_args"; then
+      dry_run=true
+    fi
+    if grep -Fx -- '--source=crd' <<< "$external_dns_args" >/dev/null; then
+      crd_source_enabled=true
+    fi
+  fi
+  if kubectl --context "$KUBE_CONTEXT" get \
+      "customresourcedefinition/$EXTERNAL_DNS_ENDPOINT_CRD" >/dev/null 2>&1; then
+    crd_installed=true
+  fi
+  service_account_role_arn="$(kubectl --context "$KUBE_CONTEXT" \
+    --namespace kube-system \
+    get serviceaccount "$EXTERNAL_DNS_SERVICE_ACCOUNT_NAME" \
+    -o 'jsonpath={.metadata.annotations.eks\.amazonaws\.com/role-arn}' \
+    2>/dev/null || true)"
+
+  printf 'ExternalDNS TXT owner ID: %s\n' "${owner_id:-unknown}"
+  printf 'ExternalDNS dry run: %s\n' "$dry_run"
+  printf 'ExternalDNS IRSA role: %s\n' "${service_account_role_arn:-unknown}"
+  printf 'ExternalDNS DNSEndpoint CRD installed: %s\n' "$crd_installed"
+  printf 'ExternalDNS DNSEndpoint source enabled: %s\n' "$crd_source_enabled"
+}
+
+show_shared_certificate_status() {
+  local shared_certificate_arn
+
+  shared_certificate_arn="$(kubectl --context "$KUBE_CONTEXT" \
+    get ingressclass openremote-alb \
+    -o "go-template={{with index .metadata.annotations \"$SHARED_CERTIFICATE_ARN_ANNOTATION\"}}{{.}}{{end}}" \
+    2>/dev/null || true)"
+  printf 'Shared ACM certificate ARN: %s\n' \
+    "${shared_certificate_arn:-not configured}"
+}
+
+show_cluster_status() {
+  require_command aws
+  require_command helm
+  require_command kubectl
+  require_existing_cluster
+
+  log "EKS control plane"
+  aws_eks describe-cluster \
+    --name "$CLUSTER_NAME" \
+    --query 'cluster.{Name:name,Status:status,KubernetesVersion:version,PlatformVersion:platformVersion,Endpoint:endpoint}' \
+    --output table
+
+  log "Managed node groups"
+  aws_eks list-nodegroups \
+    --cluster-name "$CLUSTER_NAME" \
+    --query 'nodegroups' \
+    --output table
+
+  log "EKS managed add-ons"
+  aws_eks list-addons \
+    --cluster-name "$CLUSTER_NAME" \
+    --query 'addons' \
+    --output table
+
+  log "Amazon VPC CNI NetworkPolicy configuration"
+  if ! aws_eks describe-addon \
+    --cluster-name "$CLUSTER_NAME" \
+    --addon-name vpc-cni \
+    --query 'addon.{Status:status,Version:addonVersion,ServiceAccountRoleArn:serviceAccountRoleArn,Configuration:configurationValues,Issues:health.issues}' \
+    --output table; then
+    warn "The managed vpc-cni add-on is unavailable."
+  fi
+
+  if kube_context_exists; then
+    require_kube_context
+    log "Kubernetes nodes"
+    kubectl --context "$KUBE_CONTEXT" get nodes \
+      -o custom-columns='NAME:.metadata.name,STATUS:.status.conditions[-1].type,VERSION:.status.nodeInfo.kubeletVersion,NODEGROUP:.metadata.labels.eks\.amazonaws\.com/nodegroup'
+
+    log "OpenRemote EBS StorageClass"
+    if ! kubectl --context "$KUBE_CONTEXT" get storageclass openremote-ebs; then
+      warn "StorageClass 'openremote-ebs' is not installed."
+    fi
+
+    log "Amazon VPC CNI NetworkPolicy agent"
+    if kubectl --context "$KUBE_CONTEXT" get \
+      customresourcedefinition/policyendpoints.networking.k8s.aws >/dev/null 2>&1; then
+      kubectl --context "$KUBE_CONTEXT" --namespace kube-system get daemonset aws-node \
+        -o custom-columns='NAME:.metadata.name,DESIRED:.status.desiredNumberScheduled,READY:.status.numberReady,CONTAINERS:.spec.template.spec.containers[*].name'
+    else
+      warn "Amazon VPC CNI NetworkPolicy enforcement is not enabled."
+    fi
+
+    if [ "$MANAGE_LOAD_BALANCER_CONTROLLER" = true ]; then
+      log "AWS Load Balancer Controller"
+      if ! helm status aws-load-balancer-controller \
+        --kube-context "$KUBE_CONTEXT" \
+        --namespace kube-system; then
+        warn "AWS Load Balancer Controller is not installed or is unhealthy."
+      fi
+
+      log "Shared OpenRemote ALB IngressClass"
+      if ! kubectl --context "$KUBE_CONTEXT" get ingressclass openremote-alb; then
+        warn "IngressClass 'openremote-alb' is not installed."
+      else
+        show_shared_certificate_status
+        if ! kubectl --context "$KUBE_CONTEXT" get \
+          ingressclassparams.elbv2.k8s.aws openremote-alb; then
+          warn "IngressClassParams 'openremote-alb' is not installed."
+        fi
+      fi
+    fi
+
+    show_external_dns_status
+  else
+    warn "Kubeconfig context '$KUBE_CONTEXT' is unavailable; Kubernetes-side status was skipped."
+  fi
+}
+
+destroy_preflight() {
+  local hostname_registry
+  local dns_endpoint_count=0
+  local dns_endpoint_crd
+  local ingress_count
+  local load_balancer_service_count
+  local pvc_count
+  local workload_pod_count
+  local stack_namespaces
+  local workload_controllers
+  local persistent_volumes
+
+  require_kube_context
+
+  hostname_registry="$(read_hostname_registry)" || die "Unable to inspect hostname reservations."
+  [ "$(jq '(.data // {}) | length' <<< "$hostname_registry")" -eq 0 ] || die \
+    "Hostname reservations remain; finish stack destroy or explicit external cleanup before destroying the cluster."
+
+  # Pods and PVCs alone do not prove that a cluster is empty: internal stacks
+  # need no hostname reservation, controllers can have zero Pods, and retained
+  # PVs can outlive their claims. Keep their metadata until cleanup is explicit.
+  stack_namespaces="$(kubectl --context "$KUBE_CONTEXT" get namespaces -o json | jq -r '
+    .items[] | select(.metadata.labels["openremote.io/stack"] != null or
+      .metadata.labels["app.kubernetes.io/part-of"] == "openremote") |
+    "  Namespace/" + .metadata.name')" || die \
+      "Unable to inspect OpenRemote namespaces before cluster destruction."
+  workload_controllers="$(kubectl --context "$KUBE_CONTEXT" get \
+    deployments,statefulsets,daemonsets,replicasets,replicationcontrollers,jobs,cronjobs \
+    --all-namespaces -o json | jq -r '
+    .items[] | select(.metadata.namespace != "kube-system" and
+      .metadata.namespace != "kube-public" and .metadata.namespace != "kube-node-lease") |
+    "  " + .kind + "/" + .metadata.namespace + "/" + .metadata.name')" || die \
+      "Unable to inspect workload controllers before cluster destruction."
+  persistent_volumes="$(kubectl --context "$KUBE_CONTEXT" get persistentvolumes -o json | jq -r '
+    .items[] | "  PersistentVolume/" + .metadata.name')" || die \
+      "Unable to inspect PersistentVolumes before cluster destruction."
+
+  ingress_count="$(kubectl --context "$KUBE_CONTEXT" get ingress --all-namespaces -o json | jq '.items | length')"
+  load_balancer_service_count="$(kubectl --context "$KUBE_CONTEXT" get services --all-namespaces -o json | jq \
+    '[.items[] | select(.spec.type == "LoadBalancer")] | length')"
+  pvc_count="$(kubectl --context "$KUBE_CONTEXT" get persistentvolumeclaims --all-namespaces -o json | jq '.items | length')"
+  workload_pod_count="$(kubectl --context "$KUBE_CONTEXT" get pods --all-namespaces -o json | jq \
+    '[.items[] | select(.metadata.namespace != "kube-system" and .metadata.namespace != "kube-public" and .metadata.namespace != "kube-node-lease")] | length')"
+  dns_endpoint_crd="$(kubectl --context "$KUBE_CONTEXT" get \
+    customresourcedefinition/dnsendpoints.externaldns.k8s.io \
+    --ignore-not-found -o name)" || die \
+      "Unable to determine whether DNSEndpoint resources exist before cluster destruction."
+  if [ -n "$dns_endpoint_crd" ]; then
+    dns_endpoint_count="$(kubectl --context "$KUBE_CONTEXT" get dnsendpoints \
+      --all-namespaces -o json | jq '.items | length')"
+  fi
+
+  if [ -n "$stack_namespaces" ] || \
+     [ -n "$workload_controllers" ] || \
+     [ -n "$persistent_volumes" ] || \
+     [ "$ingress_count" -gt 0 ] || \
+     [ "$load_balancer_service_count" -gt 0 ] || \
+     [ "$pvc_count" -gt 0 ] || \
+     [ "$workload_pod_count" -gt 0 ] || \
+     [ "$dns_endpoint_count" -gt 0 ]; then
+    warn "Cluster destruction is blocked while stack or user resources remain:"
+    printf '  Ingresses: %s\n' "$ingress_count" >&2
+    printf '  LoadBalancer Services: %s\n' "$load_balancer_service_count" >&2
+    printf '  PersistentVolumeClaims: %s\n' "$pvc_count" >&2
+    printf '  Non-system Pods: %s\n' "$workload_pod_count" >&2
+    printf '  DNSEndpoints: %s\n' "$dns_endpoint_count" >&2
+    if [ -n "$stack_namespaces" ]; then printf '%s\n' "$stack_namespaces" >&2; fi
+    if [ -n "$workload_controllers" ]; then printf '%s\n' "$workload_controllers" >&2; fi
+    if [ -n "$persistent_volumes" ]; then printf '%s\n' "$persistent_volumes" >&2; fi
+    die "Remove stacks and preserve or purge their data explicitly before destroying the cluster."
+  fi
+}
+
+uninstall_external_dns() {
+  if [ "$MANAGE_EXTERNAL_DNS" = true ] && \
+     helm status "$EXTERNAL_DNS_RELEASE_NAME" \
+       --kube-context "$KUBE_CONTEXT" \
+       --namespace kube-system >/dev/null 2>&1; then
+    log "Uninstalling ExternalDNS after confirming that no public stack endpoints remain."
+    helm uninstall "$EXTERNAL_DNS_RELEASE_NAME" \
+      --kube-context "$KUBE_CONTEXT" \
+      --namespace kube-system \
+      --wait
+  fi
+}
+
+destroy_cluster() {
+  require_command aws
+  require_command eksctl
+  require_command helm
+  require_command jq
+  require_command kubectl
+  require_existing_cluster
+
+  [ "$CONFIRM_CLUSTER_NAME" = "$CLUSTER_NAME" ] || die \
+    "Destroy requires --confirm '$CLUSTER_NAME'."
+
+  destroy_preflight
+  uninstall_external_dns
+
+  if [ "$MANAGE_LOAD_BALANCER_CONTROLLER" = true ] && \
+     helm status aws-load-balancer-controller \
+       --kube-context "$KUBE_CONTEXT" \
+       --namespace kube-system >/dev/null 2>&1; then
+    log "Uninstalling the AWS Load Balancer Controller."
+    helm uninstall aws-load-balancer-controller \
+      --kube-context "$KUBE_CONTEXT" \
+      --namespace kube-system \
+      --wait
+  fi
+
+  log "Deleting EKS cluster '$CLUSTER_NAME' without waiting for system PodDisruptionBudgets."
+  eksctl_with_profile delete cluster \
+    --name "$CLUSTER_NAME" \
+    --region "$AWS_REGION_NAME" \
+    --disable-nodegroup-eviction \
+    --wait
+}
+
+main() {
+  parse_arguments "$@"
+
+  case "$COMMAND" in
+    create)
+      create_cluster
+      ;;
+    apply)
+      apply_cluster
+      ;;
+    status)
+      show_cluster_status
+      ;;
+    kubeconfig)
+      require_command aws
+      require_existing_cluster
+      configure_kube_context
+      ;;
+    destroy)
+      destroy_cluster
+      ;;
+  esac
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+fi

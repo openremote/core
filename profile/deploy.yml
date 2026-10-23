@@ -358,9 +358,9 @@ services:
       # relative paths are resolved relative to OR_STORAGE_DIR
       OR_KEYCLOAK_GRANT_FILE:
 
-      # Configure the default max age for data points stored in the database (individual attributes can use a custom
-      # value by using the DATA_POINTS_MAX_AGE_DAYS AssetMeta item).
-      # OR_DATA_POINTS_MAX_AGE_DAYS: 30
+      # Configure the max age in weeks for data points stored in the database; data points are kept indefinitely when
+      # not set. The deprecated OR_DATA_POINTS_MAX_AGE_DAYS is still used (rounded up to weeks) when this is not set.
+      # OR_DATA_POINTS_MAX_AGE_WEEKS: 4
 
       # Configure the limit of data points that can be queried.
       # Defaults to 100.000. When set to 0, it disables the limit.

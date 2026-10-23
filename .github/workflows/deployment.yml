@@ -36,6 +36,11 @@ jobs:
           sparse-checkout: .ci_cd
           sparse-checkout-cone-mode: false
 
+      # Compatibility with released scripts
+      - name: Provide legacy core repo checkout path
+        if: ${{ steps.is_core_repo.outputs.value == 'false' }}
+        run: ln -s core openremote
+
       - name: Process ci_cd.json file
         id: ci-cd-output
         uses: openremote/core/.github/actions/process-cicd-json@357f1387fbc99e7a59752a62064f0bdade57612d
@@ -325,6 +330,7 @@ jobs:
             sys.exit(1)
         env:
           IS_CORE_REPO: ${{ steps.is_core_repo.outputs.value }}
+          IS_MAIN_REPO: ${{ steps.is_core_repo.outputs.value }} # Compatibility with released scripts
           DEPLOYMENTS: ${{ steps.deployments.outputs.value }}
           BUILDX_BUILDER: ${{ steps.buildx.outputs.name }}
           MANAGER_DOCKER_BUILD_PATH: manager/build/install/manager

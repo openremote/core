@@ -1,0 +1,18 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: openremote-stack-ingress
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # A podSelector without a namespaceSelector selects only Pods in this
+        # NetworkPolicy's namespace.
+        - podSelector: {}
+        {{- with .Values.networkPolicy.additionalIngressFrom }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+{{- end }}

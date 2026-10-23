@@ -1,0 +1,24 @@
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: IngressClassParams
+metadata:
+  name: openremote-alb
+spec:
+  group:
+    name: openremote-stacks
+  namespaceSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: openremote
+  scheme: internet-facing
+  sslRedirectPort: "443"
+  targetType: ip
+---
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: openremote-alb
+spec:
+  controller: ingress.k8s.aws/alb
+  parameters:
+    apiGroup: elbv2.k8s.aws
+    kind: IngressClassParams
+    name: openremote-alb

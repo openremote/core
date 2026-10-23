@@ -1,31 +1,32 @@
 #!/bin/bash
 
+# Legacy topology: ACM terminates HTTPS and MQTTS at one public NLB.
+# Run from this directory, on a dedicated disposable cluster only.
 . ./eks-common.sh
 
-envsubst < profiles/$OR_PROFILE/cluster.yaml | eksctl create cluster -f - --profile or
+envsubst '${CLUSTER_NAME} ${AWS_REGION}' < profiles/$OR_PROFILE/cluster.yaml | eksctl create cluster -f - --profile or
+aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION" --profile or --alias "$K_CONTEXT"
+
+# Current component charts dynamically provision their own PVCs.
+kubectl --context "$K_CONTEXT" apply -f "$OR_KUBERNETES_PATH/cluster/eks/storage-class.yaml"
 
 # [Installation Guide - AWS Load Balancer Controller](https://kubernetes-sigs.github.io/aws-load-balancer-controller/latest/deploy/installation/)
 
 helm repo add eks https://aws.github.io/eks-charts
 helm repo update eks
 
-helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
-  -n kube-system \
+helm install --kube-context "$K_CONTEXT" aws-load-balancer-controller eks/aws-load-balancer-controller \
+  -n kube-system --version 1.14.0 \
   --set clusterName=$CLUSTER_NAME \
   --set serviceAccount.create=false \
   --set serviceAccount.name=aws-load-balancer-controller
 
-PSQL_VOLUMEID=$(aws ec2 create-volume --size $(grep "psqlVolumeSize:" values-or-setup-eks-load.yaml | awk '{print $2}' | tr -d '"Gi') \
-  --availability-zone eu-west-1a --tag-specifications "ResourceType=volume,Tags=[{Key=Name,Value=psql-data}]" --query VolumeId)
-MANAGER_VOLUMEID=$(aws ec2 create-volume --size $(grep "managerVolumeSize:" values-or-setup-eks-load.yaml | awk '{print $2}' | tr -d '"Gi') \
-  --availability-zone eu-west-1a --tag-specifications "ResourceType=volume,Tags=[{Key=Name,Value=manager-data}]" --query VolumeId)
-
 # Wait for AWS LB ctrl to be ready
-kubectl rollout status deployment aws-load-balancer-controller -n kube-system --timeout=300s
+kubectl --context "$K_CONTEXT" rollout status deployment aws-load-balancer-controller -n kube-system --timeout=300s
 
-CLUSTER_DNS=$(kubectl get svc kube-dns -n kube-system -o jsonpath='{.spec.clusterIP}:{.spec.ports[?(@.name=="dns")].port}')
+CLUSTER_DNS=$(kubectl --context "$K_CONTEXT" get svc kube-dns -n kube-system -o jsonpath='{.spec.clusterIP}:{.spec.ports[?(@.name=="dns")].port}')
 
-helm install or-setup $OR_KUBERNETES_PATH/or-setup -f values-or-setup-eks-load.yaml --set aws.enabled=true --set aws.managerVolumeId=$MANAGER_VOLUMEID --set aws.psqlVolumeId=$PSQL_VOLUMEID
+helm install --kube-context "$K_CONTEXT" --namespace default or-setup "$OR_KUBERNETES_PATH/or-setup"
 
 CERTIFICATE_ARN=$(aws acm request-certificate --domain-name $FQDN --validation-method DNS --profile or --query "CertificateArn" --output text)
 
@@ -45,13 +46,15 @@ aws route53 change-resource-record-sets \
      '{"Changes": [ { "Action": "UPSERT", "ResourceRecordSet": { "Name": "'$DNS_RECORD_NAME'", "Type": "CNAME", "TTL": 300, "ResourceRecords" : [ { "Value": "'$DNS_RECORD_VALUE'" } ] } } ]}' \
      --profile dnschg
 
-helm install proxy $OR_KUBERNETES_PATH/proxy \
-  -f $OR_KUBERNETES_PATH/proxy/values-eks.yaml -f profiles/$OR_PROFILE/values-proxy-eks-load.yaml  -f values-proxy-acm-load.yaml \
+aws acm wait certificate-validated --certificate-arn "$CERTIFICATE_ARN" --profile or
+
+helm install --kube-context "$K_CONTEXT" --namespace default proxy $OR_KUBERNETES_PATH/proxy \
+  -f $OR_KUBERNETES_PATH/proxy/values-eks.yaml -f "profiles/$OR_PROFILE/proxy.yaml"  -f values-proxy-acm-load.yaml \
   --set or.nameserver=$CLUSTER_DNS --set or.hostname=$FQDN \
   --set-string 'service.http.annotations.service\.beta\.kubernetes\.io\/aws-load-balancer-ssl-cert'=$CERTIFICATE_ARN \
   --set-string image.repository=$AWS_DEVELOPERS_ACCOUNT_ID.dkr.ecr.eu-west-1.amazonaws.com/openremote/proxy
 
-helm install postgresql $OR_KUBERNETES_PATH/postgresql -f $OR_KUBERNETES_PATH/postgresql/values-eks.yaml -f profiles/$OR_PROFILE/values-postgresql-eks-load.yaml
+helm install --kube-context "$K_CONTEXT" --namespace default postgresql $OR_KUBERNETES_PATH/postgresql -f $OR_KUBERNETES_PATH/postgresql/values-eks.yaml -f "profiles/$OR_PROFILE/postgresql.yaml"
 
 # Waiting for the LB to be created
 # AWS LB Controller only creates an Network LB if there's a service
@@ -76,10 +79,12 @@ aws route53 change-resource-record-sets \
      '{"Changes": [ { "Action": "UPSERT", "ResourceRecordSet": { "Name": "'$FQDN'", "Type": "A", "AliasTarget":{ "HostedZoneId": '$HOSTED_ZONE_ID',"DNSName": '$DNS_NAME',"EvaluateTargetHealth": false} } } ]}' \
      --profile dnschg
 
-helm install keycloak $OR_KUBERNETES_PATH/keycloak -f $OR_KUBERNETES_PATH/keycloak/values-haproxy.yaml \
-  -f profiles/$OR_PROFILE/values-keycloak-eks-load.yaml --set-string or.hostname=$FQDN
-helm install manager $OR_KUBERNETES_PATH/manager -f $OR_KUBERNETES_PATH/manager/values-haproxy-eks.yaml \
-  -f profiles/$OR_PROFILE/values-manager-eks-load.yaml --set-string or.hostname=$FQDN \
+# The Keycloak chart constructs the public issuer from the hostname.
+helm install --kube-context "$K_CONTEXT" --namespace default --wait --timeout 90m keycloak $OR_KUBERNETES_PATH/keycloak -f $OR_KUBERNETES_PATH/keycloak/values-haproxy.yaml \
+  -f "profiles/$OR_PROFILE/keycloak.yaml" --set-string "or.hostname=$FQDN"
+# Override the shared Manager template's image repository directly.
+helm install --kube-context "$K_CONTEXT" --namespace default --wait --timeout 90m manager $OR_KUBERNETES_PATH/manager -f $OR_KUBERNETES_PATH/manager/values-haproxy-eks.yaml \
+  -f "profiles/$OR_PROFILE/manager.yaml" --set-string "or.hostname=$FQDN" \
   --set-string image.repository=$AWS_DEVELOPERS_ACCOUNT_ID.dkr.ecr.eu-west-1.amazonaws.com/openremote/manager
 
 while ! dig +short $FQDN | grep -qE '^[0-9]'; do
@@ -88,3 +93,6 @@ while ! dig +short $FQDN | grep -qE '^[0-9]'; do
 done
 
 echo "Access the manager at https://$FQDN"
+
+echo "Retrieve the generated admin password (username: admin) with:"
+echo "kubectl --context $K_CONTEXT --namespace default get secret openremote-secret -o jsonpath='{.data.admin-password}' | base64 --decode"

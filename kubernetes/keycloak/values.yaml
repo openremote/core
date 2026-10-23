@@ -64,6 +64,8 @@ service:
 ingress:
   enabled: false
   className: "nginx"
+  # When set, overrides the host of every rule without replacing its paths.
+  hostname: ""
   annotations: {}
     # kubernetes.io/ingress.class: nginx
     # kubernetes.io/tls-acme: "true"
@@ -124,7 +126,9 @@ or:
   # - name: foo
   #   value: bar
 
-  # Configure web server
+  # Bare hostnames become https://<hostname>/auth; full URLs are used unchanged.
+  # Public stacks set a full HTTPS URL (including /auth and any custom port)
+  # so internal discovery and browser requests use the same token issuer.
   hostname: "localhost"
   port: "-1"
 
