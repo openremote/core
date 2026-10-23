@@ -127,6 +127,33 @@ class AssetsFacadePathFilterTest extends Specification implements ManagerContain
     "offset applies after path filtering" | [["child"]] | null | false | 1 | 1 | ["grandchild"]
   }
 
+  def "Recursive asset scope preserves caller paths #pathNames"() {
+    given:
+    def facade = new AssetsFacade(new RulesEngineId(realm, testAssets.scoped.id), storage,
+            { throw new AssertionError("Unexpected dispatch") })
+    def query = new AssetQuery().recursive(true)
+            .names(new StringPredicate(AssetQuery.Match.BEGIN, prefix))
+    if (pathNames != null) {
+      query.paths(pathNames.collect { new PathPredicate(testAssets[it].id) } as PathPredicate[])
+    }
+
+    when:
+    def result = facade.getResults(query).toList()
+
+    then:
+    result.collect { it.id }.toSet() == expected.collect { testAssets[it].id }.toSet()
+    result.every { it.realm == realm }
+
+    where:
+    pathNames | expected
+    null | ["scoped", "child", "grandchild", "otherChild"]
+    [] | []
+    ["ancestor"] | ["scoped", "child", "grandchild", "otherChild"]
+    ["child"] | ["child", "grandchild"]
+    ["child", "sibling"] | ["child", "grandchild"]
+    ["sibling", "foreign"] | []
+  }
+
   private ThingAsset createAsset(String name, String assetRealm, String parentId = null) {
     def asset = storage.merge(new ThingAsset(prefix + name).setRealm(assetRealm).setParentId(parentId))
     createdAssetIds.add(asset.id)
