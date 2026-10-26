@@ -521,7 +521,6 @@ export class Manager {
 
     // Provision assets
     if (assets) {
-      this.assets = [];
       for (const asset of assets) {
         await this.createAsset(asset, config);
       }
