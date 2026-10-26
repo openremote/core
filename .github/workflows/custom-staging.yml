@@ -28,6 +28,7 @@ jobs:
           fetch-depth: 2 # Must be 2 for push events to compare to previous commit
       - name: Detect changes
         id: changed-files
+        if: github.ref_type != 'tag'
         uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
         with:
           files_yaml: |
