@@ -18,9 +18,9 @@
   },
   "devDependencies": {
     "@rsbuild/core": "~1.7.5",
-    "@storybook/addon-a11y": "~10.4.6",
-    "@storybook/addon-docs": "~10.4.6",
-    "@storybook/web-components": "~10.4.6",
+    "@storybook/addon-a11y": "~10.6.2",
+    "@storybook/addon-docs": "~10.6.2",
+    "@storybook/web-components": "~10.6.2",
     "@types/react": "^18.3.12",
     "@wc-toolkit/storybook-helpers": "^10.5.1",
     "storybook": "~10.6.2",
