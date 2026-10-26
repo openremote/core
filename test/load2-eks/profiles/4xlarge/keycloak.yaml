@@ -1,0 +1,11 @@
+# Single-node load profiles cannot assume spare capacity for surge Pods.
+strategy:
+  type: Recreate
+
+resources:
+  limits:
+    cpu: 2000m
+    memory: 5Gi
+  requests:
+    cpu: 2000m
+    memory: 5Gi

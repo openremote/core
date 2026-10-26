@@ -26,9 +26,14 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
@@ -38,7 +43,6 @@ import java.util.logging.Logger;
 import java.util.stream.Stream;
 import org.openremote.container.persistence.PersistenceService;
 import org.openremote.container.timer.TimerService;
-import org.openremote.container.util.CodecUtil;
 import org.openremote.manager.security.ManagerIdentityService;
 import org.openremote.manager.web.ManagerWebService;
 import org.openremote.model.Container;
@@ -55,6 +59,9 @@ public class ConfigurationService implements ContainerService {
 
   public static final String OR_MAP_TILES_PATH = "OR_MAP_TILES_PATH";
   public static final String OR_MAP_TILES_PATH_DEFAULT = "manager/src/map/mapdata.mbtiles";
+
+  public static final String MANAGER_CONFIG_IMAGE_URL_PREFIX =
+      "/api/master/configuration/manager/image/";
 
   protected ManagerIdentityService identityService;
   protected PersistenceService persistenceService;
@@ -170,9 +177,7 @@ public class ConfigurationService implements ContainerService {
     LOG.log(Level.INFO, "Saving map_settings.json to: " + getPersistedMapConfigPath());
     try {
       Path p = getPersistedMapConfigPath();
-      File file = p.toAbsolutePath().toFile();
-      if (!file.getParentFile().exists()) file.getParentFile().mkdirs();
-
+      Files.createDirectories(p.getParent());
       Files.writeString(
           p, ValueUtil.JSON.writeValueAsString(mapConfiguration), StandardCharsets.UTF_8);
       // Ensure mapSettingsPath is now pointing to persistence path
@@ -180,7 +185,7 @@ public class ConfigurationService implements ContainerService {
     } catch (Exception exception) {
       String msg = "Error saving map_settings.json: msg=" + exception.getMessage();
       LOG.log(Level.WARNING, msg);
-      throw new IllegalStateException(msg);
+      throw new IllegalStateException(msg, exception);
     }
   }
 
@@ -243,14 +248,11 @@ public class ConfigurationService implements ContainerService {
 
   public void saveManagerConfig(ManagerAppConfig managerAppConfig) throws Exception {
     LOG.log(Level.INFO, "Saving manager_config.json to: " + getPersistedManagerConfigPath());
-
     try {
       // Check references to images
       managerAppConfig = checkAndFixImageReferences(managerAppConfig);
       Path p = getPersistedManagerConfigPath();
-      File file = p.toAbsolutePath().toFile();
-      if (!file.getParentFile().exists()) file.getParentFile().mkdirs();
-
+      Files.createDirectories(p.getParent());
       Files.writeString(
           p, ValueUtil.JSON.writeValueAsString(managerAppConfig), StandardCharsets.UTF_8);
       // Ensure managerConfigPath is now pointing to persistence path
@@ -263,71 +265,157 @@ public class ConfigurationService implements ContainerService {
     } catch (Exception exception) {
       String msg = "Error saving manager_config.json: msg=" + exception.getMessage();
       LOG.log(Level.WARNING, msg);
-      throw new Exception(msg);
+      throw new Exception(msg, exception);
     }
   }
 
-  public void saveManagerConfigImage(String path, FileInfo fileInfo) throws Exception {
-    LOG.log(Level.INFO, "Saving image in manager_config.json: " + fileInfo);
-    path = path.replace("/images/", "");
-    path = path.charAt(0) == '/' ? path.substring(1) : path;
-    Path resolvedPath = Path.of(path);
-    resolvedPath = getPersistedManagerConfigImagePath().resolve(resolvedPath);
-    Path filePath = getPersistedManagerConfigImagePath().resolve(path);
-    File file = filePath.toAbsolutePath().toFile();
-
+  /**
+   * Stores a validated image at the requested relative path, replacing an existing image. Returns
+   * the stored relative path. Callers are responsible for enforcing realm authorization.
+   */
+  public String saveManagerConfigImage(String path, FileInfo fileInfo) throws IOException {
+    String filename = normalizeImagePath(path);
+    if (fileInfo == null) {
+      throw new IllegalArgumentException(
+          "Image content is missing; provide the image file contents");
+    }
+    byte[] data = ImageUploadValidator.decodeAndValidate(filename, fileInfo.getContents());
+    Path stored = resolveImagePath(getPersistedManagerConfigImagePath(), filename, true);
+    if (Files.isDirectory(stored, LinkOption.NOFOLLOW_LINKS)) {
+      throw new IllegalArgumentException(
+          "Image upload path is a directory; provide an image filename");
+    }
+    // Manager serves these images through its API; other containers do not read this storage.
+    // Retain the temporary file's restrictive default permissions after the rename.
+    Path temporary = Files.createTempFile(stored.getParent(), ".image-upload-", ".tmp");
     try {
-      boolean isValid =
-          resolvedPath
-              .toFile()
-              .getCanonicalPath()
-              .contains(
-                  getPersistedManagerConfigImagePath().toFile().getCanonicalPath()
-                      + File.separator);
+      // Finish writing before replacing the image, so readers do not see a partial upload.
+      Files.write(temporary, data, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
+      replaceManagerConfigImage(temporary, stored);
+    } finally {
+      Files.deleteIfExists(temporary);
+    }
+    return getPersistedManagerConfigImagePath()
+        .toRealPath()
+        .relativize(stored)
+        .toString()
+        .replace(File.separatorChar, '/');
+  }
 
-      if (!isValid) {
-        String msg =
-            "Failed to save manager config image path outside permitted directory: " + resolvedPath;
-        LOG.warning(msg);
-        throw new Exception(
-            "Failed to save manager config image path outside permitted directory: "
-                + resolvedPath);
-      }
-
-      if (!file.getParentFile().exists()) file.getParentFile().mkdirs();
-      Files.write(filePath, CodecUtil.decodeBase64(fileInfo.getContents()));
-    } catch (Exception exception) {
-      String msg =
-          "Error saving image in manager_config.json '"
-              + filePath
-              + "': msg="
-              + exception.getMessage();
-      LOG.log(Level.WARNING, msg);
-      throw new Exception(msg);
+  /** Replaces a complete image atomically where supported. */
+  protected void replaceManagerConfigImage(Path temporary, Path stored) throws IOException {
+    try {
+      Files.move(
+          temporary, stored, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+    } catch (AtomicMoveNotSupportedException e) {
+      Files.move(temporary, stored, StandardCopyOption.REPLACE_EXISTING);
     }
   }
 
   public Optional<File> getManagerConfigImage(String filename) {
-    File file = getPersistedManagerConfigImagePath().resolve(filename).toFile();
-    String checkPath;
-
     try {
-      if (file.isFile()) {
-        checkPath = getPersistedManagerConfigImagePath().toFile().getCanonicalPath();
-      } else {
-        // fallback to OR_CUSTOM_APP_DOCROOT
-        file = pathPublicRoot.resolve("images").resolve(filename).toFile();
-        checkPath = pathPublicRoot.toFile().getCanonicalPath();
-      }
-
-      // Check if the file retrieved is somewhere within the allowed directory.
-      boolean isValid = file.getCanonicalPath().contains(checkPath + File.separator);
-      if (!isValid) return Optional.empty();
-    } catch (IOException e) {
+      ImageUploadValidator.getMediaType(filename);
+    } catch (IllegalArgumentException e) {
       return Optional.empty();
     }
+    for (Path root :
+        new Path[] {getPersistedManagerConfigImagePath(), pathPublicRoot.resolve("images")}) {
+      try {
+        if (!Files.isDirectory(root)) {
+          continue;
+        }
+        Path path = resolveImagePath(root, filename, false);
+        if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
+          continue;
+        }
+        return Optional.of(path.toFile());
+      } catch (IllegalArgumentException | IOException e) {
+        LOG.log(
+            Level.FINE,
+            "Configuration image rejected for path '" + filename + "': " + e.getMessage());
+        return Optional.empty();
+      }
+    }
+    return Optional.empty();
+  }
 
-    return file.isFile() ? Optional.of(file) : Optional.empty();
+  private static String normalizeImagePath(String path) {
+    if (path == null || path.isBlank()) {
+      throw new IllegalArgumentException("Image upload path is missing");
+    }
+    if (path.startsWith("/images/")) {
+      return path.substring(8);
+    }
+    return path.startsWith("images/") ? path.substring(7) : path;
+  }
+
+  // The configured root is trusted and may itself be a symlink. No symlinks below it are allowed.
+  // Compare canonical Paths, not strings, and check each descendant before creating or reading it.
+  private static Path resolveImagePath(Path root, String filename, boolean createParents)
+      throws IOException {
+    if (filename == null || filename.isBlank()) {
+      throw new IllegalArgumentException(
+          "Image path is missing; provide a relative filename including an image extension");
+    }
+    if (filename.indexOf('\\') >= 0) {
+      throw new IllegalArgumentException(
+          "Image path contains a backslash; use '/' to separate relative directories");
+    }
+    Path relative = Path.of(filename);
+    Path base = root.toAbsolutePath().normalize();
+    if (relative.isAbsolute()) {
+      throw new IllegalArgumentException(
+          "Image path must be relative to the configuration image directory; absolute paths are not"
+              + " allowed");
+    }
+    if (relative.normalize().toString().isEmpty()) {
+      throw new IllegalArgumentException(
+          "Image path must include a filename; it cannot refer to the configuration image directory"
+              + " itself");
+    }
+    for (Path part : relative) {
+      if ("..".equals(part.toString())) {
+        throw new IllegalArgumentException(
+            "Image path contains '..'; parent directory traversal is not allowed");
+      }
+    }
+    if (createParents) {
+      Files.createDirectories(base);
+    }
+    Path realRoot = base.toRealPath();
+    Path current = realRoot;
+    for (int i = 0; i < relative.getNameCount(); i++) {
+      current = current.resolve(relative.getName(i)).normalize();
+      if (current.equals(realRoot)) {
+        throw new IllegalArgumentException(
+            "Image path starts with './'; remove it and use a relative filename or subdirectory");
+      }
+      if (Files.isSymbolicLink(current)) {
+        throw new IllegalArgumentException(
+            "Image path uses a symbolic link at '%s'; symbolic links are not allowed in the configuration image directory"
+                .formatted(relative.subpath(0, i + 1)));
+      }
+      if (createParents && i < relative.getNameCount() - 1) {
+        try {
+          Files.createDirectory(current);
+        } catch (FileAlreadyExistsException e) {
+          if (!Files.isDirectory(current, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IllegalArgumentException(
+                "Image path parent '%s' is not a directory; each component before the filename must be a directory"
+                    .formatted(relative.subpath(0, i + 1)));
+          }
+        }
+      }
+      if (Files.exists(current, LinkOption.NOFOLLOW_LINKS)) {
+        current = current.toRealPath();
+      }
+      if (!current.startsWith(realRoot)) {
+        throw new IllegalArgumentException(
+            "Image path resolves outside the configuration image directory; images must remain"
+                + " inside that directory");
+      }
+    }
+    return current;
   }
 
   protected Path getPersistedManagerConfigPath() {
@@ -346,10 +434,9 @@ public class ConfigurationService implements ContainerService {
     return this.persistenceService.resolvePath("manager").resolve("images");
   }
 
-  protected ManagerAppConfig checkAndFixImageReferences(ManagerAppConfig managerAppConfig) {
-
-    if (!getPersistedManagerConfigImagePath().toFile().exists())
-      getPersistedManagerConfigImagePath().toFile().mkdirs();
+  protected ManagerAppConfig checkAndFixImageReferences(ManagerAppConfig managerAppConfig)
+      throws IOException {
+    Files.createDirectories(getPersistedManagerConfigImagePath());
     if (managerAppConfig.getRealms() != null && !managerAppConfig.getRealms().isEmpty()) {
       managerAppConfig
           .getRealms()
@@ -372,35 +459,40 @@ public class ConfigurationService implements ContainerService {
   }
 
   protected String fixImageRef(String image) {
-    String originalString = image;
-    if (!image.isBlank()) {
-      image = image.replace("/api/master/configuration/manager/image/", "");
-      image = image.replace("images/", "");
-      image = image.charAt(0) == '/' ? image.substring(1) : image;
-      Path imagePath = Path.of(image);
-      Path persistedImagePath =
-          getPersistedManagerConfigImagePath().resolve(imagePath).toAbsolutePath();
-      Path path = pathPublicRoot.resolve("images").resolve(imagePath).toAbsolutePath();
-
-      if (!Files.isRegularFile(persistedImagePath)) {
-        if (Files.isRegularFile(path)) {
-          try {
-            // Image doesn't exist in persisted path but does exist in doc root so copy it
-            Files.copy(path, persistedImagePath);
-            // Change the reference in the config to the typical API-like reference:
-            image = "/api/master/configuration/manager/image/" + imagePath;
-          } catch (Exception e) {
-            LOG.warning(
-                "Error occurred whilst copying manager config image to persisted path: "
-                    + persistedImagePath);
-          }
-        } else {
-          LOG.warning("manager_config.json image reference doesn't exist: " + imagePath);
-        }
-      } else {
-        return originalString;
-      }
+    if (image.isBlank()) {
+      return image;
     }
-    return image;
+    String filename =
+        normalizeImagePath(
+            image.startsWith(MANAGER_CONFIG_IMAGE_URL_PREFIX)
+                ? image.substring(MANAGER_CONFIG_IMAGE_URL_PREFIX.length())
+                : image);
+    try {
+      Path persisted = resolveImagePath(getPersistedManagerConfigImagePath(), filename, false);
+      if (Files.isRegularFile(persisted, LinkOption.NOFOLLOW_LINKS)) {
+        return image;
+      }
+      Optional<File> source = getManagerConfigImage(filename);
+      if (source.isEmpty()) {
+        LOG.warning("manager_config.json image reference is missing or invalid: " + filename);
+        return image;
+      }
+      // Validate a fallback image once when importing it into persisted configuration assets.
+      byte[] data;
+      try (var input = Files.newInputStream(source.get().toPath(), LinkOption.NOFOLLOW_LINKS)) {
+        data = input.readNBytes(ImageUploadValidator.MAX_FILE_SIZE + 1);
+      }
+      ImageUploadValidator.validate(filename, data);
+      persisted = resolveImagePath(getPersistedManagerConfigImagePath(), filename, true);
+      Files.write(persisted, data, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+      return MANAGER_CONFIG_IMAGE_URL_PREFIX + filename;
+    } catch (IllegalArgumentException | IOException e) {
+      LOG.warning(
+          "Could not resolve manager_config.json image reference '"
+              + filename
+              + "': "
+              + e.getMessage());
+      return image;
+    }
   }
 }

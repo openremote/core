@@ -20,12 +20,15 @@ jobs:
       backend_spotless_any_modified: ${{ steps.changed-files.outputs.backend_spotless_any_modified }}
       ui_any_modified: ${{ steps.changed-files.outputs.ui_any_modified }}
       ui_spotless_any_modified: ${{ steps.changed-files.outputs.ui_spotless_any_modified }}
+      # Processed ci_cd.json outputs
+      deploys: ${{ steps.ci-cd-output.outputs.deploys }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2 # Must be 2 for push events to compare to previous commit
       - name: Detect changes
         id: changed-files
+        if: github.ref_type != 'tag'
         uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
         with:
           files_yaml: |
@@ -56,6 +59,23 @@ jobs:
               - 'ui/**/*.{cjs,css,cts,gradle,html,js,json,jsonc,jsx,md,mdx,mjs,mts,ts,tsx}'
               - 'ui/.prettierignore'
 
+      - name: Get version details
+        id: get-version-details
+        uses: openremote/core/.github/actions/get-version-details@3cde448ab3d2e825e7ab189881d0e6cf33a34486
+
+      - name: Check if core repo
+        id: is_core_repo
+        uses: openremote/core/.github/actions/check-if-core-repo@357f1387fbc99e7a59752a62064f0bdade57612d
+
+      - name: Process ci_cd.json file
+        id: ci-cd-output
+        uses: openremote/core/.github/actions/process-cicd-json@357f1387fbc99e7a59752a62064f0bdade57612d
+        with:
+          IS_CORE_REPO: ${{ steps.is_core_repo.outputs.value }}
+          MANAGER_VERSION: ${{ steps.is_core_repo.outputs.version }}
+          IS_RELEASE: ${{ steps.get-version-details.outputs.is_release }}
+          VERSION: ${{ steps.get-version-details.outputs.version }}
+
   check-spotless:
     name: Lint
     needs: detect-changes
@@ -75,7 +95,7 @@ jobs:
   install-dist:
     name: Build
     needs: detect-changes
-    uses: "./.github/workflows/install-dist.yml"
+    uses: "./.github/workflows/custom-install-dist.yml"
 
   unit-tests:
     name: Test
@@ -101,7 +121,11 @@ jobs:
   #   with:
   #     skip: ${{ needs.detect-changes.outputs.backend_any_modified != 'true' }}
 
-  # deployment:
-  #   name: Deploy
-  #   needs: [unit-tests, integration-tests]
-  #   uses: "./.github/workflows/deployment.yml"
+  deployment:
+    name: Deploy
+    needs: [detect-changes, check-spotless, ui-check-spotless, install-dist, unit-tests, integration-tests]
+    if: ${{ !failure() && !cancelled() && needs.detect-changes.outputs.deploys != '' }}
+    uses: "./.github/workflows/deployment.yml"
+    with:
+      INPUTS: ${{ inputs.INPUTS }}
+    secrets: inherit

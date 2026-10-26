@@ -21,6 +21,7 @@ package org.openremote.manager.syslog;
 import static org.openremote.model.syslog.SyslogConfig.DEFAULT_LIMIT;
 
 import jakarta.ws.rs.BeanParam;
+import jakarta.ws.rs.ForbiddenException;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriBuilder;
 import java.time.Instant;
@@ -82,16 +83,25 @@ public class SyslogResourceImpl extends WebResource implements SyslogResource {
 
   @Override
   public void clearEvents(@BeanParam RequestParams requestParams) {
+    if (!isSuperUser()) {
+      throw new ForbiddenException("Only super admin can clear stored events");
+    }
     syslogService.clearStoredEvents();
   }
 
   @Override
   public SyslogConfig getConfig(@BeanParam RequestParams requestParams) {
+    if (!isSuperUser()) {
+      throw new ForbiddenException("Only super admin can read the logging configuration");
+    }
     return syslogService.getConfig();
   }
 
   @Override
   public void updateConfig(@BeanParam RequestParams requestParams, SyslogConfig config) {
+    if (!isSuperUser()) {
+      throw new ForbiddenException("Only super admin can update the logging configuration");
+    }
     syslogService.setConfig(config);
   }
 }

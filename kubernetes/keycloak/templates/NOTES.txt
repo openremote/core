@@ -1,2 +1,2 @@
 OpenRemote Keycloak {{ .Chart.AppVersion }}
-Visit https://{{ .Values.or.hostname }}/auth
+Visit {{ include "keycloak.publicUrl" . }}

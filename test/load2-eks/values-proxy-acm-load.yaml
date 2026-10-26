@@ -1,3 +1,4 @@
+# Legacy ACM/NLB experiment only; never pass this overlay to or-stack.
 service:
   http:
     annotations:
@@ -7,10 +8,14 @@ service:
 
       service.beta.kubernetes.io/aws-load-balancer-ssl-cert: "arn:aws:acm:eu-west-1:<openremote account id>:certificate/..."
       service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443,8883"
+  mqtts:
+    enabled: true
+
+persistence:
+  enabled: false
+
 or:
+  disableAcme: true
   haproxyConfig: /etc/haproxy/haproxy-edge-terminated-tls.cfg
   httpsPort: 8080
   mqttPort: 1883
-  env:
-    - name: DISABLE_ACME
-      value: "true"

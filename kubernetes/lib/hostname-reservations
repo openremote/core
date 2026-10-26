@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+
+# Shared by the portable and EKS lifecycle commands. A namespace isolates resource
+# names, but not ALB host rules or ExternalDNS records. In particular, ExternalDNS's
+# TXT owner identifies the cluster, not an individual stack. Two stacks claiming
+# the same hostname could therefore send users to the wrong Manager.
+#
+# A scan is necessary for pre-existing routes, but cannot arbitrate concurrent
+# applies. This registry uses Kubernetes create/resourceVersion conflict detection
+# to reserve both a hostname and a stack's immutable hostname in one transaction.
+# Keep it outside stack namespaces, without ownerReferences or expiry: namespace
+# deletion is not proof that external DNS/certificate cleanup has completed.
+# No CRD, controller, AWS credentials, or process-local lock is required.
+
+HOSTNAME_REGISTRY_NAME=openremote-hostnames
+HOSTNAME_REGISTRY_NAMESPACE=kube-system
+
+read_hostname_registry() {
+  local registry
+  require_command jq
+  registry="$(kubectl --context "$KUBE_CONTEXT" --namespace "$HOSTNAME_REGISTRY_NAMESPACE" \
+    get configmap "$HOSTNAME_REGISTRY_NAME" --ignore-not-found -o json)" || die \
+      "Unable to read hostname reservations; refusing to continue without ownership checks."
+  if [ -z "$registry" ]; then
+    printf '%s\n' '{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"openremote-hostnames","namespace":"kube-system","labels":{"app.kubernetes.io/managed-by":"or-stack"}},"data":{}}'
+    return
+  fi
+  jq -e '.metadata.labels["app.kubernetes.io/managed-by"] == "or-stack" and
+    ((.data // {}) | type == "object" and all(.[];
+      fromjson | (.namespace | type == "string" and length > 0) and
+      (.namespaceUID | type == "string" and length > 0) and
+      (.target == "eks" or .target == "local") and
+      (.dns == "none" or .dns == "external-dns") and
+      (.exposure == "haproxy" or .exposure == "ingress") and
+      (.endpoint == null or .endpoint == "web" or .endpoint == "mqtts")))' \
+    <<< "$registry" >/dev/null || die \
+      "ConfigMap kube-system/openremote-hostnames is unowned or malformed; refusing to adopt it."
+  printf '%s\n' "$registry"
+}
+
+# Return failure only for a concurrent update. Other errors must not be mistaken
+# for contention, especially an RBAC denial or an unavailable API server.
+write_hostname_registry() {
+  local registry="$1"
+  local operation=create
+  local output
+  if jq -e '.metadata.resourceVersion != null' <<< "$registry" >/dev/null; then
+    operation=replace
+  fi
+  if output="$(kubectl --context "$KUBE_CONTEXT" --namespace "$HOSTNAME_REGISTRY_NAMESPACE" \
+    "$operation" -f - <<< "$registry" 2>&1)"; then
+    return 0
+  fi
+  case "$output" in
+    *'(AlreadyExists)'*|*'(Conflict)'*) return 1 ;;
+    *) die "Unable to write hostname reservations: $output" ;;
+  esac
+}
+
+stack_endpoint_hostname_reservation() {
+  local endpoint="$1"
+  local registry
+  registry="$(read_hostname_registry)" || return 1
+  jq -c --arg stack "$STACK_NAME" --arg endpoint "$endpoint" \
+    '[(.data // {} | to_entries[]) | (.value | fromjson) + {hostname: .key} |
+      select(.namespace == $stack and (.endpoint // "web") == $endpoint)] |
+      if length > 1 then error("multiple hostname reservations for one stack endpoint")
+      else .[0] // empty end' <<< "$registry"
+}
+
+stack_hostname_reservation() {
+  stack_endpoint_hostname_reservation web
+}
+
+stack_mqtts_hostname_reservation() {
+  stack_endpoint_hostname_reservation mqtts
+}
+
+stack_hostname_reservations() {
+  local registry
+  registry="$(read_hostname_registry)" || return 1
+  jq -c --arg stack "$STACK_NAME" \
+    '[(.data // {} | to_entries[]) | (.value | fromjson) +
+      {hostname: .key, endpoint: (.value | fromjson | .endpoint // "web")} |
+      select(.namespace == $stack)] | sort_by(.endpoint, .hostname)[]' <<< "$registry"
+}
+
+check_existing_hostname_routes() {
+  local hostname="$1"
+  local allowed_namespace="$2"
+  local routes
+  local conflict
+  # Inspect routes from any cluster workload, including external tools using
+  # either annotation prefix. This is conflict detection, not stack adoption.
+  # Ingress rules matter even when DNS is maintained outside Kubernetes.
+  routes="$(kubectl --context "$KUBE_CONTEXT" get ingress,services --all-namespaces -o json)" || die \
+    "Unable to inspect existing public routes before reserving '$hostname'."
+  conflict="$(jq -r --arg host "$hostname" --arg allowed "$allowed_namespace" '
+    def names:
+      (.spec.rules[]?.host // empty),
+      ((.metadata.annotations["external-dns.kubernetes.io/hostname"] // "") | split(",")[]),
+      ((.metadata.annotations["external-dns.alpha.kubernetes.io/hostname"] // "") | split(",")[]);
+    def normalized: ascii_downcase | gsub("^\\s+|\\s+$"; "") | rtrimstr(".");
+    .items[] | . as $resource | names | normalized | select(length > 0) |
+    . as $declared | select(. == $host or (startswith("*.") and ($host | endswith($declared[1:])))) |
+    select($resource.metadata.namespace != $allowed) |
+    "\($resource.kind) \($resource.metadata.namespace)/\($resource.metadata.name)"' \
+    <<< "$routes")" || die "Unable to parse existing hostname declarations."
+  [ -z "$conflict" ] || die \
+    "Hostname '$hostname' conflicts with existing routing: $conflict"
+}
+
+reserve_stack_endpoint_hostname() {
+  local hostname="$1"
+  local endpoint="$2"
+  local reservation_annotation="$3"
+  local namespace_json namespace_uid recorded_hostname namespaces conflict registry owner replacement attempt
+  local previously_reserved
+  require_command jq
+  namespace_json="$(kubectl --context "$KUBE_CONTEXT" get namespace "$STACK_NAME" -o json)" || die \
+    "Unable to inspect namespace identity before reserving its hostname."
+  # A newly created namespace can have no annotations map. Read optional values
+  # through jq, which handles missing/null maps, rather than indexing a nil Go
+  # template value. Reuse the same response for namespace identity below.
+  previously_reserved="$(jq -r --arg annotation "$reservation_annotation" \
+    '.metadata.annotations[$annotation] // empty' \
+    <<< "$namespace_json")" || die "Unable to read the stack's hostname reservation metadata."
+  if [ "$endpoint" = web ] && [ -z "$previously_reserved" ] && { [ "$EXPOSURE" = none ] || \
+      { [ "$TARGET" = local ] && [ "$EXPOSURE" = haproxy ] && [ "$DNS_MODE" = none ]; }; }; then
+    # The registry write may have succeeded before namespace annotation failed.
+    # Changing to internal/local exposure must not bypass that retained claim.
+    previously_reserved="$(stack_hostname_reservation | jq -r '.hostname // empty')" || die "Unable to inspect retained hostname ownership."
+    [ -n "$previously_reserved" ] || return 0
+  fi
+  namespace_uid="$(jq -er --arg stack "$STACK_NAME" '
+    select(.metadata.labels["openremote.io/stack"] == $stack) |
+    .metadata.uid | select(type == "string" and length > 0)' <<< "$namespace_json")" || die \
+      "The stack namespace has no verifiable identity."
+  recorded_hostname="$previously_reserved"
+  [ -z "$recorded_hostname" ] || [ "$recorded_hostname" = "$hostname" ] || die \
+    "Stack '$STACK_NAME' reserves '$recorded_hostname' for its $endpoint endpoint; hostname changes require explicit migration."
+
+  namespaces="$(kubectl --context "$KUBE_CONTEXT" get namespaces -o json)" || die \
+    "Unable to inspect existing stack hostname ownership."
+  conflict="$(jq -r --arg host "$hostname" --arg stack "$STACK_NAME" '
+    .items[] | select(.metadata.name != $stack) |
+    select([.metadata.annotations["openremote.io/reserved-hostname"],
+      .metadata.annotations["openremote.io/reserved-mqtts-hostname"]] |
+      any((. // "" | ascii_downcase | rtrimstr(".")) == $host)) |
+    .metadata.name' <<< "$namespaces")" || die "Unable to parse namespace hostname ownership."
+  [ -z "$conflict" ] || die "Hostname '$hostname' is already recorded by stack '$conflict'."
+  check_existing_hostname_routes "$hostname" "$STACK_NAME"
+
+  for attempt in {1..10}; do
+    registry="$(read_hostname_registry)" || die "Unable to read hostname reservations."
+    owner="$(jq -r --arg host "$hostname" --arg stack "$STACK_NAME" --arg uid "$namespace_uid" \
+      --arg endpoint "$endpoint" '
+      (.data // {} | to_entries[]) | (.value | fromjson) + {hostname: .key} |
+      . + {endpoint: (.endpoint // "web")} |
+      select((.hostname == $host or (.namespace == $stack and .endpoint == $endpoint)) and
+        (.hostname != $host or .namespace != $stack or .namespaceUID != $uid or .endpoint != $endpoint)) |
+      "\(.namespace) (namespace UID \(.namespaceUID), hostname \(.hostname))"' <<< "$registry")"
+    [ -z "$owner" ] || die \
+      "Hostname '$hostname' cannot be reserved by '$STACK_NAME'; conflicting reservation: $owner. Retained reservations require explicit cleanup."
+    # Removing exposure or ExternalDNS annotations does not prove external DNS
+    # has disappeared. Retain that cleanup obligation until explicit release.
+    replacement="$(jq -c --arg host "$hostname" --arg stack "$STACK_NAME" \
+      --arg uid "$namespace_uid" --arg target "$TARGET" --arg dns "$DNS_MODE" \
+      --arg exposure "$EXPOSURE" --arg endpoint "$endpoint" '
+      (.data[$host] // "{}" | fromjson) as $previous |
+      .data[$host] = ({namespace: $stack, namespaceUID: $uid, target: $target,
+        dns: (if $previous.dns == "external-dns" then $previous.dns else $dns end),
+        exposure: (if $exposure == "none" then $previous.exposure else $exposure end),
+        endpoint: $endpoint} | tojson)' <<< "$registry")"
+    if write_hostname_registry "$replacement"; then
+      kubectl --context "$KUBE_CONTEXT" annotate namespace "$STACK_NAME" \
+        "$reservation_annotation=$hostname" --overwrite >/dev/null
+      log "Reserved $endpoint hostname '$hostname' for stack '$STACK_NAME'."
+      return
+    fi
+  done
+  die "Hostname reservations changed repeatedly; retry apply. No workloads were installed."
+}
+
+reserve_stack_hostname() {
+  reserve_stack_endpoint_hostname "$HOSTNAME_VALUE" web "openremote.io/reserved-hostname"
+}
+
+reserve_stack_mqtts_hostname() {
+  reserve_stack_endpoint_hostname "$MQTTS_HOSTNAME_VALUE" mqtts "openremote.io/reserved-mqtts-hostname"
+}
+
+require_reservation_namespace_identity() {
+  local reservation="$1"
+  local namespace_json
+  [ -n "$reservation" ] || return 0
+  namespace_json="$(kubectl --context "$KUBE_CONTEXT" get namespace "$STACK_NAME" -o json)" || die \
+    "Unable to verify the reserved namespace identity before destroy."
+  [ "$(jq -r '.namespaceUID' <<< "$reservation")" = "$(jq -r '.metadata.uid' <<< "$namespace_json")" ] || die \
+    "The hostname reservation belongs to a different namespace UID; refusing to destroy a recreated namespace."
+}
+
+# The explicit release command confirms external cleanup on portable workflows.
+# EKS calls it only after its DNS/certificate cleanup has completed. Never release
+# on uninstall or with an EXIT trap: a failed apply may already expose a route.
+release_stack_hostname() {
+  local namespace_name registry reservation replacement attempt original_owner=""
+  check_existing_hostname_routes "$HOSTNAME_VALUE" ""
+  for attempt in {1..10}; do
+    registry="$(read_hostname_registry)" || die "Unable to read hostname reservations."
+    # Read identity before checking namespace absence, and repeat after a CAS
+    # conflict. Otherwise concurrent release/recreation could make a new claim
+    # look releasable based on an earlier observation of namespace absence.
+    namespace_name="$(kubectl --context "$KUBE_CONTEXT" get namespace "$STACK_NAME" \
+      --ignore-not-found -o name)" || die "Unable to verify namespace removal."
+    [ -z "$namespace_name" ] || die \
+      "Namespace '$STACK_NAME' still exists; destroy it before releasing its hostname."
+    reservation="$(jq -r --arg host "$HOSTNAME_VALUE" '.data[$host] // empty' <<< "$registry")"
+    [ -n "$reservation" ] || { log "Hostname '$HOSTNAME_VALUE' has no reservation."; return; }
+    [ "$(jq -r '.namespace' <<< "$reservation")" = "$STACK_NAME" ] || die \
+      "Hostname '$HOSTNAME_VALUE' belongs to another stack; refusing to release it."
+    if [ -z "$original_owner" ]; then
+      original_owner="$(jq -r '.namespaceUID' <<< "$reservation")"
+    fi
+    [ "$(jq -r '.namespaceUID' <<< "$reservation")" = "$original_owner" ] || die \
+      "Hostname ownership changed during release; refusing to remove the new reservation."
+    replacement="$(jq -c --arg host "$HOSTNAME_VALUE" 'del(.data[$host])' <<< "$registry")"
+    if write_hostname_registry "$replacement"; then
+      log "Released hostname '$HOSTNAME_VALUE'."
+      return
+    fi
+  done
+  die "Hostname reservations changed repeatedly; retry release-hostname."
+}

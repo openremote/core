@@ -34,6 +34,8 @@ import type { OrConfRealmCard } from "../components/configuration/or-conf-realm/
 import type { OrConfPanel } from "../components/configuration/or-conf-panel";
 import { DefaultHeaderMainMenu, DefaultHeaderSecondaryMenu, DefaultRealmConfig } from "../index";
 import { showSnackbar } from "@openremote/or-mwc-components/or-mwc-snackbar";
+import { i18next } from "@openremote/or-translate";
+import { isAxiosError } from "@openremote/rest";
 
 declare const APP_VERSION: string;
 
@@ -162,6 +164,9 @@ export class PageConfiguration extends Page<AppStateKeyed> {
   protected loading = false;
 
   @state()
+  protected saving = false;
+
+  @state()
   protected managerConfigurationChanged = false;
 
   @state()
@@ -243,15 +248,17 @@ export class PageConfiguration extends Page<AppStateKeyed> {
       return html`<or-translate value="notAuthenticated"></or-translate>`;
     }
     return html`
+      ${this.saving ? html`<or-loading-indicator .overlay=${true}></or-loading-indicator>` : ""}
       ${when(
         this.loading,
         () => html` <or-loading-indicator></or-loading-indicator> `,
         () => {
           const saveDisabled =
-            !this.managerConfigurationChanged &&
-            !this.mapConfigChanged &&
-            !this.tilesForUpload &&
-            !this.tilesForDeletion;
+            this.saving ||
+            (!this.managerConfigurationChanged &&
+              !this.mapConfigChanged &&
+              !this.tilesForUpload &&
+              !this.tilesForDeletion);
           const realmHeading = html` <div id="heading" style="justify-content: space-between;">
             <span style="margin: 0;"
               ><or-translate style="text-transform: uppercase;" value="configuration.realmStyling"></or-translate
@@ -417,95 +424,96 @@ export class PageConfiguration extends Page<AppStateKeyed> {
     return (await manager.rest.api.RealmResource.getAccessible()).data;
   }
 
-  protected saveAllConfigs(config: ManagerAppConfig, mapConfig: MapConfig) {
-    this.loading = true;
-    let managerPromise;
+  protected async saveAllConfigs(config: ManagerAppConfig, mapConfig: MapConfig) {
+    this.saving = true;
 
     // Save the images to the server that have been uploaded by the user.
     // TODO: Optimize code so it only saves images that have been changed.
-    const filePromises = [];
+    const imageUploads: Promise<void>[] = [];
     if (this.realmConfigPanel !== undefined) {
       const elems = this.realmConfigPanel.getCardElements() as OrConfRealmCard[];
-      elems.forEach((elem, index) => {
+      elems.forEach((elem) => {
         const files = elem?.getFiles();
-        Object.entries(files).forEach(async ([x, y]) => {
-          filePromises.push(
-            manager.rest.api.ConfigurationResource.fileUpload(y, { path: (y as any).path }).then((file) => {
-              config.realms[elem.name][x] = file.data;
-            })
+        Object.entries(files).forEach(([field, file]) => {
+          imageUploads.push(
+            manager.rest.api.ConfigurationResource.imageUpload(file, { path: (file as any).path })
+              .then(({ data }) => {
+                config.realms[elem.name][field] = data;
+              })
+              .catch((error) => {
+                const detail =
+                  isAxiosError(error) && error.response?.status === 400 && typeof error.response.data === "string"
+                    ? error.response.data.trim().split("\n")[0]
+                    : "";
+                const message = i18next.t("fileUploadFailed", { file: field });
+                showSnackbar(
+                  undefined,
+                  detail && !detail.startsWith("Request failed with HTTP error status:")
+                    ? `${message}: ${detail}`
+                    : message,
+                  i18next.t("dismiss")
+                );
+                console.error(error);
+                throw error;
+              })
           );
         });
       });
       this.managerConfiguration = config;
     }
 
-    // POST map config if changed...
-    let mapPromise;
-    if (this.mapConfigChanged) {
-      mapPromise = manager.rest.api.MapResource.saveSettings(mapConfig)
-        .then(() => {
-          this.mapConfig = mapConfig;
-        })
-        .catch((reason) => {
-          console.error(reason);
-        });
-    }
+    try {
+      // Wait for every image request before deciding whether the configuration can be saved.
+      if ((await Promise.allSettled(imageUploads)).some((result) => result.status === "rejected")) {
+        return;
+      }
 
-    if (this.tilesForUpload) {
-      showSnackbar(undefined, "configuration.global.uploadingMapTiles");
-      const filename = this.tilesForUpload.name;
-      filePromises.push(
-        manager.rest.api.MapResource.uploadMap(
-          { filename },
-          {
-            headers: { "Content-Type": "application/octet-stream" },
-            data: this.tilesForUpload,
-          }
-        )
-          .then(({ data }) => {
-            this.customMapFilename = filename;
-            this.mapConfig = data as MapConfig;
-          })
-          .catch((reason) => {
-            showSnackbar(undefined, "configuration.global.uploadingMapTilesError");
-            console.error(reason);
-          })
-          .finally(() => {
-            this.tilesForUpload = null;
-          })
-      );
-    }
-
-    // We first wait for the filePromises to finish, so that
-    // we can use the path returned from the backend to store to the
-    // manager_config.
-    Promise.all(filePromises).then((arr: string[]) => {
-      // Wait for all requests to complete, then finish loading.
-      const promises = [
+      // Save pending settings first: the tile upload then applies its authoritative bounds/center.
+      await Promise.all([
         this.managerConfigurationChanged ? manager.rest.api.ConfigurationResource.update(config) : null,
-        this.mapConfigChanged ? mapPromise : null,
-      ];
-      Promise.all(promises).finally(() => {
-        // The deletion must happen after the config changes since deletion will re-center to the default map.
-        if (this.tilesForDeletion && !this.tilesForUpload) {
-          manager.rest.api.MapResource.deleteMap()
-            .then(({ data }) => {
-              this.tilesForDeletion = false;
-              this.customMapFilename = undefined;
-              this.mapConfig = data as MapConfig;
-            })
-            .catch((reason) => {
-              console.error(reason);
-            });
+        this.mapConfigChanged ? manager.rest.api.MapResource.saveSettings(mapConfig) : null,
+      ]);
+      if (this.mapConfigChanged) {
+        this.mapConfig = mapConfig;
+      }
+
+      if (this.tilesForUpload) {
+        showSnackbar(undefined, "configuration.global.uploadingMapTiles");
+        const filename = this.tilesForUpload.name;
+        try {
+          const { data } = await manager.rest.api.MapResource.uploadMap(
+            { filename },
+            { headers: { "Content-Type": "application/octet-stream" }, data: this.tilesForUpload }
+          );
+          this.customMapFilename = filename;
+          this.mapConfig = data as MapConfig;
+          this.tilesForUpload = null;
+          this.tilesForDeletion = false;
+        } catch (error) {
+          showSnackbar(undefined, "configuration.global.uploadingMapTilesError");
+          console.error(error);
+          return;
         }
-        this.requestUpdate();
-        this.loading = false;
-        this.managerConfigurationChanged = false;
-        this.mapConfigChanged = false;
-        const configURL = (manager.managerUrl ?? "") + "/api/master/configuration/manager";
-        fetch(configURL, { cache: "reload" });
-        window.location.reload();
-      });
-    });
+      }
+
+      // Delete after saving settings so the map returns to its default center.
+      if (this.tilesForDeletion) {
+        const { data } = await manager.rest.api.MapResource.deleteMap();
+        this.tilesForDeletion = false;
+        this.customMapFilename = undefined;
+        this.mapConfig = data as MapConfig;
+      }
+
+      this.managerConfigurationChanged = false;
+      this.mapConfigChanged = false;
+      const configURL = (manager.managerUrl ?? "") + "/api/master/configuration/manager";
+      fetch(configURL, { cache: "reload" });
+      window.location.reload();
+    } catch (error) {
+      showSnackbar(undefined, i18next.t("errorOccurred"), i18next.t("dismiss"));
+      console.error(error);
+    } finally {
+      this.saving = false;
+    }
   }
 }

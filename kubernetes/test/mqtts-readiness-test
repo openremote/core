@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""Exercise the real EKS MQTTS probe against local TLS and non-TLS servers."""
+import contextlib
+import os
+from pathlib import Path
+import socket
+import ssl
+import subprocess
+import tempfile
+import threading
+import time
+import unittest
+
+KUBERNETES = Path(__file__).resolve().parent.parent
+
+
+class MqttsReadinessTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.directory = tempfile.TemporaryDirectory(prefix="or-mqtts-test-")
+        cls.addClassCleanup(cls.directory.cleanup)
+        cls.root = Path(cls.directory.name)
+        cls.ca = cls.root / "ca.pem"
+        cls.ca_key = cls.root / "ca.key"
+        config = cls.root / "ca.cnf"
+        config.write_text("""[req]
+prompt = no
+distinguished_name = dn
+x509_extensions = ca
+[dn]
+CN = OpenRemote local test CA
+[ca]
+basicConstraints = critical, CA:TRUE
+keyUsage = critical, keyCertSign, cRLSign
+subjectKeyIdentifier = hash
+""")
+        cls.openssl("req", "-x509", "-newkey", "rsa:2048", "-nodes", "-sha256",
+                    "-days", "1", "-config", config, "-keyout", cls.ca_key, "-out", cls.ca)
+        cls.contexts = {}
+        for name, hostname in (("valid", "localhost"), ("wrong-host", "wrong.example.com")):
+            key, request, cert = (cls.root / (name + suffix) for suffix in (".key", ".csr", ".pem"))
+            extensions = cls.root / (name + ".cnf")
+            extensions.write_text(
+                "basicConstraints = critical, CA:FALSE\n"
+                "keyUsage = critical, digitalSignature, keyEncipherment\n"
+                "extendedKeyUsage = serverAuth\n"
+                "subjectKeyIdentifier = hash\n"
+                "authorityKeyIdentifier = keyid,issuer\n"
+                f"subjectAltName = DNS:{hostname}\n")
+            cls.openssl("req", "-new", "-newkey", "rsa:2048", "-nodes", "-sha256",
+                        "-subj", f"/CN={hostname}", "-keyout", key, "-out", request)
+            cls.openssl("x509", "-req", "-in", request, "-CA", cls.ca, "-CAkey", cls.ca_key,
+                        "-CAcreateserial", "-days", "1", "-sha256", "-extfile", extensions,
+                        "-out", cert)
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context.load_cert_chain(cert, key)
+            cls.contexts[name] = context
+
+    @staticmethod
+    def openssl(*args):
+        subprocess.run(["openssl", *map(str, args)], check=True, capture_output=True, timeout=20)
+
+    @contextlib.contextmanager
+    def server(self, behavior):
+        listener = socket.socket()
+        try:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen()
+            listener.settimeout(5)
+        except OSError:
+            listener.close()
+            raise
+        port = listener.getsockname()[1]
+        stop = threading.Event()
+
+        def serve():
+            try:
+                connection, _ = listener.accept()
+                with connection:
+                    connection.settimeout(3)
+                    if behavior in self.contexts:
+                        with self.contexts[behavior].wrap_socket(connection, server_side=True) as tls:
+                            tls.recv(1)
+                    elif behavior == "plaintext":
+                        connection.recv(2048)
+                        connection.sendall(b"HTTP/1.1 400 Bad Request\r\n\r\n")
+                    elif behavior == "stall":
+                        stop.wait(5)
+                    # Otherwise close the connection before any TLS handshake.
+            except OSError:
+                # Certificate rejection and early disconnects are expected.
+                pass
+
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+        try:
+            yield port
+        finally:
+            stop.set()
+            listener.close()
+            thread.join(timeout=6)
+            self.assertFalse(thread.is_alive(), "Local test server did not stop")
+
+    def probe(self, behavior, *, exposure="haproxy", trusted=True, wait=False):
+        env = dict(os.environ)
+        env["SSL_CERT_FILE"] = str(self.ca if trusted else self.root / "missing-ca.pem")
+        env["SSL_CERT_DIR"] = str(self.root / "empty-ca-dir")
+        with self.server(behavior) as port:
+            command = """source "$1/or-eks-stack"
+EXPOSURE="$2"
+HOSTNAME_VALUE=localhost
+MQTTS_HOSTNAME_VALUE=localhost
+if [ "$EXPOSURE" = ingress ]; then HOSTNAME_VALUE=unused-web.example.com; fi
+MQTTS_PORT="$3"
+TIMEOUT=1s
+if [ "$4" = wait ]; then wait_for_mqtts; else mqtts_endpoint_is_ready 2; fi
+"""
+            started = time.monotonic()
+            result = subprocess.run(
+                ["bash", "-c", command, "bash", str(KUBERNETES), exposure, str(port),
+                 "wait" if wait else "probe"],
+                env=env, text=True, capture_output=True, timeout=4,
+            )
+            return result, time.monotonic() - started
+
+    def test_accepts_verified_handshake_for_each_exposure(self):
+        for exposure in ("haproxy", "ingress"):
+            with self.subTest(exposure=exposure):
+                result, _ = self.probe("valid", exposure=exposure)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_rejects_trusted_certificate_for_wrong_hostname(self):
+        result, _ = self.probe("wrong-host")
+        self.assertEqual(result.returncode, 1, result.stderr)
+
+    def test_rejects_untrusted_certificate_for_correct_hostname(self):
+        result, _ = self.probe("valid", trusted=False)
+        self.assertEqual(result.returncode, 1, result.stderr)
+
+    def test_rejects_plaintext_server(self):
+        result, _ = self.probe("plaintext")
+        self.assertEqual(result.returncode, 1, result.stderr)
+
+    def test_rejects_connection_closed_before_handshake(self):
+        result, _ = self.probe("disconnect")
+        self.assertEqual(result.returncode, 1, result.stderr)
+
+    def test_stalled_handshake_respects_readiness_deadline(self):
+        result, elapsed = self.probe("stall", wait=True)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("Trusted MQTTS did not become ready", result.stderr)
+        self.assertNotIn("Trusted MQTTS is ready", result.stdout)
+        self.assertLess(elapsed, 3)
+
+
+if __name__ == "__main__":
+    unittest.main()

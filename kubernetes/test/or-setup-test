@@ -1,0 +1,440 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OR_SETUP_CHART="$(cd "$TEST_DIR/../or-setup" && pwd)"
+MANAGER_CHART="$(cd "$TEST_DIR/../manager" && pwd)"
+KEYCLOAK_CHART="$(cd "$TEST_DIR/../keycloak" && pwd)"
+PROXY_CHART="$(cd "$TEST_DIR/../proxy" && pwd)"
+LOCAL_TARGET_VALUES="$TEST_DIR/../stack/targets/local/or-setup.yaml"
+EKS_TARGET_VALUES="$TEST_DIR/../stack/targets/eks/or-setup.yaml"
+EKS_MANAGER_VALUES="$TEST_DIR/../stack/targets/eks/manager.yaml"
+NONE_EXPOSURE_VALUES="$TEST_DIR/../stack/exposures/none/or-setup.yaml"
+INGRESS_EXPOSURE_VALUES="$TEST_DIR/../stack/exposures/ingress/or-setup.yaml"
+INGRESS_PROXY_VALUES="$TEST_DIR/../stack/exposures/ingress/proxy.yaml"
+EKS_INGRESS_PROXY_VALUES="$TEST_DIR/../stack/exposures/ingress/eks/proxy.yaml"
+HAPROXY_EXPOSURE_VALUES="$TEST_DIR/../stack/exposures/haproxy/or-setup.yaml"
+HAPROXY_PROXY_VALUES="$TEST_DIR/../stack/exposures/haproxy/proxy.yaml"
+LOCAL_HAPROXY_PROXY_VALUES="$TEST_DIR/../stack/exposures/haproxy/local/proxy.yaml"
+EKS_HAPROXY_PROXY_VALUES="$TEST_DIR/../stack/exposures/haproxy/eks/proxy.yaml"
+LEGACY_EKS_PROXY_VALUES="$PROXY_CHART/values-eks.yaml"
+TEST_CERTIFICATE_ARN="arn:aws:acm:eu-west-1:123456789012:certificate/test-certificate"
+TEST_MQTTS_CERTIFICATE_ARN="arn:aws:acm:eu-west-1:123456789012:certificate/test-mqtts-certificate"
+
+fail() {
+  printf 'FAIL: %s\n' "$*" >&2
+  exit 1
+}
+
+secret_value() {
+  local key="$1"
+  awk -v key="$key" '$1 == key ":" { gsub(/"/, "", $2); print $2; exit }'
+}
+
+assert_env_value() {
+  local name="$1"
+  local expected="$2"
+  local actual
+  actual="$(awk -v name="$name" '$1 == "-" && $2 == "name:" && $3 == name {getline; print $2}')"
+  [ "$actual" = "\"$expected\"" ] || fail \
+    "Expected $name to have quoted value '$expected', got '$actual'"
+}
+
+helm lint "$OR_SETUP_CHART" >/dev/null
+helm lint "$MANAGER_CHART" >/dev/null
+helm lint "$KEYCLOAK_CHART" >/dev/null
+helm lint "$PROXY_CHART" >/dev/null
+
+rendered_a="$(helm template or-setup "$OR_SETUP_CHART" \
+  --namespace stack-a \
+  --values "$LOCAL_TARGET_VALUES" \
+  --values "$NONE_EXPOSURE_VALUES")"
+rendered_b="$(helm template or-setup "$OR_SETUP_CHART" \
+  --namespace stack-b \
+  --values "$EKS_TARGET_VALUES" \
+  --values "$INGRESS_EXPOSURE_VALUES")"
+rendered_proxy_policy="$(helm template or-setup "$OR_SETUP_CHART" \
+  --namespace stack-proxy \
+  --values "$LOCAL_TARGET_VALUES" \
+  --values "$HAPROXY_EXPOSURE_VALUES")"
+rendered_mqtts_policy="$(helm template or-setup "$OR_SETUP_CHART" \
+  --namespace stack-mqtts \
+  --values "$LOCAL_TARGET_VALUES" \
+  --values "$HAPROXY_EXPOSURE_VALUES" \
+  --set networkPolicy.proxy.mqtts.enabled=true)"
+rendered_ingress_mqtts_policy="$(helm template or-setup "$OR_SETUP_CHART" \
+  --namespace stack-ingress-mqtts \
+  --values "$EKS_TARGET_VALUES" \
+  --values "$INGRESS_EXPOSURE_VALUES" \
+  --set networkPolicy.proxy.mqtts.enabled=true \
+  --set-string networkPolicy.proxy.mqtts.port=1883)"
+
+grep -F -- 'kind: NetworkPolicy' <<< "$rendered_a" >/dev/null || fail \
+  "Stack ingress NetworkPolicy was not rendered"
+grep -F -- 'name: openremote-stack-ingress' <<< "$rendered_a" >/dev/null || fail \
+  "Stack ingress NetworkPolicy has the wrong name"
+grep -F -- 'podSelector: {}' <<< "$rendered_a" >/dev/null || fail \
+  "Stack ingress NetworkPolicy does not allow same-namespace Pods"
+if grep -F -- '- Egress' <<< "$rendered_a" >/dev/null; then
+  fail "Stack NetworkPolicy unexpectedly restricts outbound traffic"
+fi
+if grep -F -- 'name: openremote-public-http-ingress' <<< "$rendered_a" >/dev/null; then
+  fail "None exposure unexpectedly allows public HTTP ingress"
+fi
+
+[ "$(grep -c '^kind: NetworkPolicy$' <<< "$rendered_b")" -eq 2 ] || fail \
+  "Ingress exposure did not render both stack and gateway policies"
+grep -F -- 'name: openremote-proxy-ingress' <<< "$rendered_b" >/dev/null || fail \
+  "Ingress gateway NetworkPolicy was not rendered"
+grep -F -- 'app.kubernetes.io/name: proxy' <<< "$rendered_b" >/dev/null || fail \
+  "Ingress gateway policy does not select only the proxy"
+grep -F -- 'port: 8080' <<< "$rendered_b" >/dev/null || fail \
+  "Ingress gateway policy does not restrict access to the HTTP port"
+if grep -F -- 'port: 8443' <<< "$rendered_b" >/dev/null; then
+  fail "Ingress gateway policy unexpectedly opens the proxy TLS port"
+fi
+if grep -F -- 'openremote.io/public-http' <<< "$rendered_b" >/dev/null; then
+  fail "Ingress exposure still contains the direct Manager/Keycloak public selector"
+fi
+
+[ "$(grep -c '^kind: NetworkPolicy$' <<< "$rendered_proxy_policy")" -eq 2 ] || fail \
+  "HAProxy exposure did not render both stack and proxy ingress policies"
+grep -F -- 'name: openremote-proxy-ingress' <<< "$rendered_proxy_policy" >/dev/null || fail \
+  "HAProxy exposure did not render its public proxy policy"
+grep -F -- 'app.kubernetes.io/name: proxy' <<< "$rendered_proxy_policy" >/dev/null || fail \
+  "HAProxy ingress policy does not select only the proxy"
+grep -F -- 'port: 8443' <<< "$rendered_proxy_policy" >/dev/null || fail \
+  "HAProxy ingress policy does not allow the proxy HTTPS container port"
+if grep -F -- 'openremote.io/public-http' <<< "$rendered_proxy_policy" >/dev/null; then
+  fail "HAProxy exposure also enabled direct public Manager/Keycloak access"
+fi
+grep -F -- 'port: 8883' <<< "$rendered_mqtts_policy" >/dev/null || fail \
+  "MQTTS-enabled HAProxy policy does not allow the proxy TLS listener"
+grep -F -- 'port: 1883' <<< "$rendered_ingress_mqtts_policy" >/dev/null || fail \
+  "MQTTS-enabled Ingress policy does not allow the edge-terminated proxy listener"
+
+grep -F -- 'helm.sh/resource-policy: keep' <<< "$rendered_a" >/dev/null || fail \
+  "Generated Secret is not retained during Helm uninstall"
+
+admin_password_a="$(secret_value admin-password <<< "$rendered_a")"
+admin_password_b="$(secret_value admin-password <<< "$rendered_b")"
+postgresql_password_a="$(secret_value postgresql-password <<< "$rendered_a")"
+
+[ "${#admin_password_a}" -eq 44 ] || fail \
+  "Generated Manager password is not the encoded form of a 32-character value"
+[ "${#postgresql_password_a}" -eq 44 ] || fail \
+  "Generated PostgreSQL password is not the encoded form of a 32-character value"
+[ "$admin_password_a" != "$admin_password_b" ] || fail \
+  "Independent chart renders generated the same Manager password"
+[ "$admin_password_a" != "c2VjcmV0" ] || fail \
+  "Chart still uses the legacy default Manager password"
+[ "$postgresql_password_a" != "cG9zdGdyZXM=" ] || fail \
+  "Chart still uses the legacy default PostgreSQL password"
+grep -F -- 'postgresql-username: "cG9zdGdyZXM="' <<< "$rendered_a" >/dev/null || fail \
+  "Default PostgreSQL username is not postgres"
+
+rendered_explicit="$(helm template or-setup "$OR_SETUP_CHART" \
+  --namespace stack-explicit \
+  --set-string credentials.adminPassword=chosen-admin \
+  --set-string credentials.postgresqlUsername=database-user \
+  --set-string credentials.postgresqlPassword=chosen-database)"
+
+grep -F -- 'admin-password: "Y2hvc2VuLWFkbWlu"' <<< "$rendered_explicit" >/dev/null || fail \
+  "Explicit Manager password was not rendered"
+grep -F -- 'postgresql-username: "ZGF0YWJhc2UtdXNlcg=="' <<< "$rendered_explicit" >/dev/null || fail \
+  "Explicit PostgreSQL username was not rendered"
+grep -F -- 'postgresql-password: "Y2hvc2VuLWRhdGFiYXNl"' <<< "$rendered_explicit" >/dev/null || fail \
+  "Explicit PostgreSQL password was not rendered"
+
+rendered_manager="$(helm template manager "$MANAGER_CHART" --namespace stack-a)"
+
+assert_env_value OR_WEBSERVER_LISTEN_HOST 0.0.0.0 <<< "$rendered_manager"
+assert_env_value OR_WEBSERVER_LISTEN_PORT 8080 <<< "$rendered_manager"
+assert_env_value OR_WEBSERVER_DUMP_REQUESTS false <<< "$rendered_manager"
+[ "$(grep -c -- '- name: OR_WEBSERVER_' <<< "$rendered_manager")" -eq 3 ] || fail \
+  "Default Manager chart should omit empty and null web server settings"
+grep -F -- 'containerPort: 8080' <<< "$rendered_manager" >/dev/null || fail \
+  "Default Manager HTTP container port is not 8080"
+
+for origin in https://localhost:8443 https://localhost:9443 https://stack.example.com; do
+  rendered_public_manager="$(helm template manager "$MANAGER_CHART" \
+    --namespace stack-a --set-string "or.webserver.allowedOrigins=$origin")"
+  assert_env_value OR_WEBSERVER_ALLOWED_ORIGINS "$origin" <<< "$rendered_public_manager"
+done
+
+rendered_webserver_manager="$(helm template manager "$MANAGER_CHART" \
+  --namespace stack-a --values - <<'YAML'
+service:
+  http:
+    port: 9090
+or:
+  webserver:
+    listenHost: "::"
+    listenPort: 9080
+    allowedOrigins: "https://stack.example.com,https://localhost:9443"
+    allowedMethods: "GET,POST,OPTIONS"
+    allowedHeaders: "Content-Type,Authorization"
+    exposedHeaders: "X-Request-ID"
+    dumpRequests: true
+    workerThreadsMax: 24
+    ioThreadsMax: 4
+    maxEntitySize: 0
+    multipartMaxEntitySize: 60000000
+YAML
+)"
+
+while read -r name expected; do
+  assert_env_value "$name" "$expected" <<< "$rendered_webserver_manager"
+done <<'ENV'
+OR_WEBSERVER_LISTEN_HOST ::
+OR_WEBSERVER_LISTEN_PORT 9080
+OR_WEBSERVER_ALLOWED_ORIGINS https://stack.example.com,https://localhost:9443
+OR_WEBSERVER_ALLOWED_METHODS GET,POST,OPTIONS
+OR_WEBSERVER_ALLOWED_HEADERS Content-Type,Authorization
+OR_WEBSERVER_EXPOSED_HEADERS X-Request-ID
+OR_WEBSERVER_DUMP_REQUESTS true
+OR_WEBSERVER_WORKER_THREADS_MAX 24
+OR_WEBSERVER_IO_THREADS_MAX 4
+OR_WEBSERVER_MAX_ENTITY_SIZE 0
+OR_WEBSERVER_MULTIPART_MAX_ENTITY_SIZE 60000000
+ENV
+
+grep -A1 -F -- '- name: http' <<< "$rendered_webserver_manager" | \
+  grep -F -- 'containerPort: 9080' >/dev/null || fail \
+    "Manager's named HTTP port does not follow or.webserver.listenPort"
+grep -A1 -F -- '- port: 9090' <<< "$rendered_webserver_manager" | \
+  grep -F -- 'targetPort: http' >/dev/null || fail \
+    "Manager Service does not route its independent port to the named HTTP port"
+[ "$(grep -c 'port: http' <<< "$rendered_webserver_manager")" -eq 3 ] || fail \
+  "Manager's three default health probes do not use the named HTTP port"
+
+rendered_default_webserver_manager="$(helm template manager "$MANAGER_CHART" \
+  --namespace stack-a --set or.webserver=null)"
+if grep -F -- '- name: OR_WEBSERVER_' <<< "$rendered_default_webserver_manager" >/dev/null; then
+  fail "Null web server settings should retain the application's defaults"
+fi
+grep -F -- 'containerPort: 8080' <<< "$rendered_default_webserver_manager" >/dev/null || fail \
+  "Unset Manager listen port should use the application's default port 8080"
+
+grep -F -- '- name: OR_DB_USERNAME' <<< "$rendered_manager" >/dev/null || fail \
+  "Manager does not receive its PostgreSQL username through OR_DB_USERNAME"
+grep -F -- '- name: OR_DB_PASSWORD' <<< "$rendered_manager" >/dev/null || fail \
+  "Manager does not receive its PostgreSQL password through OR_DB_PASSWORD"
+if grep -F -- '- name: KC_DB_PASSWORD' <<< "$rendered_manager" >/dev/null; then
+  fail "Manager incorrectly receives its own database password through KC_DB_PASSWORD"
+fi
+
+rendered_eks_internal_manager="$(helm template manager "$MANAGER_CHART" \
+  --namespace stack-internal \
+  --values "$EKS_MANAGER_VALUES")"
+rendered_internal_keycloak="$(helm template keycloak "$KEYCLOAK_CHART" \
+  --namespace stack-internal)"
+for rendered_internal_component in "$rendered_eks_internal_manager" "$rendered_internal_keycloak"; do
+  if grep -F -- 'kind: Ingress' <<< "$rendered_internal_component" >/dev/null; then
+    fail "Target values leaked an Ingress into none or HAProxy exposure"
+  fi
+  if grep -F -- 'openremote.io/public-http' <<< "$rendered_internal_component" >/dev/null; then
+    fail "Target values leaked a public HTTP Pod label into none or HAProxy exposure"
+  fi
+done
+
+rendered_eks_gateway="$(helm template proxy "$PROXY_CHART" \
+  --namespace stack-a \
+  --values "$INGRESS_PROXY_VALUES" \
+  --values "$EKS_INGRESS_PROXY_VALUES" \
+  --set-string or.hostname=stack-a.example.com \
+  --set-string or.managerHost=manager.stack-a.svc.cluster.local \
+  --set-string or.keycloakHost=keycloak.stack-a.svc.cluster.local \
+  --set-string or.nameserver=10.100.0.10:53 \
+  --set-string ingress.hostname=stack-a.example.com \
+  --set dns.enabled=true \
+  --set-string dns.hostname=stack-a.example.com \
+  --set-string "ingress.annotations.alb\\.ingress\\.kubernetes\\.io/certificate-arn=$TEST_CERTIFICATE_ARN")"
+
+grep -F -- 'ingressClassName: openremote-alb' <<< "$rendered_eks_gateway" >/dev/null || fail \
+  "EKS gateway does not use the shared OpenRemote ALB IngressClass"
+grep -F -- 'host: "stack-a.example.com"' <<< "$rendered_eks_gateway" >/dev/null || fail \
+  "EKS gateway Ingress does not use the stack hostname"
+grep -F -- "alb.ingress.kubernetes.io/certificate-arn: $TEST_CERTIFICATE_ARN" \
+  <<< "$rendered_eks_gateway" >/dev/null || fail \
+    "EKS gateway Ingress does not reference the stack certificate"
+grep -F -- 'alb.ingress.kubernetes.io/listen-ports: '\''[{"HTTP":80},{"HTTPS":443}]'\''' \
+  <<< "$rendered_eks_gateway" >/dev/null || fail \
+    "EKS gateway Ingress does not configure HTTP and HTTPS listeners"
+grep -F -- 'alb.ingress.kubernetes.io/healthcheck-path: /docker-health' \
+  <<< "$rendered_eks_gateway" >/dev/null || fail \
+    "EKS gateway Ingress does not use the proxy health endpoint"
+grep -F -- 'name: proxy' <<< "$rendered_eks_gateway" >/dev/null || fail \
+  "EKS gateway Ingress does not route to the proxy Service"
+[ "$(grep -c '^kind: Ingress$' <<< "$rendered_eks_gateway")" -eq 1 ] || fail \
+  "EKS gateway did not render exactly one Ingress"
+[ "$(grep -c 'external-dns.kubernetes.io/hostname: "stack-a.example.com"' <<< "$rendered_eks_gateway")" -eq 1 ] || fail \
+  "Ingress DNS intent was not declared exactly once"
+[ "$(grep -c 'openremote.io/managed-dns: "true"' <<< "$rendered_eks_gateway")" -eq 1 ] || fail \
+  "Ingress DNS selection label was not declared exactly once"
+grep -A12 '^kind: Ingress$' <<< "$rendered_eks_gateway" | \
+  grep -F -- 'openremote.io/managed-dns: "true"' >/dev/null || fail \
+    "Ingress DNS intent is missing its controller selection label"
+grep -F -- 'image: "openremote/proxy:3.2.19.0"' <<< "$rendered_eks_gateway" >/dev/null || fail \
+  "Ingress gateway does not use the expected proxy image"
+grep -A1 -F -- '- name: HAPROXY_CONFIG' <<< "$rendered_eks_gateway" | \
+  grep -F -- 'value: "/etc/haproxy/haproxy-edge-terminated-tls.cfg"' >/dev/null || fail \
+    "Ingress gateway does not use the edge-terminated TLS configuration"
+grep -A1 -F -- '- name: DISABLE_ACME' <<< "$rendered_eks_gateway" | \
+  grep -F -- 'value: "true"' >/dev/null || fail \
+    "Ingress gateway did not disable proxy-managed certificates"
+if grep -F -- 'kind: PersistentVolumeClaim' <<< "$rendered_eks_gateway" >/dev/null; then
+  fail "Ingress gateway unexpectedly rendered certificate persistence"
+fi
+if grep -F -- 'port: 443' <<< "$rendered_eks_gateway" >/dev/null; then
+  fail "Ingress gateway unexpectedly exposed the proxy TLS Service port"
+fi
+
+rendered_eks_mqtts_gateway="$(helm template proxy "$PROXY_CHART" \
+  --namespace stack-mqtts \
+  --values "$INGRESS_PROXY_VALUES" \
+  --values "$EKS_INGRESS_PROXY_VALUES" \
+  --set service.mqtts.enabled=true \
+  --set-string service.mqtts.port=18883 \
+  --set-string or.mqttPort=1883 \
+  --set service.mqtts.dns.enabled=true \
+  --set-string service.mqtts.dns.hostname=mqtt-stack.example.com \
+  --set-string "service.mqtts.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-ssl-cert=$TEST_MQTTS_CERTIFICATE_ARN")"
+grep -F -- 'name: proxy-mqtts' <<< "$rendered_eks_mqtts_gateway" >/dev/null || fail \
+  "Ingress MQTTS did not render a dedicated proxy-mqtts Service"
+grep -F -- 'service.beta.kubernetes.io/aws-load-balancer-type: external' \
+  <<< "$rendered_eks_mqtts_gateway" >/dev/null || fail \
+    "Ingress MQTTS Service is not managed by the AWS Load Balancer Controller"
+grep -F -- 'service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip' \
+  <<< "$rendered_eks_mqtts_gateway" >/dev/null || fail \
+    "Ingress MQTTS Service does not use NLB IP targets"
+grep -F -- 'service.beta.kubernetes.io/aws-load-balancer-ssl-ports: mqtts' \
+  <<< "$rendered_eks_mqtts_gateway" >/dev/null || fail \
+    "Ingress MQTTS NLB does not terminate TLS on its MQTTS listener"
+grep -F -- 'service.beta.kubernetes.io/aws-load-balancer-backend-protocol: tcp' \
+  <<< "$rendered_eks_mqtts_gateway" >/dev/null || fail \
+    "Ingress MQTTS NLB does not forward plaintext TCP to the proxy gateway"
+grep -F -- "service.beta.kubernetes.io/aws-load-balancer-ssl-cert: $TEST_MQTTS_CERTIFICATE_ARN" \
+  <<< "$rendered_eks_mqtts_gateway" >/dev/null || fail \
+    "Ingress MQTTS NLB does not reference its ACM certificate"
+grep -F -- 'external-dns.kubernetes.io/hostname: "mqtt-stack.example.com"' \
+  <<< "$rendered_eks_mqtts_gateway" >/dev/null || fail \
+    "Ingress MQTTS Service does not declare its dedicated DNS hostname"
+grep -F -- '- port: 18883' <<< "$rendered_eks_mqtts_gateway" >/dev/null || fail \
+  "Ingress MQTTS public Service port was not configurable"
+grep -F -- 'targetPort: 1883' <<< "$rendered_eks_mqtts_gateway" >/dev/null || fail \
+  "Ingress MQTTS Service does not target the proxy's plaintext MQTT listener"
+grep -F -- 'containerPort: 1883' <<< "$rendered_eks_mqtts_gateway" >/dev/null || fail \
+  "Ingress proxy does not declare its edge-terminated MQTT listener"
+[ "$(grep -c 'external-dns.kubernetes.io/hostname: "mqtt-stack.example.com"' <<< "$rendered_eks_mqtts_gateway")" -eq 1 ] || fail \
+  "Ingress MQTTS DNS intent was not declared exactly once"
+
+rendered_local_proxy="$(helm template proxy "$PROXY_CHART" \
+  --namespace stack-a \
+  --values "$HAPROXY_PROXY_VALUES" \
+  --values "$LOCAL_HAPROXY_PROXY_VALUES" \
+  --set-string or.managerHost=manager.stack-a.svc.cluster.local \
+  --set-string or.keycloakHost=keycloak.stack-a.svc.cluster.local \
+  --set-string or.nameserver=10.96.0.10:53 \
+  --set-string service.http.port=8080 \
+  --set-string service.https.port=8443)"
+
+grep -F -- 'kind: PersistentVolumeClaim' <<< "$rendered_local_proxy" >/dev/null || fail \
+  "HAProxy chart did not render durable certificate storage"
+grep -F -- 'helm.sh/resource-policy: keep' <<< "$rendered_local_proxy" >/dev/null || fail \
+  "HAProxy certificate PVC is not retained during Helm uninstall"
+grep -F -- 'mountPath: /deployment' <<< "$rendered_local_proxy" >/dev/null || fail \
+  "HAProxy certificate state is not mounted at the proxy image's persistent path"
+grep -F -- 'type: Recreate' <<< "$rendered_local_proxy" >/dev/null || fail \
+  "HAProxy Deployment can roll two Pods against a ReadWriteOnce certificate volume"
+grep -F -- 'value: "manager.stack-a.svc.cluster.local"' <<< "$rendered_local_proxy" >/dev/null || fail \
+  "HAProxy does not use the namespace-qualified Manager service"
+grep -F -- 'value: "keycloak.stack-a.svc.cluster.local"' <<< "$rendered_local_proxy" >/dev/null || fail \
+  "HAProxy does not use the namespace-qualified Keycloak service"
+grep -F -- 'value: "10.96.0.10:53"' <<< "$rendered_local_proxy" >/dev/null || fail \
+  "HAProxy does not use the discovered cluster DNS endpoint"
+grep -F -- 'port: 8080' <<< "$rendered_local_proxy" >/dev/null || fail \
+  "HAProxy local HTTP Service port was not configurable"
+grep -F -- 'port: 8443' <<< "$rendered_local_proxy" >/dev/null || fail \
+  "HAProxy local HTTPS Service port was not configurable"
+if grep -F -- 'name: mqtts' <<< "$rendered_local_proxy" >/dev/null; then
+  fail "HAProxy exposed MQTTS without explicit opt-in"
+fi
+
+rendered_local_mqtts_proxy="$(helm template proxy "$PROXY_CHART" \
+  --namespace stack-mqtts \
+  --values "$HAPROXY_PROXY_VALUES" \
+  --values "$LOCAL_HAPROXY_PROXY_VALUES" \
+  --set service.mqtts.enabled=true \
+  --set-string service.mqtts.port=18883 \
+  --set-string or.mqttPort=8883)"
+grep -F -- '- port: 18883' <<< "$rendered_local_mqtts_proxy" >/dev/null || fail \
+  "MQTTS public Service port was not configurable"
+grep -F -- 'targetPort: 8883' <<< "$rendered_local_mqtts_proxy" >/dev/null || fail \
+  "MQTTS Service does not target HAProxy's TLS listener"
+grep -F -- 'containerPort: 8883' <<< "$rendered_local_mqtts_proxy" >/dev/null || fail \
+  "MQTTS-enabled proxy does not declare its TLS listener"
+if grep -F -- 'port: 1883' <<< "$rendered_local_mqtts_proxy" >/dev/null; then
+  fail "MQTTS opt-in also exposed plaintext MQTT"
+fi
+
+rendered_eks_proxy="$(helm template proxy "$PROXY_CHART" \
+  --namespace stack-eks \
+  --values "$HAPROXY_PROXY_VALUES" \
+  --values "$EKS_HAPROXY_PROXY_VALUES" \
+  --set dns.enabled=true \
+  --set-string dns.hostname=stack-eks.example.com)"
+grep -F -- 'storageClassName: "openremote-ebs"' <<< "$rendered_eks_proxy" >/dev/null || fail \
+  "EKS HAProxy certificate state does not use openremote-ebs"
+grep -F -- 'service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip' \
+  <<< "$rendered_eks_proxy" >/dev/null || fail \
+    "EKS HAProxy Service does not request an IP-target NLB"
+if grep -F -- 'aws-load-balancer-internal' <<< "$rendered_eks_proxy" >/dev/null; then
+  fail "EKS HAProxy unexpectedly creates a second metrics LoadBalancer"
+fi
+[ "$(grep -c 'external-dns.kubernetes.io/hostname: "stack-eks.example.com"' <<< "$rendered_eks_proxy")" -eq 1 ] || fail \
+  "HAProxy Service DNS intent was not declared exactly once"
+[ "$(grep -c 'openremote.io/managed-dns: "true"' <<< "$rendered_eks_proxy")" -eq 1 ] || fail \
+  "HAProxy Service DNS selection label was not declared exactly once"
+grep -A15 '^kind: Service$' <<< "$rendered_eks_proxy" | \
+  grep -F -- 'openremote.io/managed-dns: "true"' >/dev/null || fail \
+    "HAProxy Service DNS intent is missing its controller selection label"
+
+rendered_legacy_eks_proxy_pvc="$(helm template proxy "$PROXY_CHART" \
+  --values "$LEGACY_EKS_PROXY_VALUES" --show-only templates/pvc.yaml)"
+grep -F -- 'storageClassName: "openremote-ebs"' <<< "$rendered_legacy_eks_proxy_pvc" >/dev/null || fail \
+  "Legacy EKS HAProxy certificate state does not use openremote-ebs"
+grep -F -- 'helm.sh/resource-policy: keep' <<< "$rendered_legacy_eks_proxy_pvc" >/dev/null || fail \
+  "Legacy EKS HAProxy certificate state is not retained on Helm uninstall"
+
+rendered_external_cert="$(helm template proxy "$PROXY_CHART" \
+  --namespace stack-cert \
+  --set persistence.enabled=false \
+  --set-string certificate.existingSecret=stack-certificate)"
+grep -F -- 'secretName: stack-certificate' <<< "$rendered_external_cert" >/dev/null || fail \
+  "HAProxy chart did not mount an externally managed certificate Secret"
+grep -F -- 'mountPath: /data/proxy/certs' <<< "$rendered_external_cert" >/dev/null || fail \
+  "HAProxy chart mounted external certificates at the wrong image path"
+grep -A1 -F -- '- name: DISABLE_ACME' <<< "$rendered_external_cert" | \
+  grep -F -- 'value: "true"' >/dev/null || fail \
+    "HAProxy still enables ACME when an external certificate Secret is used"
+if grep -F -- 'kind: PersistentVolumeClaim' <<< "$rendered_external_cert" >/dev/null; then
+  fail "Disabled HAProxy persistence still rendered a PVC"
+fi
+
+rendered_without_policy="$(helm template or-setup "$OR_SETUP_CHART" \
+  --namespace stack-disabled)"
+if grep -F -- 'kind: NetworkPolicy' <<< "$rendered_without_policy" >/dev/null; then
+  fail "Disabled stack NetworkPolicy was still rendered"
+fi
+
+rendered_with_ingress_peer="$(helm template or-setup "$OR_SETUP_CHART" \
+  --namespace stack-ingress \
+  --set networkPolicy.enabled=true \
+  --set 'networkPolicy.additionalIngressFrom[0].namespaceSelector.matchLabels.kubernetes\.io/metadata\.name=ingress-nginx')"
+grep -F -- 'kubernetes.io/metadata.name: ingress-nginx' \
+  <<< "$rendered_with_ingress_peer" >/dev/null || fail \
+    "Additional trusted ingress namespace was not rendered"
+
+printf 'or-setup tests passed\n'

@@ -1,9 +1,18 @@
 #!/bin/bash
 
+set -eo pipefail
+
 if [ -z "$K_CONTEXT" ]; then
     echo "Error: K_CONTEXT environment variable is not set"
     echo "Please set it to the kubernetes context to use with: export K_CONTEXT=context"
     exit 1
+fi
+
+# Never let this single-stack cleanup remove a namespaced CLI deployment.
+CLI_NAMESPACES=$(kubectl --context "$K_CONTEXT" get namespaces -l openremote.io/stack -o name)
+if [ -n "$CLI_NAMESPACES" ]; then
+  echo "Refusing legacy cleanup: cluster contains CLI-managed stacks." >&2
+  exit 1
 fi
 
 . ./eks-common.sh
@@ -25,10 +34,10 @@ aws route53 change-resource-record-sets \
      '{"Changes": [ { "Action": "DELETE", "ResourceRecordSet": { "Name": "'$FQDN'", "Type": "A", "AliasTarget":{ "HostedZoneId": '$HOSTED_ZONE_ID',"DNSName": '$DNS_NAME',"EvaluateTargetHealth": false} } } ]}' \
      --profile dnschg
 
-helm uninstall --kube-context=$K_CONTEXT manager
-helm uninstall --kube-context=$K_CONTEXT keycloak
-helm uninstall --kube-context=$K_CONTEXT postgresql
-helm uninstall --kube-context=$K_CONTEXT proxy
+helm uninstall --kube-context="$K_CONTEXT" --namespace default manager
+helm uninstall --kube-context="$K_CONTEXT" --namespace default keycloak
+helm uninstall --kube-context="$K_CONTEXT" --namespace default postgresql
+helm uninstall --kube-context="$K_CONTEXT" --namespace default proxy
 
 echo "Delete VPC peerings"
 
@@ -48,25 +57,27 @@ while aws elbv2 describe-load-balancers  --profile or --query "LoadBalancers[?Vp
   echo "Waiting for load balancers to be deleted..."
   sleep 10
 done
-helm uninstall --kube-context=$K_CONTEXT aws-load-balancer-controller -n kube-system
+helm uninstall --kube-context="$K_CONTEXT" aws-load-balancer-controller -n kube-system
 
-MANAGER_VOLUMEID=$(kubectl get pv manager-data-pv -o=jsonpath='{.spec.awsElasticBlockStore.volumeID}')
-PSQL_VOLUMEID=$(kubectl get pv postgresql-data-pv -o=jsonpath='{.spec.awsElasticBlockStore.volumeID}')
-kubectl --context $K_CONTEXT delete pv manager-data-pv
-kubectl --context $K_CONTEXT delete pv postgresql-data-pv
-aws ec2 delete-volume --volume-id $MANAGER_VOLUMEID
-aws ec2 delete-volume --volume-id $PSQL_VOLUMEID
-helm uninstall --kube-context=$K_CONTEXT or-setup
+# Current charts retain namespaced PVCs and the generated Secret on uninstall.
+# This cleanup is only for the dedicated legacy cluster, never a CLI cluster.
+VOLUME_NAMES=$(kubectl --context "$K_CONTEXT" --namespace default get pvc manager postgresql proxy --ignore-not-found -o jsonpath='{.items[*].spec.volumeName}')
+kubectl --context "$K_CONTEXT" --namespace default delete pvc manager postgresql proxy --ignore-not-found
+for volume in $VOLUME_NAMES; do
+  kubectl --context "$K_CONTEXT" wait --for=delete "pv/$volume" --timeout=10m
+done
+helm uninstall --kube-context="$K_CONTEXT" --namespace default or-setup
+kubectl --context "$K_CONTEXT" --namespace default delete secret openremote-secret --ignore-not-found
 
 # Manually deleting all addons, this should not be required but otherwise the delete cluster fails
 # with "2 pods are unevictable from node ..." error messages
-eksctl delete addon --cluster $CLUSTER_NAME --name aws-ebs-csi-driver
-eksctl delete addon --cluster $CLUSTER_NAME --name vpc-cni
-eksctl delete addon --cluster $CLUSTER_NAME --name metrics-server
-eksctl delete addon --cluster $CLUSTER_NAME --name coredns
-eksctl delete addon --cluster $CLUSTER_NAME --name kube-proxy
+eksctl delete addon --profile or --region "$AWS_REGION" --cluster $CLUSTER_NAME --name aws-ebs-csi-driver
+eksctl delete addon --profile or --region "$AWS_REGION" --cluster $CLUSTER_NAME --name vpc-cni
+eksctl delete addon --profile or --region "$AWS_REGION" --cluster $CLUSTER_NAME --name metrics-server
+eksctl delete addon --profile or --region "$AWS_REGION" --cluster $CLUSTER_NAME --name coredns
+eksctl delete addon --profile or --region "$AWS_REGION" --cluster $CLUSTER_NAME --name kube-proxy
 
-eksctl delete cluster --wait --name $CLUSTER_NAME || {
+eksctl delete cluster --profile or --region "$AWS_REGION" --wait --name $CLUSTER_NAME || {
   echo "Clean-up has failed, please check the status in AWS CloudFormation console at https://eu-west-1.console.aws.amazon.com/cloudformation/home?region=eu-west-1#/stacks?filteringText=&filteringStatus=active&viewNested=true"
   echo "Failed clean-ups are often caused by a dangling VPC. Manually delete the VPC and then retry the cluster stack delete operation."
 }

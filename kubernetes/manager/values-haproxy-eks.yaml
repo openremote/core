@@ -10,15 +10,8 @@ service:
       service.beta.kubernetes.io/aws-load-balancer-internal: "true"
       service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
 
-affinity:
-  nodeAffinity:
-    requiredDuringSchedulingIgnoredDuringExecution:
-      nodeSelectorTerms:
-        - matchExpressions:
-            - key: topology.kubernetes.io/zone
-              operator: In
-              values:
-                - eu-west-1a
+persistence:
+  storageClass: openremote-ebs
 
 or:
   hostname: k8stest.openremote.app

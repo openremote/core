@@ -77,7 +77,7 @@ spec:
             - name: KC_DB_POOL_MAX_SIZE
               value: "{{ .Values.or.postgresql.poolMaxSize }}"
             - name: KC_HOSTNAME
-              value: "https://{{ .Values.or.hostname }}/auth"
+              value: {{ include "keycloak.publicUrl" . | quote }}
             - name: KC_BOOTSTRAP_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:

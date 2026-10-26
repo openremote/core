@@ -50,7 +50,7 @@ public interface ConfigurationResource {
       operationId = "updateConfiguration",
       summary = "Update manager configuration",
       description =
-          "Replaces manager_config.json and returns the stored configuration. This administrative change affects Manager UI branding and behavior.")
+          "Replaces manager_config.json and returns the stored configuration. This administrative change affects Manager UI branding and behavior. This operation is restricted to a super administrator.")
   @OpenApiResponses.Ok
   @OpenApiResponses.Authenticated
   @OpenApiResponses.BadRequest
@@ -66,18 +66,20 @@ public interface ConfigurationResource {
   @POST
   @Consumes(APPLICATION_JSON)
   @Produces(APPLICATION_JSON)
-  @Path("manager/file")
+  @Path("manager/image")
   @RolesAllowed({Constants.WRITE_ADMIN_ROLE})
   @Operation(
-      operationId = "fileUpload",
+      operationId = "imageUpload",
       summary = "Upload a Manager configuration image",
       description =
-          "Decodes and stores the supplied FileInfo under the requested relative path, then returns its Manager API path.")
+          "Validates and stores the supplied image FileInfo at the requested relative path,"
+              + " replacing an existing image, then returns its Manager API path. This operation"
+              + " is restricted to a super administrator.")
   @OpenApiResponses.Ok
   @OpenApiResponses.Authenticated
   @OpenApiResponses.BadRequest
   @OpenApiResponses.ServerError
-  String fileUpload(
+  String imageUpload(
       @BeanParam RequestParams requestParams,
       @Parameter(
               description = "Relative storage path and filename for the image.",
@@ -107,14 +109,20 @@ public interface ConfigurationResource {
       operationId = "getManagerConfigImage",
       summary = "Retrieve a Manager configuration image",
       description =
-          "Streams a previously uploaded configuration image using its detected media type.")
+          "Streams a configuration image using a fixed media type determined by its filename"
+              + " extension. Only png, jpg, jpeg, ico, and svg extensions are served, ignoring case;"
+              + " unsupported extensions return 404.")
   @ApiResponse(
       responseCode = "200",
       description = "The image file",
-      content =
-          @Content(
-              mediaType = "application/octet-stream",
-              schema = @Schema(type = "string", format = "binary")))
+      content = {
+        @Content(mediaType = "image/png", schema = @Schema(type = "string", format = "binary")),
+        @Content(mediaType = "image/jpeg", schema = @Schema(type = "string", format = "binary")),
+        @Content(
+            mediaType = "image/vnd.microsoft.icon",
+            schema = @Schema(type = "string", format = "binary")),
+        @Content(mediaType = "image/svg+xml", schema = @Schema(type = "string", format = "binary"))
+      })
   @OpenApiResponses.NotFound
   @OpenApiResponses.ServerError
   Object getManagerConfigImage(

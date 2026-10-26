@@ -1,14 +1,37 @@
-managerVolumeSize: "1Gi"
-psqlVolumeSize: "1Gi"
+# OpenRemote component charts own their namespaced PersistentVolumeClaims.
+# This chart provides the namespaced shared secret and optional network policies.
 
-# Configuration when deploying under EKS in AWS
-aws:
-  # Set enabled to true if deployed under AWS
+credentials:
+  # Empty passwords are generated when the Secret is first created. Existing
+  # Secret values are always retained; apply does not rotate live credentials.
+  adminPassword: ""
+  # Empty defaults to postgres when the Secret is first created.
+  postgresqlUsername: ""
+  postgresqlPassword: ""
+
+networkPolicy:
+  # or-stack target profiles enable this. It remains opt-in for standalone and
+  # legacy chart installations, whose external routing may require extra peers.
+  # The cluster CNI must implement NetworkPolicy for it to be enforced.
   enabled: false
-  # Id of the EBS volume used for manager persistent storage
-  managerVolumeId: vol-xxx
-  # Id of the EBS volume used for postgreSQL persistent storage
-  psqlVolumeId: vol-xxx
-
-# Root path for hostpath storage when deployed locally. On macOS, this needs to be under user's home folder
-basePath: "/Users/username/openremote"
+  # Optional NetworkPolicyPeer entries for trusted ingress sources outside the
+  # stack namespace.
+  additionalIngressFrom: []
+  # Allow external traffic only to the per-stack proxy Pod. In HAProxy mode it
+  # is the public TLS endpoint; in Ingress mode it is the internal gateway
+  # targeted by the Ingress controller. Manager and Keycloak remain private.
+  proxy:
+    enabled: false
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/name: proxy
+    ports:
+      - protocol: TCP
+        port: 8080
+      - protocol: TCP
+        port: 8443
+    # HAProxy MQTTS is opt-in. This is the proxy container listener, not the
+    # configurable public Service port.
+    mqtts:
+      enabled: false
+      port: 8883

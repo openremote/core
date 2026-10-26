@@ -1,72 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-. ./eks-common.sh
-
-envsubst < cluster.yaml | eksctl create cluster -f - --profile or
-
-# [Installation Guide - AWS Load Balancer Controller](https://kubernetes-sigs.github.io/aws-load-balancer-controller/latest/deploy/installation/)
-
-helm repo add eks https://aws.github.io/eks-charts
-helm repo update eks
-
-helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
-  -n kube-system \
-  --set clusterName=$CLUSTER_NAME \
-  --set serviceAccount.create=false \
-  --set serviceAccount.name=aws-load-balancer-controller
-
-PSQL_VOLUMEID=$(aws ec2 create-volume --size 1 --availability-zone eu-west-1a --tag-specifications "ResourceType=volume,Tags=[{Key=Name,Value=psql-data}]" --query VolumeId)
-MANAGER_VOLUMEID=$(aws ec2 create-volume --size 1 --availability-zone eu-west-1a --tag-specifications "ResourceType=volume,Tags=[{Key=Name,Value=manager-data}]" --query VolumeId)
-
-# Wait for AWS LB ctrl to be ready
-kubectl rollout status deployment aws-load-balancer-controller -n kube-system --timeout=300s
-
-CLUSTER_DNS=$(kubectl get svc kube-dns -n kube-system -o jsonpath='{.spec.clusterIP}:{.spec.ports[?(@.name=="dns")].port}')
-
-helm install or-setup $OR_KUBERNETES_PATH/or-setup -f values-or-setup-eks-load.yaml --set aws.enabled=true --set aws.managerVolumeId=$MANAGER_VOLUMEID --set aws.psqlVolumeId=$PSQL_VOLUMEID
-
-helm install proxy $OR_KUBERNETES_PATH/proxy -f $OR_KUBERNETES_PATH/proxy/values-eks.yaml -f values-proxy-eks-load.yaml  --set or.nameserver=$CLUSTER_DNS --set or.hostname=$FQDN
-
-helm install postgresql $OR_KUBERNETES_PATH/postgresql -f $OR_KUBERNETES_PATH/postgresql/values-eks.yaml -f values-postgresql-eks-load.yaml
-
-# Waiting for the LB to be created
-# AWS LB Controller only creates an Network LB if there's a service
-
-CLUSTER_VPC_ID=$(aws eks describe-cluster --profile or --name $CLUSTER_NAME --query 'cluster.resourcesVpcConfig.vpcId' --output text)
-if [ -z "$CLUSTER_VPC_ID" ] || [ "$CLUSTER_VPC_ID" = "None" ]; then
-  echo "Error: Failed to retrieve VPC ID for cluster '$CLUSTER_NAME'. Aborting."
-  exit 1
-fi
-
-while ! aws elbv2 describe-load-balancers  --profile or --query "LoadBalancers[?VpcId=='$CLUSTER_VPC_ID' && Type=='network' && Scheme=='internet-facing']" 2>/dev/null | grep '"Code": "active"'; do
-  echo "Waiting for load balancer to be created..."
-  sleep 10
-done
-
-DNS_NAME=$(aws elbv2 describe-load-balancers --profile or --query "LoadBalancers[?VpcId=='$CLUSTER_VPC_ID' && Type=='network' && Scheme=='internet-facing'].DNSName | [0]")
-HOSTED_ZONE_ID=$(aws elbv2 describe-load-balancers --profile or --query "LoadBalancers[?VpcId=='$CLUSTER_VPC_ID' && Type=='network' && Scheme=='internet-facing'].CanonicalHostedZoneId | [0]")
-
-aws route53 change-resource-record-sets \
-    --hosted-zone-id /hostedzone/Z08751721JH0NB6LLCB4V \
-    --change-batch \
-     '{"Changes": [ { "Action": "UPSERT", "ResourceRecordSet": { "Name": "'$FQDN'", "Type": "A", "AliasTarget":{ "HostedZoneId": '$HOSTED_ZONE_ID',"DNSName": '$DNS_NAME',"EvaluateTargetHealth": false} } } ]}' \
-     --profile dnschg
-
-helm install keycloak $OR_KUBERNETES_PATH/keycloak -f $OR_KUBERNETES_PATH/keycloak/values-haproxy.yaml \
-  -f values-keycloak-eks-load.yaml --set-string or.hostname=$FQDN
-helm install manager $OR_KUBERNETES_PATH/manager -f $OR_KUBERNETES_PATH/manager/values-haproxy-eks.yaml \
-  -f values-manager-eks-load.yaml --set-string or.hostname=$FQDN \
-  --set-string image.repository=$AWS_DEVELOPERS_ACCOUNT_ID.dkr.ecr.eu-west-1.amazonaws.com/openremote/manager
-
-while ! dig +short $FQDN | grep -qE '^[0-9]'; do
-    echo "Waiting for DNS resolution..."
-    sleep 5
-done
-
-# Now that DNS is in place, HAProxy can properly create the certificate
-kubectl exec $(kubectl get pod -l "app.kubernetes.io/name=proxy" -o name) -- sh -c "/entrypoint.sh add $FQDN" || {
-    echo "Certificate generation failed, please wait a moment and manually execute the following command:"
-    echo "kubectl exec \$(kubectl get pod -l \"app.kubernetes.io/name=proxy\" -o name) -- sh -c \"/entrypoint.sh add $FQDN\""
-}
-
-echo "Access the manager at https://$FQDN"
+# Retained legacy entry point. See README.md for the separate CLI lifecycles.
+printf '%s\n' \
+  'This legacy load-test script is no longer supported.' \
+  'Use kubernetes/or-eks-cluster for the cluster and kubernetes/or-eks-stack for each stack.' \
+  "See the README.md in this script's directory for image, profile, DNS, and cleanup configuration." >&2
+exit 1

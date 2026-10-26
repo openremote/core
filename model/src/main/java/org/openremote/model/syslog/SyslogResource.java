@@ -112,7 +112,8 @@ public interface SyslogResource {
   @Operation(
       operationId = "clearEvents",
       summary = "Clear stored syslog events",
-      description = "Permanently removes all events from the configured syslog storage.")
+      description =
+          "Permanently removes all events from the configured syslog storage. This operation is restricted to a super administrator.")
   @OpenApiResponses.NoContent
   void clearEvents(@BeanParam RequestParams requestParams);
 
@@ -124,7 +125,8 @@ public interface SyslogResource {
   @Operation(
       operationId = "getConfig",
       summary = "Retrieve the syslog configuration",
-      description = "Returns the current log-storage and retention configuration.")
+      description =
+          "Returns the current log-storage and retention configuration. This operation is restricted to a super administrator.")
   @OpenApiResponses.Ok
   SyslogConfig getConfig(@BeanParam RequestParams requestParams);
 
@@ -135,7 +137,8 @@ public interface SyslogResource {
   @Operation(
       operationId = "updateConfig",
       summary = "Update the syslog configuration",
-      description = "Validates and applies log-storage and retention settings.")
+      description =
+          "Validates and applies log-storage and retention settings. This operation is restricted to a super administrator.")
   @OpenApiResponses.NoContent
   @OpenApiResponses.BadRequest
   void updateConfig(

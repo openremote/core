@@ -1,0 +1,288 @@
+#!/usr/bin/env python3
+"""Offline Bash helper orchestration tests; no real AWS or Kubernetes calls."""
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[2]
+REPOSITORY = '123456789012.dkr.ecr.eu-west-1.amazonaws.com/openremote/manager'
+SIZES = ('large', 'xlarge-minimal', 'xlarge', '2xlarge', '4xlarge', '8xlarge')
+STUB = r'''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+name = Path(sys.argv[0]).name
+args = sys.argv[1:]
+def option(flag, default=None):
+    return args[args.index(flag)+1] if flag in args else default
+record = {'tool': name, 'args': args}
+assert not any(k.startswith(('OR_EKS_', 'OR_STACK_')) for k in os.environ)
+if '--values-dir' in args:
+    record['values'] = {p.name: p.read_text() for p in Path(option('--values-dir')).glob('*.yaml')}
+if name == 'aws':
+    record['access_key'] = os.getenv('AWS_ACCESS_KEY_ID')
+with open(os.environ['HELPER_TEST_LOG'], 'a') as f:
+    f.write(json.dumps(record)+'\n')
+account = '463235666115'
+role = 'arn:aws:iam::134517981306:role/test-dns-role'
+if name == 'aws':
+    if 'get-caller-identity' in args:
+        print('134517981306' if option('--profile') == 'dns-account' else account)
+    elif 'describe-cluster' in args:
+        if os.getenv('CLUSTER_ERROR'):
+            print('ExpiredTokenException', file=sys.stderr); sys.exit(1)
+        if os.getenv('HELPER_TEST_CLUSTER_EXISTS'):
+            print('ACTIVE')
+        else:
+            print('ResourceNotFoundException', file=sys.stderr); sys.exit(1)
+    elif 'list-hosted-zones' in args:
+        if os.getenv('DNS_READ_DENIED') and os.getenv('AWS_ACCESS_KEY_ID') == 'dns-key':
+            print('AccessDenied: Route53 read', file=sys.stderr); sys.exit(1)
+        zones = [{'Id': '/hostedzone/Z123', 'Name': 'example.com.', 'Config': {'PrivateZone': False}},
+                 {'Id': '/hostedzone/ZPRIVATE', 'Name': 'example.com.', 'Config': {'PrivateZone': True}}]
+        if os.getenv('AMBIGUOUS_ZONE'):
+            zones.append({'Id': '/hostedzone/Z456', 'Name': 'example.com.', 'Config': {'PrivateZone': False}})
+        if os.getenv('SUBDOMAIN_ZONE'):
+            zones.append({'Id': '/hostedzone/ZSUB', 'Name': 'test.example.com.', 'Config': {'PrivateZone': False}})
+        print(json.dumps({'HostedZones': zones}))
+    elif 'describe-stacks' in args:
+        print(role if option('--profile') == 'dns-account' else role.replace('134517981306', account))
+    elif 'assume-role-with-web-identity' in args:
+        assert option('--web-identity-token').startswith('file://')
+        assert Path(option('--web-identity-token')[7:]).read_text().strip() == 'test-jwt'
+        assert os.getenv('AWS_ACCESS_KEY_ID') is None
+        print(json.dumps({'Credentials': {'AccessKeyId': 'irsa-key', 'SecretAccessKey': 'private-irsa-secret', 'SessionToken': 'private-irsa-session'}}))
+    elif 'assume-role' in args:
+        assert os.getenv('AWS_ACCESS_KEY_ID') == 'irsa-key'
+        if os.getenv('ASSUME_DENIED'):
+            print('AccessDenied: sts:AssumeRole', file=sys.stderr); sys.exit(1)
+        print(json.dumps({'Credentials': {'AccessKeyId': 'dns-key', 'SecretAccessKey': 'private-dns-secret', 'SessionToken': 'private-dns-session'}}))
+    elif 'list-resource-record-sets' in args:
+        assert os.getenv('AWS_ACCESS_KEY_ID') == 'dns-key'
+        print('{}')
+elif name == 'kubectl':
+    if 'serviceaccount' in args:
+        print('arn:aws:iam::463235666115:role/openremote-loadtest-eu-west-1-external-dns')
+    elif 'token' in args:
+        print('test-jwt')
+elif name == 'helm':
+    if args[0] == 'template':
+        hostname = option('--set-string').split('=',1)[1]
+        if os.getenv('BAD_RENDER'):
+            hostname = 'https://' + hostname + '/auth'
+        print('- name: KC_HOSTNAME\n  value: "' + hostname + '"')
+    elif args[0] == 'list':
+        print('[{"name":"openremote-external-dns"}]' if os.getenv('HELPER_TEST_EXISTING_DNS') else '[]')
+    elif args[:2] == ['get','values']:
+        print(json.dumps({'txtOwnerId': 'preserve-me', 'domainFilters': ['example.com'], 'extraArgs': {
+            'zone-id-filter': os.getenv('EXISTING_ZONE','Z123'), 'aws-assume-role': role,
+            'aws-assume-role-external-id': 'existing-external-id', 'dry-run': bool(os.getenv('DNS_DRY_RUN'))}}))
+elif name == 'curl':
+    issuer = args[-1].removesuffix('/.well-known/openid-configuration')
+    if os.getenv('BAD_ISSUER'):
+        issuer = 'https://https://broken/auth/auth/realms/master'
+    print(json.dumps({'issuer': issuer, 'authorization_endpoint': issuer+'/protocol/openid-connect/auth'}))
+elif name == 'or-eks-stack' and args[0] == 'apply' and os.getenv('STACK_FAIL'):
+    sys.exit(37)
+'''
+
+class LoadHelperTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='load-helper-test-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve() / 'checkout with spaces'
+        (self.root / 'test').mkdir(parents=True)
+        (self.root / 'kubernetes').mkdir()
+        self.helper = self.root / 'test/or-eks-load'
+        shutil.copy2(ROOT / 'test/or-eks-load', self.helper)
+        for profile in [Path('test/load1-eks'), *(Path('test/load2-eks/profiles')/s for s in SIZES)]:
+            target = self.root/profile
+            target.mkdir(parents=True)
+            for component in ('manager', 'keycloak', 'postgresql', 'proxy', 'cluster'):
+                shutil.copy2(ROOT/profile/f'{component}.yaml', target)
+        binaries = self.root/'bin'
+        binaries.mkdir()
+        for name in ('aws', 'kubectl', 'helm', 'curl', 'sleep', 'eksctl', 'dig', 'or-eks-stack', 'or-eks-cluster'):
+            path = self.root/'kubernetes'/name if name.startswith('or-eks-') else binaries/name
+            path.write_text(STUB)
+            path.chmod(0o755)
+        self.config = self.root/'deployment.env'
+        self.settings = dict(LOAD_TEST='load2', LOAD_PROFILE='xlarge', CLUSTER_NAME='loadtest', STACK_NAME='load2',
+                             AWS_REGION='eu-west-1', LOAD_HOSTNAME='load2.example.com',
+                             LOAD_MANAGER_REPOSITORY=REPOSITORY, DNS_AWS_PROFILE='dns-account')
+        self.log = self.root/'calls.jsonl'
+        self.env = {k:v for k,v in os.environ.items() if not k.startswith(('LOAD_', 'OR_EKS_', 'OR_STACK_', 'AWS_', 'DNS_'))}
+        self.env.update(PATH=f'{binaries}:{os.environ["PATH"]}', HELPER_TEST_LOG=str(self.log))
+
+    def invoke(self, command, *options, expected=0, **env):
+        import shlex
+        self.config.write_text(''.join(f'{k}={shlex.quote(v)}\n' for k,v in self.settings.items()))
+        self.log.write_text('')
+        result = subprocess.run(['/bin/bash', str(self.helper), command, '--config', str(self.config), *options],
+                                cwd=self.temp.name, env={**self.env, **env}, capture_output=True, text=True)
+        self.assertEqual(result.returncode, expected, result.stdout+result.stderr)
+        self.assertNotIn('private-irsa-secret', result.stdout+result.stderr)
+        self.assertNotIn('private-dns-secret', result.stdout+result.stderr)
+        self.calls = [json.loads(line) for line in self.log.read_text().splitlines()]
+        return result
+
+    def calls_to(self, tool, action):
+        return [c for c in self.calls if c['tool']==tool and action in c['args']]
+
+    def test_all_profiles_create_and_apply(self):
+        for load,size in [('load1',''), *(('load2',s) for s in SIZES)]:
+            with self.subTest(load=load,size=size):
+                self.settings.update(LOAD_TEST=load,LOAD_PROFILE=size)
+                self.invoke('up', AWS_ACCESS_KEY_ID='operator-key')
+                created, = self.calls_to('or-eks-cluster','create')
+                path = created['args'][created['args'].index('--config')+1]
+                expected_path = self.root/('test/load1-eks' if load=='load1' else f'test/load2-eks/profiles/{size}')
+                self.assertEqual(Path(path), expected_path/'cluster.yaml')
+                deployed, = self.calls_to('or-eks-stack','apply')
+                for component in ('manager','keycloak','postgresql','proxy'):
+                    filename=f'{component}.yaml'
+                    self.assertEqual(deployed['values'][filename], (expected_path/filename).read_text().replace('${LOAD_MANAGER_REPOSITORY}',REPOSITORY))
+                directory=Path(deployed['args'][deployed['args'].index('--values-dir')+1])
+                self.assertFalse(directory.exists())
+                token_call,=self.calls_to('aws','assume-role-with-web-identity')
+                token_path=Path(token_call['args'][token_call['args'].index('--web-identity-token')+1][7:])
+                self.assertFalse(token_path.exists())
+                read_call,=self.calls_to('aws','list-resource-record-sets')
+                self.assertLess(self.calls.index(read_call),self.calls.index(deployed))
+                self.assertIn('--mqtts',deployed['args'])
+                self.assertIn('90m',deployed['args'])
+
+    def test_resume_preserves_owner_and_stable_iam_configuration(self):
+        self.invoke('up',HELPER_TEST_CLUSTER_EXISTS='1',HELPER_TEST_EXISTING_DNS='1')
+        before,=self.calls_to('aws','deploy')
+        cluster,=self.calls_to('or-eks-cluster','apply')
+        self.assertIn('preserve-me',cluster['args'])
+        self.assertFalse(self.calls_to('or-eks-cluster','create'))
+        self.invoke('up',HELPER_TEST_CLUSTER_EXISTS='1',HELPER_TEST_EXISTING_DNS='1')
+        after,=self.calls_to('aws','deploy')
+        self.assertEqual(before['args'],after['args'])
+
+    def test_profile_selection_and_stale_environment(self):
+        self.settings['CLUSTER_AWS_PROFILE'] = 'cluster-account'
+        self.invoke('up', LOAD_PROFILE='invalid-old-export', OR_EKS_STACK_HOSTNAME='wrong.example.com',
+                    OR_EKS_EXTERNAL_DNS_DRY_RUN='true')
+        identity = self.calls_to('aws','get-caller-identity')
+        self.assertIn('cluster-account', identity[0]['args'])
+        self.assertIn('dns-account', identity[1]['args'])
+        self.settings['DNS_AWS_PROFILE'] = ''
+        self.invoke('up')
+        for call in self.calls_to('aws','get-caller-identity'):
+            self.assertIn('cluster-account', call['args'])
+        role, = self.calls_to('aws','deploy')
+        self.assertIn('cluster-account', role['args'])
+
+    def test_invalid_hostnames_and_repositories_fail_before_aws(self):
+        for key, value in [('LOAD_HOSTNAME', 'https://load2.example.com/auth'),
+                           ('STACK_NAME', 'default'),
+                           ('LOAD_MANAGER_REPOSITORY', 'https://' + REPOSITORY),
+                           ('LOAD_MANAGER_REPOSITORY', REPOSITORY + ':load2'),
+                           ('LOAD_MANAGER_REPOSITORY', 'registry.example.com')]:
+            with self.subTest(key=key, value=value):
+                previous = self.settings[key]
+                self.settings[key] = value
+                self.invoke('up', expected=1)
+                self.assertFalse(self.calls)
+                self.settings[key] = previous
+
+    def test_zone_discovery_and_explicit_disambiguation(self):
+        result=self.invoke('up',expected=1,AMBIGUOUS_ZONE='1')
+        self.assertIn('Multiple matching zones',result.stderr)
+        self.assertFalse(self.calls_to('aws','deploy'))
+        self.settings['DNS_ZONE_ID']='Z456'
+        self.invoke('cluster-up',AMBIGUOUS_ZONE='1')
+        role,=self.calls_to('aws','deploy')
+        self.assertIn('HostedZoneId=Z456',role['args'])
+        self.assertFalse(self.calls_to('or-eks-stack','apply'))
+        del self.settings['DNS_ZONE_ID']
+        self.settings['LOAD_HOSTNAME']='load2.test.example.com'
+        self.invoke('cluster-up',SUBDOMAIN_ZONE='1')
+        role,=self.calls_to('aws','deploy')
+        self.assertIn('HostedZoneId=ZSUB',role['args'])
+
+    def test_iam_denials_stop_before_workloads(self):
+        for error in ('ASSUME_DENIED','DNS_READ_DENIED'):
+            with self.subTest(error=error):
+                result=self.invoke('up',expected=1,**{error:'1'})
+                self.assertIn('ExternalDNS cannot assume its roles or read Route 53',result.stderr)
+                self.assertFalse(self.calls_to('or-eks-stack','apply'))
+
+    def test_existing_cluster_zone_cannot_change(self):
+        result=self.invoke('up',expected=1,HELPER_TEST_CLUSTER_EXISTS='1',HELPER_TEST_EXISTING_DNS='1',EXISTING_ZONE='ZOTHER')
+        self.assertIn('different DNS zone',result.stderr)
+        self.assertFalse(self.calls_to('aws','deploy'))
+
+    def test_deploy_only_uses_existing_dns_configuration(self):
+        self.invoke('deploy',HELPER_TEST_CLUSTER_EXISTS='1',HELPER_TEST_EXISTING_DNS='1')
+        self.assertFalse(self.calls_to('aws','deploy'))
+        self.assertFalse(self.calls_to('or-eks-cluster','apply'))
+        assume,=self.calls_to('aws','assume-role')
+        self.assertIn('existing-external-id',assume['args'])
+        self.invoke('deploy',expected=1)
+        self.assertFalse(self.calls_to('or-eks-stack','apply'))
+        self.invoke('deploy',expected=1,HELPER_TEST_CLUSTER_EXISTS='1',HELPER_TEST_EXISTING_DNS='1',DNS_DRY_RUN='1')
+        self.assertFalse(self.calls_to('or-eks-stack','apply'))
+
+    def test_prepare_and_custom_values_never_overwritten(self):
+        output=self.root/'custom values'
+        self.invoke('prepare','--values-dir',str(output))
+        self.assertFalse(self.calls)
+        manager=output/'manager.yaml'
+        manager.write_text(manager.read_text().replace('tag: "load2"','tag: "custom"'))
+        before=manager.read_bytes()
+        self.invoke('prepare','--values-dir',str(output),expected=1)
+        self.assertEqual(before,manager.read_bytes())
+        self.settings['LOAD_VALUES_DIR']='custom values'
+        self.invoke('up')
+        deployed,=self.calls_to('or-eks-stack','apply')
+        self.assertEqual(deployed['values']['manager.yaml'],before.decode())
+        self.assertEqual(before,manager.read_bytes())
+
+    def test_lifecycle_commands_require_no_dns_credentials(self):
+        self.settings=dict(CLUSTER_NAME='loadtest',STACK_NAME='load2',CLUSTER_AWS_PROFILE='cluster-account')
+        for command in ('status','credentials','uninstall'):
+            self.invoke(command)
+            self.assertEqual(len(self.calls),1)
+            self.assertIn('cluster-account',self.calls[0]['args'])
+        for command,name,tool in (('destroy-stack','load2','or-eks-stack'),('destroy-cluster','loadtest','or-eks-cluster')):
+            self.invoke(command,expected=1)
+            self.assertFalse(self.calls)
+            self.invoke(command,'--confirm','wrong',expected=1)
+            self.assertFalse(self.calls)
+            self.invoke(command,'--confirm',name)
+            self.assertEqual(len(self.calls),1)
+            self.assertEqual(self.calls[0]['tool'],tool)
+
+    def test_bad_configuration_and_expired_credentials_fail_early(self):
+        result=self.invoke('up',expected=1,BAD_RENDER='1')
+        self.assertIn('invalid public URL',result.stderr)
+        self.assertFalse(self.calls_to('aws','deploy'))
+        self.invoke('up',expected=1,CLUSTER_ERROR='1')
+        self.assertFalse(self.calls_to('or-eks-cluster','create'))
+        self.settings['LOAD_PROFILE']='../invalid'
+        self.invoke('up',expected=1)
+        self.assertFalse(self.calls)
+
+    def test_stack_failure_and_bad_discovery(self):
+        self.invoke('up',expected=37,STACK_FAIL='1')
+        deployed,=self.calls_to('or-eks-stack','apply')
+        self.assertFalse(Path(deployed['args'][deployed['args'].index('--values-dir')+1]).exists())
+        result=self.invoke('up',expected=1,BAD_ISSUER='1')
+        self.assertIn('incorrect issuer',result.stderr)
+
+    def test_ingress_options(self):
+        self.settings.update(LOAD_EXPOSURE='ingress',LOAD_MQTTS_HOSTNAME='mqtt.example.com',LOAD_TIMEOUT='120m',CERTIFICATE_ARN='web-cert',MQTTS_CERTIFICATE_ARN='mqtt-cert')
+        self.invoke('up')
+        deployed,=self.calls_to('or-eks-stack','apply')
+        for value in ('ingress','mqtt.example.com','120m','web-cert','mqtt-cert', '--certificate-mode', '--mqtts-certificate-mode', 'existing'):
+            self.assertIn(value,deployed['args'])
+
+if __name__=='__main__':
+    unittest.main(verbosity=2)

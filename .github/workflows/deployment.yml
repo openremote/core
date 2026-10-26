@@ -20,7 +20,7 @@ jobs:
 
       - name: Get version details
         id: get-version-details
-        uses: openremote/core/.github/actions/get-version-details@3cde448ab3d2e825e7ab189881d0e6cf33a34486
+        uses: openremote/core/.github/actions/get-version-details@accaf8ed2cab816cb081ae57be6bebed93c049f0
 
       - name: Check if core repo
         id: is_core_repo
@@ -35,6 +35,11 @@ jobs:
           ref: ${{ steps.is_core_repo.outputs.version }}
           sparse-checkout: .ci_cd
           sparse-checkout-cone-mode: false
+
+      # Compatibility with released scripts
+      - name: Provide legacy core repo checkout path
+        if: ${{ steps.is_core_repo.outputs.value == 'false' }}
+        run: ln -s core openremote
 
       - name: Process ci_cd.json file
         id: ci-cd-output
@@ -325,6 +330,7 @@ jobs:
             sys.exit(1)
         env:
           IS_CORE_REPO: ${{ steps.is_core_repo.outputs.value }}
+          IS_MAIN_REPO: ${{ steps.is_core_repo.outputs.value }} # Compatibility with released scripts
           DEPLOYMENTS: ${{ steps.deployments.outputs.value }}
           BUILDX_BUILDER: ${{ steps.buildx.outputs.name }}
           MANAGER_DOCKER_BUILD_PATH: manager/build/install/manager

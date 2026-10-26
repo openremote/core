@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+
+set -eu
+
+printf 'kubectl' >> "$OR_STACK_TEST_LOG"
+for argument in "$@"; do
+  printf '\t%s' "$argument" >> "$OR_STACK_TEST_LOG"
+done
+printf '\n' >> "$OR_STACK_TEST_LOG"
+
+if [ "${1:-}" = "config" ] && [ "${2:-}" = "get-contexts" ]; then
+  if [ "${3:-}" = "${OR_STACK_TEST_CONTEXT:-test-context}" ]; then
+    printf '%s\n' "$3"
+  fi
+  exit 0
+fi
+
+EMPTY_RESOURCE_LIST='{"items":[]}'
+arguments=" $* "
+case "$arguments" in
+  *" get configmap openremote-hostnames "*|*" --namespace kube-system create -f - "*|*" --namespace kube-system replace -f - "*)
+    exec python3 "$(dirname "$0")/hostname-registry.py" "$@"
+    ;;
+  *" get namespaces "*)
+    printf '%s\n' "${OR_STACK_TEST_NAMESPACES_JSON:-$EMPTY_RESOURCE_LIST}"
+    exit 0
+    ;;
+  *" get ingress,services "*)
+    [ "${OR_STACK_TEST_ROUTES_READ_SUCCESS:-true}" = true ] || exit 1
+    printf '%s\n' "${OR_STACK_TEST_ROUTES_JSON:-$EMPTY_RESOURCE_LIST}"
+    exit 0
+    ;;
+  *" get namespace "*" -o json "*)
+    if [ -n "${OR_STACK_TEST_NAMESPACE_JSON:-}" ]; then
+      printf '%s\n' "$OR_STACK_TEST_NAMESPACE_JSON"
+      exit 0
+    fi
+    previous_argument=""
+    for argument in "$@"; do
+      if [ "$previous_argument" = namespace ]; then
+        namespace_name="$argument"
+        break
+      fi
+      previous_argument="$argument"
+    done
+    jq -cn --arg name "$namespace_name" --arg uid "${OR_STACK_TEST_NAMESPACE_UID:-uid-$namespace_name}" \
+      --arg reserved "${OR_STACK_TEST_RESERVED_HOSTNAME:-}" \
+      --arg reserved_mqtts "${OR_STACK_TEST_RESERVED_MQTTS_HOSTNAME:-}" \
+      '{metadata:{name:$name,uid:$uid,labels:{"openremote.io/stack":$name}}} |
+        if $reserved != "" then .metadata.annotations["openremote.io/reserved-hostname"]=$reserved else . end |
+        if $reserved_mqtts != "" then .metadata.annotations["openremote.io/reserved-mqtts-hostname"]=$reserved_mqtts else . end'
+    exit 0
+    ;;
+  *" get namespace "*" --ignore-not-found -o name "*)
+    if [ "${OR_STACK_TEST_NAMESPACE_EXISTS:-false}" = true ] && \
+       [ ! -f "${OR_STACK_TEST_NAMESPACE_DELETED_FILE:-/nonexistent}" ]; then
+      printf 'namespace/stack-a\n'
+    fi
+    exit 0
+    ;;
+  *" delete namespace "*)
+    if [ -n "${OR_STACK_TEST_NAMESPACE_DELETED_FILE:-}" ]; then
+      : > "$OR_STACK_TEST_NAMESPACE_DELETED_FILE"
+    fi
+    ;;
+  *" get namespace "*)
+    if [ "${OR_STACK_TEST_NAMESPACE_EXISTS:-false}" = "true" ]; then
+      case "$arguments" in
+        *" jsonpath="*)
+          namespace_name=""
+          previous_argument=""
+          for argument in "$@"; do
+            if [ "$previous_argument" = "namespace" ]; then
+              namespace_name="$argument"
+              break
+            fi
+            previous_argument="$argument"
+          done
+
+          case "$arguments" in
+            *"openremote\\.io/mqtts-hostname"*)
+              printf '%s' "${OR_STACK_TEST_MQTTS_HOSTNAME:-mqtt-stack-a.localhost}"
+              ;;
+            *"openremote\\.io/hostname"*)
+              printf '%s' "${OR_STACK_TEST_HOSTNAME:-stack-a.localhost}"
+              ;;
+            *"openremote\\.io/target"*)
+              printf '%s' "${OR_STACK_TEST_TARGET_LABEL-local}"
+              ;;
+            *"openremote\\.io/exposure"*)
+              printf '%s' "${OR_STACK_TEST_EXPOSURE_LABEL-haproxy}"
+              ;;
+            *"openremote\\.io/dns"*)
+              printf '%s' "${OR_STACK_TEST_DNS_LABEL-none}"
+              ;;
+            *)
+              if [ "${OR_STACK_TEST_NAMESPACE_LABEL+x}" = "x" ]; then
+                printf '%s' "${OR_STACK_TEST_NAMESPACE_LABEL:-}"
+              else
+                printf '%s' "$namespace_name"
+              fi
+              ;;
+          esac
+          ;;
+      esac
+      exit 0
+    fi
+    exit 1
+    ;;
+  *" get storageclass openremote-ebs "*)
+    [ "${OR_STACK_TEST_EKS_STORAGE:-true}" = "true" ]
+    ;;
+  *" get csidriver ebs.csi.aws.com "*)
+    [ "${OR_STACK_TEST_EKS_CSI:-true}" = "true" ]
+    ;;
+  *" get customresourcedefinition/policyendpoints.networking.k8s.aws "*)
+    [ "${OR_STACK_TEST_EKS_NETWORK_POLICY:-true}" = "true" ]
+    ;;
+  *" get deployment aws-load-balancer-controller "*)
+    [ "${OR_STACK_TEST_EKS_LOAD_BALANCER_CONTROLLER:-true}" = "true" ]
+    ;;
+  *" get ingressclass openremote-alb "*)
+    [ "${OR_STACK_TEST_EKS_INGRESS_CLASS:-true}" = "true" ]
+    ;;
+  *" get ingressclassparams.elbv2.k8s.aws openremote-alb "*)
+    [ "${OR_STACK_TEST_EKS_INGRESS_CLASS_PARAMS:-true}" = "true" ] || exit 1
+    printf '%s' "${OR_STACK_TEST_EKS_SSL_REDIRECT_PORT:-443}"
+    ;;
+  *" get daemonset aws-node "*)
+    printf '%s' "${OR_STACK_TEST_EKS_CNI_CONTAINERS:-aws-node aws-eks-nodeagent}"
+    ;;
+  *" get service kube-dns "*)
+    [ "${OR_STACK_TEST_KUBE_DNS_EXISTS:-true}" = "true" ] || exit 1
+    printf '%s' "${OR_STACK_TEST_KUBE_DNS:-10.96.0.10:53}"
+    ;;
+  *" get service proxy "*"spec.ports"*"mqtts"*)
+    printf '%s' "${OR_STACK_TEST_PROXY_MQTTS_PORT:-}"
+    ;;
+  *" get service proxy-mqtts "*"spec.ports"*"mqtts"*)
+    printf '%s' "${OR_STACK_TEST_PROXY_MQTTS_PORT:-}"
+    ;;
+  *" get service proxy-mqtts "*)
+    [ "${OR_STACK_TEST_PROXY_MQTTS_SERVICE_EXISTS:-true}" = "true" ] || exit 1
+    printf '%s' "${OR_STACK_TEST_PROXY_MQTTS_ADDRESS:-localhost}"
+    ;;
+  *" get service proxy "*)
+    [ "${OR_STACK_TEST_PROXY_SERVICE_EXISTS:-true}" = "true" ] || exit 1
+    printf '%s' "${OR_STACK_TEST_PROXY_ADDRESS:-localhost}"
+    ;;
+  *" exec deployment/proxy "*)
+    [ "${OR_STACK_TEST_PROXY_CERTIFICATE_EXISTS:-true}" = "true" ] || exit 1
+    printf '%s\n' "${OR_STACK_TEST_PROXY_CERTIFICATE:-issuer=CN=OpenRemote Test CA
+notAfter=Sep  3 12:00:00 2027 GMT}"
+    ;;
+  *" get secret openremote-secret "*)
+    [ "${OR_STACK_TEST_SECRET_EXISTS:-true}" = "true" ] || exit 1
+    case "$arguments" in
+      *"helm\\.sh/resource-policy"*)
+        printf '%s' "${OR_STACK_TEST_SECRET_POLICY-keep}"
+        ;;
+      *"base64decode"*)
+        printf '%s' "${OR_STACK_TEST_ADMIN_PASSWORD:-generated-admin-password}"
+        ;;
+    esac
+    ;;
+  *" get persistentvolumeclaims "*"metadata.name"*)
+    printf '%s\n' "${OR_STACK_TEST_PVC_METADATA:-manager|manager|keep
+postgresql|postgresql|keep
+proxy|proxy|keep}"
+    ;;
+  *" get persistentvolumeclaims "*"spec.volumeName"*)
+    printf '%s\n' "${OR_STACK_TEST_PV_NAMES:-pvc-manager
+pvc-postgresql
+pvc-proxy}"
+    ;;
+  *" get persistentvolume/"*)
+    [ "${OR_STACK_TEST_PV_EXISTS:-true}" = "true" ]
+    ;;
+  *" wait --for=delete persistentvolume/"*)
+    [ "${OR_STACK_TEST_PV_WAIT_SUCCESS:-true}" = "true" ]
+    ;;
+esac
+
+exit 0

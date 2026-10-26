@@ -1,6 +1,0 @@
-managerVolumeSize: "16Gi"
-psqlVolumeSize: "16Gi"
-
-aws:
-  # Set enabled to true if deployed under AWS
-  enabled: true

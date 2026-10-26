@@ -1,0 +1,108 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Cross-account Route 53 role assumed by the OpenRemote ExternalDNS IRSA role.
+
+Parameters:
+  HostedZoneId:
+    Type: String
+    Description: Public Route 53 hosted-zone ID without the /hostedzone/ prefix.
+    AllowedPattern: ^Z[A-Z0-9]+$
+  DomainName:
+    Type: String
+    Description: >-
+      Lowercase DNS suffix that ExternalDNS may change, without a trailing dot.
+    AllowedPattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+  ClusterAccountId:
+    Type: String
+    Description: AWS account containing the EKS cluster-side IRSA role.
+    AllowedPattern: ^[0-9]{12}$
+  ClusterExternalDNSRoleName:
+    Type: String
+    Description: >-
+      Exact IRSA role name used by or-eks-cluster in the EKS account.
+    MinLength: 1
+    MaxLength: 64
+    AllowedPattern: ^[A-Za-z0-9_+=,.@-]+$
+  ExternalId:
+    Type: String
+    Description: Optional external ID required when the cluster role assumes this role.
+    Default: ""
+    NoEcho: true
+  RoleName:
+    Type: String
+    Description: Optional fixed name for the role created in the DNS account.
+    Default: ""
+    MaxLength: 64
+    AllowedPattern: ^$|^[A-Za-z0-9_+=,.@-]+$
+
+Conditions:
+  HasExternalId: !Not [!Equals [!Ref ExternalId, ""]]
+  HasRoleName: !Not [!Equals [!Ref RoleName, ""]]
+
+Resources:
+  ExternalDNSRoute53Role:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: !Sub OpenRemote ExternalDNS access to ${DomainName}
+      RoleName: !If [HasRoleName, !Ref RoleName, !Ref "AWS::NoValue"]
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowClusterExternalDNSRole
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${ClusterAccountId}:root
+            Action: sts:AssumeRole
+            Condition: !If
+              - HasExternalId
+              - ArnEquals:
+                  aws:PrincipalArn: !Sub >-
+                    arn:${AWS::Partition}:iam::${ClusterAccountId}:role/${ClusterExternalDNSRoleName}
+                StringEquals:
+                  sts:ExternalId: !Ref ExternalId
+              - ArnEquals:
+                  aws:PrincipalArn: !Sub >-
+                    arn:${AWS::Partition}:iam::${ClusterAccountId}:role/${ClusterExternalDNSRoleName}
+      Policies:
+        - PolicyName: ManageExternalDNSRecords
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ChangeRecordsInSelectedZoneAndDomain
+                Effect: Allow
+                Action: route53:ChangeResourceRecordSets
+                Resource: !Sub >-
+                  arn:${AWS::Partition}:route53:::hostedzone/${HostedZoneId}
+                Condition:
+                  ForAllValues:StringLike:
+                    route53:ChangeResourceRecordSetsNormalizedRecordNames:
+                      - !Ref DomainName
+                      - !Sub "*.${DomainName}"
+                  ForAllValues:StringEquals:
+                    route53:ChangeResourceRecordSetsRecordTypes:
+                      - A
+                      - AAAA
+                      - CNAME
+                      - TXT
+                    route53:ChangeResourceRecordSetsActions:
+                      - CREATE
+                      - UPSERT
+                      - DELETE
+              - Sid: ReadRoute53Metadata
+                Effect: Allow
+                Action:
+                  - route53:GetHostedZone
+                  - route53:ListHostedZones
+                  - route53:ListHostedZonesByName
+                  - route53:ListResourceRecordSets
+                  - route53:ListTagsForResource
+                Resource: "*"
+
+Outputs:
+  RoleArn:
+    Description: Pass this ARN to or-eks-cluster --external-dns-role-arn.
+    Value: !GetAtt ExternalDNSRoute53Role.Arn
+  ClusterSourceRoleArn:
+    Description: Exact cluster-account role allowed to assume this role.
+    Value: !Sub >-
+      arn:${AWS::Partition}:iam::${ClusterAccountId}:role/${ClusterExternalDNSRoleName}

@@ -52,7 +52,7 @@ public interface MapResource {
       operationId = "saveSettings",
       summary = "Update map settings",
       description =
-          "Stores the map configuration and returns the resulting public MapLibre settings.")
+          "Stores the map configuration and returns the resulting public MapLibre settings. This operation is restricted to a super administrator.")
   @OpenApiResponses.Ok
   @OpenApiResponses.Authenticated
   @OpenApiResponses.BadRequest
@@ -121,7 +121,7 @@ public interface MapResource {
       operationId = "uploadMap",
       summary = "Upload a custom MBTiles map",
       description =
-          "Stores the raw request body as the realm's custom MBTiles database and returns the resulting public map settings.")
+          "Stores the raw request body as the realm's custom MBTiles database and returns the resulting public map settings. This operation is restricted to a super administrator.")
   @OpenApiResponses.Ok
   @OpenApiResponses.Authenticated
   @OpenApiResponses.BadRequest
@@ -167,7 +167,7 @@ public interface MapResource {
       operationId = "deleteMap",
       summary = "Remove the custom MBTiles map",
       description =
-          "Deletes the installed custom MBTiles database and returns the fallback public map settings.")
+          "Deletes the installed custom MBTiles database and returns the fallback public map settings. This operation is restricted to a super administrator.")
   @OpenApiResponses.Ok
   @OpenApiResponses.Authenticated
   @OpenApiResponses.BadRequest

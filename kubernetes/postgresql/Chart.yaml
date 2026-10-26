@@ -4,6 +4,6 @@ description: A Helm chart for deploying OpenRemote PostgreSQL inKubernetes
 
 type: application
 
-version: 0.1.0
+version: 0.2.0
 
 appVersion: "17.9.0.1-slim"

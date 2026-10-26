@@ -858,6 +858,7 @@
   "display": "Display",
   "screen": "Screen",
   "uploadFile": "Upload file",
+  "fileUploadFailed": "Failed to upload {{file}}",
   "fileSelected": "File selected",
   "fileSaved": "File saved",
   "thresholds": "Thresholds",

@@ -18,12 +18,13 @@
  */
 package org.openremote.manager.app;
 
+import static org.openremote.manager.app.ConfigurationService.MANAGER_CONFIG_IMAGE_URL_PREFIX;
+
+import jakarta.ws.rs.BadRequestException;
+import jakarta.ws.rs.ForbiddenException;
 import jakarta.ws.rs.InternalServerErrorException;
+import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.NoSuchElementException;
 import java.util.logging.Logger;
 import org.openremote.container.timer.TimerService;
 import org.openremote.container.web.WebService;
@@ -50,6 +51,10 @@ public class ConfigurationResourceImpl extends ManagerWebResource implements Con
   @Override
   public ManagerAppConfig update(
       RequestParams requestParams, ManagerAppConfig managerConfiguration) {
+    if (!isSuperUser()) {
+      throw new ForbiddenException("Only super admin can update the manager configuration");
+    }
+
     try {
       this.configurationService.saveManagerConfig(managerConfiguration);
     } catch (Exception e) {
@@ -60,22 +65,25 @@ public class ConfigurationResourceImpl extends ManagerWebResource implements Con
   }
 
   @Override
-  public String fileUpload(RequestParams requestParams, String path, FileInfo fileInfo) {
+  public String imageUpload(RequestParams requestParams, String path, FileInfo fileInfo) {
+    if (!isSuperUser()) {
+      throw new ForbiddenException("Only super admin can upload images");
+    }
+
     try {
-      this.configurationService.saveManagerConfigImage(path, fileInfo);
+      String storedPath = configurationService.saveManagerConfigImage(path, fileInfo);
+      return MANAGER_CONFIG_IMAGE_URL_PREFIX + storedPath;
+    } catch (IllegalArgumentException e) {
+      LOG.warning(() -> "Image upload rejected for path '" + path + "': " + e.getMessage());
+      throw new BadRequestException(
+          Response.status(Response.Status.BAD_REQUEST)
+              .type(MediaType.TEXT_PLAIN_TYPE)
+              .entity(e.getMessage())
+              .build());
     } catch (Exception e) {
       LOG.warning("Save image failed '" + path + "': " + e.getMessage());
       throw new InternalServerErrorException("Error storing image");
     }
-    Path managerConfigPath =
-        Path.of("/api")
-            .resolve("master")
-            .resolve("configuration")
-            .resolve("manager")
-            .resolve("image")
-            .resolve(path);
-
-    return managerConfigPath.toString();
   }
 
   @Override
@@ -86,20 +94,19 @@ public class ConfigurationResourceImpl extends ManagerWebResource implements Con
   @Override
   public Object getManagerConfigImage(String fileName) {
     try {
-      File imageFile = configurationService.getManagerConfigImage(fileName).orElseThrow();
-      if (!imageFile.exists()) {
-        return Response.status(Response.Status.NOT_FOUND).build();
+      var imageFile = configurationService.getManagerConfigImage(fileName);
+      if (imageFile.isEmpty()) {
+        return Response.status(Response.Status.NOT_FOUND).entity("Image not Found").build();
       }
-
-      String mimeType = Files.probeContentType(imageFile.toPath());
-      if (mimeType == null) {
-        mimeType = "application/octet-stream";
-      }
-
-      Response.ResponseBuilder response = Response.ok(imageFile, mimeType);
-      return response.build();
-    } catch (NoSuchElementException e) {
-      return Response.status(Response.Status.NOT_FOUND).entity("Image not Found").build();
+      String mimeType = ImageUploadValidator.getMediaType(imageFile.get().getName());
+      return Response.ok(imageFile.get(), mimeType)
+          .header("X-Content-Type-Options", "nosniff")
+          // Preserve embedded SVG styling while isolating documents and blocking active content.
+          .header(
+              "Content-Security-Policy",
+              "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action"
+                  + " 'none'")
+          .build();
     } catch (Exception e) {
       return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
           .entity("Error retrieving image")

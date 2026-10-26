@@ -1,0 +1,10 @@
+persistence:
+  size: "256Gi"
+
+resources:
+  limits:
+    cpu: 800m
+    memory: 2Gi
+  requests:
+    cpu: 800m
+    memory: 2Gi

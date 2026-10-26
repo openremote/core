@@ -1,12 +1,29 @@
+{{- if not .Values.persistence.existingClaim }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: {{ include "manager.fullname" . }}
+  labels:
+    {{- include "manager.labels" . | nindent 4 }}
+  {{- if or .Values.persistence.retain .Values.persistence.annotations }}
+  annotations:
+    {{- if .Values.persistence.retain }}
+    helm.sh/resource-policy: keep
+    {{- end }}
+    {{- with .Values.persistence.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
 spec:
   accessModes:
-    - ReadWriteOnce
+    {{- toYaml .Values.persistence.accessModes | nindent 4 }}
   resources:
     requests:
-      storage: {{ .Values.volumeSize }}
-  volumeName: manager-data-pv
-  storageClassName: manual
+      storage: {{ .Values.persistence.size }}
+  {{- with .Values.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.persistence.volumeName }}
+  volumeName: {{ . | quote }}
+  {{- end }}
+{{- end }}

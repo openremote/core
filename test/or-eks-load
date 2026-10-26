@@ -1,0 +1,284 @@
+#!/usr/bin/env bash
+# Load-test orchestration. The EKS CLIs own cluster and stack lifecycle mechanics.
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+TEMP_DIR=""
+cleanup() { if [ -n "$TEMP_DIR" ]; then rm -rf "$TEMP_DIR"; fi; }
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+log() { printf '[or-eks-load] %s\n' "$*"; }
+die() { printf '[or-eks-load] ERROR: %s\n' "$*" >&2; exit 1; }
+require() { command -v "$1" >/dev/null || die "Required command '$1' was not found."; }
+usage() {
+  cat <<'HELP'
+Usage: test/or-eks-load <command> --config <deployment.env> [options]
+
+  up               Reconcile DNS IAM, create/reconcile the cluster, deploy and verify.
+  cluster-up       Reconcile DNS IAM and cluster only; verify ExternalDNS access.
+  deploy           Deploy on an existing configured cluster; verify DNS access first.
+  status           Show stack status.
+  credentials      Retrieve stack credentials.
+  uninstall        Stop the stack, retaining data and credentials.
+  destroy-stack    Delete the stack and its data; requires --confirm <stack-name>.
+  destroy-cluster  Delete an empty cluster; requires --confirm <cluster-name>.
+  prepare          Write editable values; requires --values-dir <new-directory>.
+
+The config is a trusted Bash file. See test/load2-eks/deployment.env.example.
+AWS credentials come from the normal credential chain unless CLUSTER_AWS_PROFILE
+or DNS_AWS_PROFILE is configured. Never put access keys in the config.
+Relative LOAD_VALUES_DIR paths are relative to the config file. prepare's output
+path is relative to the current directory. No command builds or pushes images.
+HELP
+}
+
+COMMAND="${1:---help}"
+case "$COMMAND" in -h|--help) usage; exit 0;; esac
+shift
+CONFIG_FILE=""; CONFIRM=""; OUTPUT_DIR=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --config|--confirm|--values-dir)
+      [ "$#" -ge 2 ] && [ -n "$2" ] || die "$1 requires a value."
+      case "$1" in --config) CONFIG_FILE="$2";; --confirm) CONFIRM="$2";; --values-dir) OUTPUT_DIR="$2";; esac
+      shift 2;;
+    -h|--help) usage; exit 0;;
+    *) die "Unknown option '$1'. Use --help; EKS CLI options belong in the config.";;
+  esac
+done
+case "$COMMAND" in up|cluster-up|deploy|status|credentials|uninstall|destroy-stack|destroy-cluster|prepare) ;; *) die "Unknown command '$COMMAND'.";; esac
+[ -f "$CONFIG_FILE" ] || die "Supply --config with a deployment configuration file."
+CONFIG_FILE="$(cd "$(dirname "$CONFIG_FILE")" && pwd)/$(basename "$CONFIG_FILE")"
+
+# Config owns these settings; old exports from a manual deployment must not leak in.
+LOAD_TEST=""; LOAD_PROFILE=""; CLUSTER_NAME=""; STACK_NAME=""
+AWS_REGION="eu-west-1"; LOAD_HOSTNAME=""; LOAD_MANAGER_REPOSITORY=""
+CLUSTER_AWS_PROFILE=""; DNS_AWS_PROFILE=""; DNS_ZONE_ID=""; DNS_DOMAIN=""
+LOAD_VALUES_DIR=""; LOAD_EXPOSURE="haproxy"; LOAD_MQTTS_HOSTNAME=""
+LOAD_TIMEOUT="90m"; CERTIFICATE_ARN=""; MQTTS_CERTIFICATE_ARN=""
+source "$CONFIG_FILE"
+# The low-level CLIs support their own environment overrides. This config is the
+# sole source for this helper; direct CLI invocation remains available separately.
+for variable in $(compgen -v OR_EKS_ || true) $(compgen -v OR_STACK_ || true); do unset "$variable"; done
+
+profile_dir() {
+  case "$LOAD_TEST" in
+    load1) [ -z "$LOAD_PROFILE" ] || die "load1 has one fixed profile; omit LOAD_PROFILE."; PROFILE_DIR="$SCRIPT_DIR/load1-eks";;
+    load2)
+      LOAD_PROFILE="${LOAD_PROFILE:-large}"
+      case "$LOAD_PROFILE" in large|xlarge-minimal|xlarge|2xlarge|4xlarge|8xlarge) ;; *) die "Unknown load2 profile '$LOAD_PROFILE'.";; esac
+      PROFILE_DIR="$SCRIPT_DIR/load2-eks/profiles/$LOAD_PROFILE";;
+    *) die "LOAD_TEST must be load1 or load2.";;
+  esac
+}
+make_temp() { if [ -z "$TEMP_DIR" ]; then TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/or-eks-load.XXXXXX")"; fi; }
+render_values() {
+  local directory="$1" component
+  profile_dir
+  [[ "$LOAD_MANAGER_REPOSITORY" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]] &&
+    [[ "$LOAD_MANAGER_REPOSITORY" = */* && "$LOAD_MANAGER_REPOSITORY" != *//* && "$LOAD_MANAGER_REPOSITORY" != */ && "${LOAD_MANAGER_REPOSITORY##*/}" != *:* ]] || die "Set LOAD_MANAGER_REPOSITORY to the full image repository (including /openremote/manager), without a scheme or tag."
+  require envsubst
+  mkdir -p "$(dirname "$directory")"
+  mkdir "$directory" || die "Values directory already exists: $directory (not overwritten)."
+  for component in manager postgresql keycloak proxy; do
+    LOAD_MANAGER_REPOSITORY="$LOAD_MANAGER_REPOSITORY" envsubst '${LOAD_MANAGER_REPOSITORY}' < "$PROFILE_DIR/$component.yaml" > "$directory/$component.yaml"
+  done
+}
+if [ "$COMMAND" = prepare ]; then
+  [ -n "$OUTPUT_DIR" ] || die "prepare requires --values-dir <new-directory>."
+  render_values "$OUTPUT_DIR"
+  log "Prepared values in $OUTPUT_DIR. Set LOAD_VALUES_DIR in $CONFIG_FILE to reuse them."
+  exit 0
+fi
+[ -z "$OUTPUT_DIR" ] || die "--values-dir is only for prepare; use LOAD_VALUES_DIR in the config for deployment."
+[[ "$CLUSTER_NAME" =~ ^[A-Za-z][A-Za-z0-9-]*$ ]] || die "Set CLUSTER_NAME to a valid EKS cluster name."
+[[ "$AWS_REGION" =~ ^[a-z0-9-]+$ ]] || die "Invalid AWS_REGION."
+if [ "$COMMAND" != cluster-up ] && [ "$COMMAND" != destroy-cluster ]; then
+  [[ "$STACK_NAME" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] && [ "${#STACK_NAME}" -le 63 ] || die "Set STACK_NAME to a valid Kubernetes namespace."
+  case "$STACK_NAME" in default|kube-system|kube-public|kube-node-lease) die "STACK_NAME names a reserved namespace.";; esac
+fi
+K_CONTEXT="$CLUSTER_NAME@$AWS_REGION"
+IRSA_ROLE_NAME="openremote-${CLUSTER_NAME}-${AWS_REGION}-external-dns"
+[ "${#IRSA_ROLE_NAME}" -le 64 ] || die "CLUSTER_NAME is too long for its IAM role name."
+
+aws_cluster() {
+  if [ -n "$CLUSTER_AWS_PROFILE" ]; then aws --profile "$CLUSTER_AWS_PROFILE" --region "$AWS_REGION" "$@";
+  else aws --region "$AWS_REGION" "$@"; fi
+}
+aws_dns() {
+  if [ -n "$DNS_AWS_PROFILE" ]; then aws --profile "$DNS_AWS_PROFILE" --region "$AWS_REGION" "$@";
+  else aws_cluster "$@"; fi
+}
+cluster_cli() {
+  "$ROOT/kubernetes/or-eks-cluster" "$@" --name "$CLUSTER_NAME" --region "$AWS_REGION" --profile "$CLUSTER_AWS_PROFILE"
+}
+stack_cli() {
+  "$ROOT/kubernetes/or-eks-stack" "$@" --name "$STACK_NAME" --cluster "$CLUSTER_NAME" --region "$AWS_REGION" --profile "$CLUSTER_AWS_PROFILE"
+}
+case "$COMMAND" in
+  status|credentials|uninstall) stack_cli "$COMMAND"; exit;;
+  destroy-stack)
+    [ "$CONFIRM" = "$STACK_NAME" ] || die "Use --confirm $STACK_NAME to delete this stack and its data."
+    stack_cli destroy --confirm "$CONFIRM"; exit;;
+  destroy-cluster)
+    [ "$CONFIRM" = "$CLUSTER_NAME" ] || die "Use --confirm $CLUSTER_NAME to delete this empty cluster."
+    cluster_cli destroy --confirm "$CONFIRM"
+    log "The DNS-account IAM stack is retained for reuse; no other stacks were deleted."
+    exit;;
+esac
+
+for tool in aws jq kubectl helm; do require "$tool"; done
+if [ "$COMMAND" != deploy ]; then require eksctl; require envsubst; fi
+[[ "$LOAD_HOSTNAME" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+$ ]] || die "Set LOAD_HOSTNAME to a lowercase DNS hostname, without scheme or path."
+case "$LOAD_EXPOSURE" in haproxy|ingress) ;; *) die "LOAD_EXPOSURE must be haproxy or ingress.";; esac
+if [ "$LOAD_EXPOSURE" = ingress ]; then
+  [[ "$LOAD_MQTTS_HOSTNAME" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+$ ]] &&
+    [ "$LOAD_MQTTS_HOSTNAME" != "$LOAD_HOSTNAME" ] || die "Ingress requires a separate valid LOAD_MQTTS_HOSTNAME."
+elif [ -n "$CERTIFICATE_ARN" ] || [ -n "$MQTTS_CERTIFICATE_ARN" ]; then
+  die "ACM certificate settings require LOAD_EXPOSURE=ingress."
+fi
+profile_dir
+make_temp
+umask 077
+if [ "$COMMAND" != cluster-up ]; then
+  require curl
+  require dig
+  require python3 # The underlying CLI uses Python for its MQTTS TLS probe.
+  if [ -n "$LOAD_VALUES_DIR" ]; then
+    case "$LOAD_VALUES_DIR" in /*) ;; *) LOAD_VALUES_DIR="$(dirname "$CONFIG_FILE")/$LOAD_VALUES_DIR";; esac
+  else
+    LOAD_VALUES_DIR="$TEMP_DIR/values"
+    render_values "$LOAD_VALUES_DIR"
+  fi
+  for component in manager postgresql keycloak proxy; do
+    [ -f "$LOAD_VALUES_DIR/$component.yaml" ] || die "Missing prepared values: $component.yaml"
+  done
+  if grep -F '${LOAD_MANAGER_REPOSITORY}' "$LOAD_VALUES_DIR/manager.yaml" >/dev/null; then die "Unrendered repository in prepared values; use prepare first."; fi
+  # Catch URL composition regressions before provisioning or waiting on AWS.
+  rendered="$(helm template keycloak "$ROOT/kubernetes/keycloak" --values "$LOAD_VALUES_DIR/keycloak.yaml" --set-string "or.hostname=https://$LOAD_HOSTNAME/auth")"
+  actual="$(awk '/name: KC_HOSTNAME$/ {getline; gsub(/^[[:space:]]*value: "|"$/, ""); print}' <<< "$rendered")"
+  [ "$actual" = "https://$LOAD_HOSTNAME/auth" ] || die "Keycloak chart renders an invalid public URL: $actual"
+fi
+
+CLUSTER_ACCOUNT_ID="$(aws_cluster sts get-caller-identity --query Account --output text)"
+[[ "$CLUSTER_ACCOUNT_ID" =~ ^[0-9]{12}$ ]] || die "Could not identify the cluster AWS account."
+log "Cluster account: $CLUSTER_ACCOUNT_ID; cluster: $CLUSTER_NAME; region: $AWS_REGION."
+CLUSTER_EXISTS=false
+if cluster_status="$(aws_cluster eks describe-cluster --name "$CLUSTER_NAME" --query cluster.status --output text 2>&1)"; then
+  CLUSTER_EXISTS=true
+  case "$cluster_status" in ACTIVE) ;; CREATING|UPDATING) aws_cluster eks wait cluster-active --name "$CLUSTER_NAME";; *) die "Cluster status is $cluster_status; inspect it before retrying.";; esac
+else
+  case "$cluster_status" in *ResourceNotFoundException*) ;; *) die "Could not inspect cluster: $cluster_status";; esac
+fi
+
+# Read existing shared DNS configuration before reconciling it. In particular,
+# never change TXT ownership or the managed zone underneath existing stacks.
+EXISTING_DNS=""
+if [ "$CLUSTER_EXISTS" = true ]; then
+  cluster_cli kubeconfig
+  releases="$(helm list --all --kube-context "$K_CONTEXT" --namespace kube-system --filter '^openremote-external-dns$' --output json)"
+  if [ "$(jq 'length' <<< "$releases")" -gt 0 ]; then
+    EXISTING_DNS="$(helm get values openremote-external-dns --kube-context "$K_CONTEXT" --namespace kube-system --output json)"
+  fi
+fi
+check_domain() {
+  [[ "$LOAD_HOSTNAME" = *."$DNS_DOMAIN" ]] || die "LOAD_HOSTNAME must be below DNS domain $DNS_DOMAIN."
+  if [ "$LOAD_EXPOSURE" = ingress ]; then
+    [[ "$LOAD_MQTTS_HOSTNAME" = *."$DNS_DOMAIN" ]] || die "LOAD_MQTTS_HOSTNAME must be below DNS domain $DNS_DOMAIN."
+  fi
+}
+if [ "$COMMAND" = deploy ]; then
+  [ "$CLUSTER_EXISTS" = true ] && [ -n "$EXISTING_DNS" ] || die "deploy requires an existing cluster with managed ExternalDNS; run up first."
+  actual_zone="$(jq -er '.extraArgs["zone-id-filter"]' <<< "$EXISTING_DNS")"
+  actual_domain="$(jq -er '.domainFilters[0]' <<< "$EXISTING_DNS")"
+  [ -z "$DNS_ZONE_ID" ] || [ "${DNS_ZONE_ID#/hostedzone/}" = "$actual_zone" ] || die "Configured DNS_ZONE_ID differs from the cluster."
+  [ -z "$DNS_DOMAIN" ] || [ "${DNS_DOMAIN%.}" = "$actual_domain" ] || die "Configured DNS_DOMAIN differs from the cluster."
+  DNS_ZONE_ID="$actual_zone"; DNS_DOMAIN="$actual_domain"
+  DNS_ROLE_ARN="$(jq -er '.extraArgs["aws-assume-role"]' <<< "$EXISTING_DNS")"
+  DNS_EXTERNAL_ID="$(jq -r '.extraArgs["aws-assume-role-external-id"] // ""' <<< "$EXISTING_DNS")"
+  [ "$(jq -r '.extraArgs["dry-run"] // false' <<< "$EXISTING_DNS")" = false ] || die "ExternalDNS is in dry-run mode; reconcile it before deploying."
+  check_domain
+else
+  DNS_ACCOUNT_ID="$(aws_dns sts get-caller-identity --query Account --output text)"
+  [[ "$DNS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]] || die "Could not identify the DNS AWS account."
+  zones="$(aws_dns route53 list-hosted-zones --output json)"
+  candidates="$(jq --arg host "$LOAD_HOSTNAME" --arg id "${DNS_ZONE_ID#/hostedzone/}" --arg domain "${DNS_DOMAIN%.}" '
+    [.HostedZones[] | select(.Config.PrivateZone == false) | .Name |= rtrimstr(".") | .Id |= sub("^/hostedzone/"; "") |
+      select(.Name as $name | $host | endswith("." + $name)) |
+      select($id == "" or .Id == $id) | select($domain == "" or .Name == $domain)] |
+    sort_by(.Name | length) | reverse | if length > 0 then .[0].Name as $name | map(select(.Name == $name)) else [] end' <<< "$zones")"
+  [ "$(jq 'length' <<< "$candidates")" -gt 0 ] || die "No matching public DNS zone in account $DNS_ACCOUNT_ID. Check DNS_AWS_PROFILE, DNS_ZONE_ID and LOAD_HOSTNAME."
+  if [ "$(jq 'length' <<< "$candidates")" -ne 1 ]; then
+    jq -r '.[] | "Candidate: \(.Id) \(.Name)"' <<< "$candidates" >&2
+    die "Multiple matching zones; set DNS_ZONE_ID in the config."
+  fi
+  DNS_ZONE_ID="$(jq -r '.[0].Id' <<< "$candidates")"; DNS_DOMAIN="$(jq -r '.[0].Name' <<< "$candidates")"
+  check_domain
+  DNS_OWNER_ID="${CLUSTER_ACCOUNT_ID}-${CLUSTER_NAME}-${AWS_REGION}"
+  if [ -n "$EXISTING_DNS" ]; then
+    [ "$(jq -r '.extraArgs["zone-id-filter"]' <<< "$EXISTING_DNS")" = "$DNS_ZONE_ID" ] &&
+      [ "$(jq -r '.domainFilters[0]' <<< "$EXISTING_DNS")" = "$DNS_DOMAIN" ] || die "Existing cluster manages a different DNS zone/domain; use its configuration or a separate cluster."
+    DNS_OWNER_ID="$(jq -er '.txtOwnerId | select(length > 0)' <<< "$EXISTING_DNS")"
+  fi
+  # External IDs identify a relationship, not a secret. This stable, account-
+  # qualified value and the exact source-role condition survive retries/machines.
+  DNS_EXTERNAL_ID="openremote-${CLUSTER_ACCOUNT_ID}-${CLUSTER_NAME}-${AWS_REGION}"
+  DNS_IAM_STACK="or-load-${CLUSTER_ACCOUNT_ID}-${CLUSTER_NAME}-${AWS_REGION}-dns"
+  log "Reconciling DNS role in account $DNS_ACCOUNT_ID for $DNS_DOMAIN ($DNS_ZONE_ID)."
+  aws_dns cloudformation deploy --stack-name "$DNS_IAM_STACK" --template-file "$ROOT/kubernetes/cluster/eks/external-dns-route53-role.yaml" --capabilities CAPABILITY_NAMED_IAM --no-fail-on-empty-changeset --parameter-overrides "HostedZoneId=$DNS_ZONE_ID" "DomainName=$DNS_DOMAIN" "ClusterAccountId=$CLUSTER_ACCOUNT_ID" "ClusterExternalDNSRoleName=$IRSA_ROLE_NAME" "ExternalId=$DNS_EXTERNAL_ID"
+  DNS_ROLE_ARN="$(aws_dns cloudformation describe-stacks --stack-name "$DNS_IAM_STACK" --query 'Stacks[0].Outputs[?OutputKey==`RoleArn`].OutputValue | [0]' --output text)"
+  [[ "$DNS_ROLE_ARN" = arn:aws:iam::"$DNS_ACCOUNT_ID":role/* ]] || die "DNS IAM stack did not return a valid role ARN."
+  cluster_action=apply
+  if [ "$CLUSTER_EXISTS" = false ]; then cluster_action=create; fi
+  cluster_cli "$cluster_action" --config "$PROFILE_DIR/cluster.yaml" --external-dns-zone-id "$DNS_ZONE_ID" --external-dns-domain "$DNS_DOMAIN" --external-dns-role-arn "$DNS_ROLE_ARN" --external-dns-external-id "$DNS_EXTERNAL_ID" --external-dns-owner-id "$DNS_OWNER_ID" --external-dns-irsa-role-name "$IRSA_ROLE_NAME"
+fi
+
+# Test the controller's actual credential chain, not the operator's admin access.
+# The short-lived service-account JWT and STS results stay in private temp files
+# or subprocess-local variables and are never printed.
+set_credentials() {
+  AWS_ACCESS_KEY_ID="$(jq -er '.Credentials.AccessKeyId' <<< "$1")" || return
+  AWS_SECRET_ACCESS_KEY="$(jq -er '.Credentials.SecretAccessKey' <<< "$1")" || return
+  AWS_SESSION_TOKEN="$(jq -er '.Credentials.SessionToken' <<< "$1")" || return
+  export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+}
+probe_dns() (
+  set -e
+  unset AWS_PROFILE AWS_DEFAULT_PROFILE AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_SECURITY_TOKEN AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_ARN AWS_ROLE_SESSION_NAME
+  credentials="$(aws --region "$AWS_REGION" sts assume-role-with-web-identity --no-sign-request --role-arn "$SOURCE_ROLE_ARN" --role-session-name or-load-preflight --web-identity-token "file://$TEMP_DIR/token" --duration-seconds 900 --output json)" || exit
+  set_credentials "$credentials" || exit
+  assume_args=(sts assume-role --role-arn "$DNS_ROLE_ARN" --role-session-name or-load-dns-preflight --duration-seconds 900 --output json)
+  if [ -n "$DNS_EXTERNAL_ID" ]; then assume_args+=(--external-id "$DNS_EXTERNAL_ID"); fi
+  credentials="$(aws --region "$AWS_REGION" "${assume_args[@]}")" || exit
+  set_credentials "$credentials" || exit
+  aws --region "$AWS_REGION" route53 list-hosted-zones --max-items 1 --output json >/dev/null || exit
+  aws --region "$AWS_REGION" route53 list-resource-record-sets --hosted-zone-id "$DNS_ZONE_ID" --max-items 1 --output json >/dev/null
+)
+log "Checking DNS access as the ExternalDNS service account."
+SOURCE_ROLE_ARN="$(kubectl --context "$K_CONTEXT" --namespace kube-system get serviceaccount external-dns -o 'jsonpath={.metadata.annotations.eks\.amazonaws\.com/role-arn}')"
+[ -n "$SOURCE_ROLE_ARN" ] || die "ExternalDNS service account has no IAM role annotation."
+kubectl --context "$K_CONTEXT" --namespace kube-system create token external-dns --audience sts.amazonaws.com --duration=10m > "$TEMP_DIR/token"
+probe_ok=false
+for attempt in 1 2 3 4 5 6; do
+  if probe_dns 2> "$TEMP_DIR/probe-error"; then probe_ok=true; break; fi
+  if [ "$attempt" -lt 6 ]; then sleep 5; fi
+done
+if [ "$probe_ok" != true ]; then
+  cat "$TEMP_DIR/probe-error" >&2
+  die "ExternalDNS cannot assume its roles or read Route 53. No stack deployment was attempted. Check IAM trust, external ID and account policies."
+fi
+log "ExternalDNS credential chain and Route 53 reads verified."
+if [ "$COMMAND" = cluster-up ]; then exit 0; fi
+
+stack_args=(apply --hostname "$LOAD_HOSTNAME" --exposure "$LOAD_EXPOSURE" --mqtts --values-dir "$LOAD_VALUES_DIR" --timeout "$LOAD_TIMEOUT")
+if [ "$LOAD_EXPOSURE" = ingress ]; then stack_args+=(--mqtts-hostname "$LOAD_MQTTS_HOSTNAME"); fi
+if [ -n "$CERTIFICATE_ARN" ]; then stack_args+=(--certificate-mode existing --certificate-arn "$CERTIFICATE_ARN"); fi
+if [ -n "$MQTTS_CERTIFICATE_ARN" ]; then stack_args+=(--mqtts-certificate-mode existing --mqtts-certificate-arn "$MQTTS_CERTIFICATE_ARN"); fi
+stack_cli "${stack_args[@]}"
+issuer="https://$LOAD_HOSTNAME/auth/realms/master"
+discovery="$(curl --fail --silent --show-error --connect-timeout 10 --max-time 30 "$issuer/.well-known/openid-configuration")"
+jq -e --arg issuer "$issuer" '.issuer == $issuer and (.authorization_endpoint | startswith($issuer + "/"))' <<< "$discovery" >/dev/null || die "Keycloak advertises an incorrect issuer or login URL; inspect KC_HOSTNAME before running a load test."
+log "Ready: https://$LOAD_HOSTNAME/manager/"
+printf 'Retrieve credentials: %q credentials --config %q\n' "$SCRIPT_DIR/or-eks-load" "$CONFIG_FILE"

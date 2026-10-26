@@ -1,0 +1,223 @@
+#!/usr/bin/env python3
+"""Exercise portable lifecycle commands against a persistent, atomic API stub."""
+import concurrent.futures
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+
+KUBERNETES = Path(__file__).resolve().parent.parent
+
+
+class HostnameReservationsTest(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix="or-hostname-test-")
+        self.addCleanup(self.directory.cleanup)
+        root = Path(self.directory.name)
+        self.registry = root / "registry.json"
+        self.log = root / "calls.log"
+        self.env = dict(os.environ)
+        self.env.update(
+            PATH=str(KUBERNETES / "test/command-stubs") + os.pathsep + self.env["PATH"],
+            OR_STACK_TEST_LOG=str(self.log),
+            OR_STACK_TEST_REGISTRY_FILE=str(self.registry),
+            OR_STACK_TEST_NAMESPACE_DELETED_FILE=str(root / "namespace-deleted"),
+        )
+
+    def command(self, *args, **env):
+        return subprocess.run(
+            [str(KUBERNETES / "or-stack"), *args, "--kube-context", "test-context"],
+            env=self.env | env, text=True, capture_output=True,
+        )
+
+    def apply(self, stack="stack-a", host="a.example.com", target="eks", exposure="haproxy", **env):
+        args = ["apply", "--name", stack, "--hostname", host, "--target", target, "--exposure", exposure]
+        if target == "eks" and exposure == "ingress":
+            args += ["--certificate-arn", "arn:aws:acm:eu-west-1:123456789012:certificate/test"]
+        return self.command(*args, **env)
+
+    def apply_ingress_mqtts(self, stack="stack-a", web_host="a.example.com",
+                            mqtts_host="mqtt-a.example.com", **env):
+        return self.command(
+            "apply", "--name", stack, "--target", "eks", "--exposure", "ingress",
+            "--hostname", web_host,
+            "--certificate-arn", "arn:aws:acm:eu-west-1:123456789012:certificate/web",
+            "--mqtts", "--mqtts-hostname", mqtts_host,
+            "--mqtts-certificate-arn",
+            "arn:aws:acm:eu-west-1:123456789012:certificate/mqtts",
+            **env,
+        )
+
+    def success(self, result):
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def failure(self, result, message):
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn(message, result.stderr)
+
+    def claims(self):
+        return {key: json.loads(value) for key, value in json.loads(self.registry.read_text())["data"].items()}
+
+    def test_prepare_without_namespace_annotations(self):
+        for annotations in ({}, {"annotations": {}}, {"annotations": None}):
+            with self.subTest(annotations=annotations):
+                namespace = {"metadata": {"name": "stack-a", "uid": "uid-stack-a",
+                                          "labels": {"openremote.io/stack": "stack-a"}, **annotations}}
+                self.success(self.command("prepare", "--name", "stack-a", "--target", "eks",
+                                          "--exposure", "ingress", "--dns", "external-dns",
+                                          "--hostname", "a.example.com",
+                                          OR_STACK_TEST_NAMESPACE_JSON=json.dumps(namespace)))
+                self.assertEqual(self.claims()["a.example.com"]["namespaceUID"], "uid-stack-a")
+        self.assertNotIn("helm\t", self.log.read_text())
+
+    def test_duplicate_and_immutable_hostname(self):
+        self.success(self.apply(host="A.EXAMPLE.COM."))
+        self.log.write_text("")
+        self.failure(self.apply("stack-b"), "conflicting reservation")
+        self.assertNotIn("helm\t", self.log.read_text())
+        self.failure(self.apply(host="other.example.com"), "conflicting reservation")
+        self.success(self.apply())
+        self.assertEqual(list(self.claims()), ["a.example.com"])
+
+    def test_concurrent_claims_have_one_winner(self):
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            results = list(pool.map(lambda name: self.apply(name), ["stack-a", "stack-b"]))
+        self.assertEqual(sorted(result.returncode for result in results), [0, 1])
+        self.assertEqual(len(self.claims()), 1)
+
+    def test_concurrent_different_hosts_for_one_stack_have_one_winner(self):
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            results = list(pool.map(lambda host: self.apply(host=host), ["a.example.com", "b.example.com"]))
+        self.assertEqual(sorted(result.returncode for result in results), [0, 1])
+        self.assertEqual(len(self.claims()), 1)
+
+    def test_concurrent_independent_stacks_preserve_both_claims(self):
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            results = list(pool.map(lambda n: self.apply("stack-" + n, n + ".example.com"), ["a", "b"]))
+        for result in results:
+            self.success(result)
+        self.assertEqual(len(self.claims()), 2)
+
+    def test_stack_reserves_independent_web_and_mqtts_hostnames(self):
+        self.success(self.apply_ingress_mqtts())
+        claims = self.claims()
+        self.assertEqual(set(claims), {"a.example.com", "mqtt-a.example.com"})
+        self.assertEqual(claims["a.example.com"]["endpoint"], "web")
+        self.assertEqual(claims["mqtt-a.example.com"]["endpoint"], "mqtts")
+        self.success(self.apply_ingress_mqtts())
+        self.failure(self.apply_ingress_mqtts(mqtts_host="other-mqtt.example.com"),
+                     "conflicting reservation")
+        self.failure(self.apply("stack-b", host="mqtt-a.example.com"),
+                     "conflicting reservation")
+
+    def test_destroy_retains_and_explicitly_releases_both_public_hostnames(self):
+        self.success(self.apply_ingress_mqtts())
+        self.success(self.command("destroy", "--name", "stack-a", "--confirm", "stack-a",
+                                  OR_STACK_TEST_NAMESPACE_EXISTS="true"))
+        self.assertEqual(len(self.claims()), 2)
+        for hostname in ("a.example.com", "mqtt-a.example.com"):
+            self.success(self.command("release-hostname", "--name", "stack-a",
+                                      "--hostname", hostname, "--confirm", "stack-a"))
+        self.assertEqual(self.claims(), {})
+
+    def test_failed_apply_and_uninstall_retain_claim(self):
+        self.assertNotEqual(self.apply(OR_STACK_TEST_HELM_FAIL_RELEASE="manager").returncode, 0)
+        self.failure(self.apply("stack-b"), "conflicting reservation")
+        self.success(self.apply())
+        self.success(self.command("uninstall", "--name", "stack-a", OR_STACK_TEST_NAMESPACE_EXISTS="true"))
+        self.assertEqual(len(self.claims()), 1)
+        self.success(self.apply())
+
+    def test_namespace_recreation_cannot_steal_claim(self):
+        self.success(self.apply())
+        self.failure(self.apply(OR_STACK_TEST_NAMESPACE_UID="new-uid"), "conflicting reservation")
+
+    def test_destroy_rejects_recreated_namespace(self):
+        self.success(self.apply())
+        self.log.write_text("")
+        self.failure(self.command("destroy", "--name", "stack-a", "--confirm", "stack-a",
+                                  OR_STACK_TEST_NAMESPACE_EXISTS="true",
+                                  OR_STACK_TEST_NAMESPACE_UID="new-uid"), "different namespace UID")
+        self.assertNotIn("helm\tuninstall", self.log.read_text())
+        self.assertNotIn("delete\tnamespace", self.log.read_text())
+        self.assertEqual(len(self.claims()), 1)
+
+    def test_explicit_release_guards_and_reuse(self):
+        self.success(self.apply())
+        args = ("release-hostname", "--name", "stack-a", "--hostname", "a.example.com")
+        self.failure(self.command(*args), "Release requires --confirm")
+        self.failure(self.command(*args, "--confirm", "stack-a", OR_STACK_TEST_NAMESPACE_EXISTS="true"), "still exists")
+        self.failure(self.command("release-hostname", "--name", "stack-b", "--hostname", "a.example.com", "--confirm", "stack-b"), "another stack")
+        self.success(self.command(*args, "--confirm", "stack-a"))
+        self.success(self.command(*args, "--confirm", "stack-a"))
+        self.success(self.apply("stack-b"))
+
+    def test_destroy_retains_public_eks_claim(self):
+        self.success(self.apply())
+        self.success(self.command("destroy", "--name", "stack-a", "--confirm", "stack-a", OR_STACK_TEST_NAMESPACE_EXISTS="true"))
+        self.assertEqual(len(self.claims()), 1)
+
+    def test_local_ingress_destroy_releases_claim(self):
+        self.success(self.apply(target="local", exposure="ingress"))
+        self.success(self.command("destroy", "--name", "stack-a", "--confirm", "stack-a", OR_STACK_TEST_NAMESPACE_EXISTS="true"))
+        self.assertEqual(self.claims(), {})
+
+    def test_local_haproxy_and_internal_stacks_do_not_claim(self):
+        self.success(self.apply(host="localhost", target="local"))
+        self.success(self.apply("stack-b", host="localhost", target="local"))
+        self.success(self.apply(exposure="none"))
+        self.assertFalse(self.registry.exists())
+
+    def test_disabling_external_dns_retains_cleanup_obligation(self):
+        args = ("prepare", "--name", "stack-a", "--target", "local", "--hostname", "a.example.com")
+        self.success(self.command(*args, "--dns", "external-dns"))
+        # The stub has no reserved-hostname annotation, modelling an interrupted
+        # apply after the registry write but before the annotation was recorded.
+        self.failure(self.apply(host="other.example.com", target="local"), "hostname changes")
+        self.success(self.command(*args, "--dns", "none"))
+        self.assertEqual(self.claims()["a.example.com"]["dns"], "external-dns")
+        self.success(self.command("destroy", "--name", "stack-a", "--confirm", "stack-a",
+                                  OR_STACK_TEST_NAMESPACE_EXISTS="true"))
+        self.assertEqual(len(self.claims()), 1)
+
+    def test_existing_routes_block_claims_and_release(self):
+        for kind, spec, annotations in [
+            ("Ingress", {"rules": [{"host": "a.example.com"}]}, {}),
+            ("Ingress", {"rules": [{"host": "*.example.com"}]}, {}),
+            ("Service", {}, {"external-dns.alpha.kubernetes.io/hostname": "other.example.com, A.EXAMPLE.COM."}),
+            ("Service", {}, {"external-dns.kubernetes.io/hostname": "a.example.com"}),
+        ]:
+            routes = json.dumps({"items": [{"kind": kind, "metadata": {"namespace": "another-workload", "name": "proxy", "annotations": annotations}, "spec": spec}]})
+            self.failure(self.apply(OR_STACK_TEST_ROUTES_JSON=routes), "existing routing")
+        self.assertFalse(self.registry.exists())
+        self.success(self.apply())
+        self.failure(self.command("release-hostname", "--name", "stack-a", "--hostname", "a.example.com", "--confirm", "stack-a", OR_STACK_TEST_ROUTES_JSON=routes), "existing routing")
+
+    def test_namespace_reservation_rejects_hostname_change(self):
+        self.failure(self.apply(host="b.example.com", OR_STACK_TEST_RESERVED_HOSTNAME="a.example.com"), "hostname changes")
+        self.assertFalse(self.registry.exists())
+
+    def test_unrelated_wildcard_does_not_block_claim(self):
+        routes = json.dumps({"items": [{"kind": "Ingress", "metadata": {"namespace": "another-workload", "name": "proxy"},
+                                       "spec": {"rules": [{"host": "*.other.example.com"}]}}]})
+        self.success(self.apply(OR_STACK_TEST_ROUTES_JSON=routes))
+
+    def test_another_namespaces_reservation_blocks_claim(self):
+        namespaces = json.dumps({"items": [{"metadata": {"name": "stack-b", "annotations": {"openremote.io/reserved-hostname": "a.example.com"}}}]})
+        self.failure(self.apply(OR_STACK_TEST_NAMESPACES_JSON=namespaces), "already recorded")
+
+    def test_api_errors_fail_closed_before_helm(self):
+        for env in [{"OR_STACK_TEST_REGISTRY_ERROR": "true"}, {"OR_STACK_TEST_ROUTES_READ_SUCCESS": "false"}]:
+            self.log.write_text("")
+            self.assertNotEqual(self.apply(**env).returncode, 0)
+            self.assertNotIn("helm\t", self.log.read_text())
+
+    def test_unowned_registry_is_not_adopted(self):
+        self.registry.write_text(json.dumps({"metadata": {"resourceVersion": "1"}, "data": {}}))
+        self.failure(self.apply(), "unowned or malformed")
+
+
+if __name__ == "__main__":
+    unittest.main()

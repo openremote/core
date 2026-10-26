@@ -8,7 +8,7 @@ spec:
   type: {{ .Values.service.http.type }}
   ports:
     - port: {{ .Values.service.http.port }}
-      targetPort: 8080
+      targetPort: http
       protocol: TCP
       name: http
     {{- if and (not (.Values.service.mqtt.enabled)) (not (.Values.service.mqtts.enabled)) }}
@@ -20,7 +20,7 @@ spec:
   selector:
     {{- include "manager.selectorLabels" . | nindent 4 }}
 ---
-{{- if .Values.service.mqtt.enabled -}}
+{{- if .Values.service.mqtt.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -43,7 +43,7 @@ spec:
       protocol: TCP
 ---
 {{- end }}
-{{- if .Values.service.mqtts.enabled -}}
+{{- if .Values.service.mqtts.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -86,7 +86,7 @@ spec:
     {{- include "manager.selectorLabels" . | nindent 4 }}
 {{- end }}
 ---
-{{- if .Values.service.jmx.enabled -}}
+{{- if .Values.service.jmx.enabled }}
 apiVersion: v1
 kind: Service
 metadata:

@@ -1,0 +1,8 @@
+# Backends use namespace-qualified names supplied by or-stack. Certificate and
+# Certbot state are retained on the proxy PVC across uninstall/reapply.
+persistence:
+  enabled: true
+
+service:
+  mqtts:
+    enabled: false

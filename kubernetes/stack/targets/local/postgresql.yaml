@@ -1,0 +1,3 @@
+# Docker Desktop's dynamically provisioned hostpath volumes are initially
+# root-owned and require the PostgreSQL ownership init container.
+requiresPermissionsFix: true

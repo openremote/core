@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+
+# Verify profile selection at the AWS/eksctl boundary without calling AWS.
+set -Eeuo pipefail
+
+TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KUBERNETES_DIR="$(cd "$TEST_DIR/.." && pwd)"
+TEST_TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/aws-profile-test.XXXXXX")"
+CALL_LOG="$TEST_TEMP_DIR/calls.log"
+trap 'rm -rf "$TEST_TEMP_DIR"' EXIT
+
+fail() {
+  printf 'FAIL: %s\n' "$*" >&2
+  exit 1
+}
+
+log_call() {
+  local argument
+  printf '%s' "$1" >> "$CALL_LOG"
+  shift
+  for argument in "$@"; do
+    printf '\t%s' "$argument" >> "$CALL_LOG"
+  done
+  printf '\n' >> "$CALL_LOG"
+}
+
+check_profile() (
+  local cli="$1"
+  local environment="$2"
+  local selection="$3"
+  local expected_profile=""
+  local expected_calls=2
+  local args=(status --name test-stack --cluster test-cluster)
+
+  unset AWS_PROFILE AWS_DEFAULT_PROFILE OR_EKS_AWS_PROFILE OR_EKS_STACK_AWS_PROFILE
+  if [ "$environment" = configured ]; then
+    # These must not be promoted to --profile, which changes credential
+    # precedence. Standard AWS settings should remain available to the tools.
+    export AWS_PROFILE=ambient-profile
+    export AWS_DEFAULT_PROFILE=ambient-default
+    export OR_EKS_AWS_PROFILE=old-cluster-profile
+    export OR_EKS_STACK_AWS_PROFILE=old-stack-profile
+  fi
+
+  source "$KUBERNETES_DIR/$cli"
+  aws() { log_call aws "$@"; }
+  eksctl() { log_call eksctl "$@"; }
+
+  if [ "$cli" = or-eks-cluster ]; then
+    args=(status --name test-cluster)
+    expected_calls=3
+  fi
+  case "$selection" in
+    explicit)
+      args+=(--profile selected-profile)
+      expected_profile=selected-profile
+      ;;
+    empty)
+      args+=(--profile "")
+      ;;
+  esac
+  parse_arguments "${args[@]}"
+  AWS_REGION_NAME=eu-west-1
+  KUBE_CONTEXT=test-cluster@eu-west-1
+
+  : > "$CALL_LOG"
+  aws_eks describe-cluster --name test-cluster
+  if [ "$cli" = or-eks-cluster ]; then
+    eksctl_with_profile get cluster --name test-cluster
+    configure_kube_context >/dev/null
+    grep -F $'aws\teks\tupdate-kubeconfig' "$CALL_LOG" >/dev/null || fail \
+      "Kubeconfig refresh did not call AWS"
+  else
+    aws_cli sts get-caller-identity
+  fi
+
+  [ "$(wc -l < "$CALL_LOG" | tr -d ' ')" = "$expected_calls" ] || fail \
+    "Unexpected call count for $cli"
+  if [ -n "$expected_profile" ]; then
+    [ "$(grep -cF -- $'--profile\t'"$expected_profile" "$CALL_LOG")" = "$expected_calls" ] || fail \
+      "$cli did not pass the explicitly selected profile to every call"
+  elif grep -F -- '--profile' "$CALL_LOG" >/dev/null; then
+    fail "$cli injected a profile for environment=$environment selection=$selection"
+  fi
+  if [ "$environment" = configured ]; then
+    [ "$AWS_PROFILE" = ambient-profile ] && [ "$AWS_DEFAULT_PROFILE" = ambient-default ] || fail \
+      "$cli changed standard AWS environment settings"
+  fi
+)
+
+for cli in or-eks-cluster or-eks-stack; do
+  for environment in unset configured; do
+    for selection in omitted explicit empty; do
+      check_profile "$cli" "$environment" "$selection"
+    done
+  done
+done
+
+printf 'AWS profile tests passed\n'

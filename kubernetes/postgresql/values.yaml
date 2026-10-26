@@ -81,8 +81,20 @@ readinessProbe:
     command:
       - pg_isready
 
-# Size of volume requested in PVC, must be aligned with available PV
-volumeSize: "1Gi"
+# Persistent PostgreSQL data. When storageClass is empty, the cluster's default
+# StorageClass dynamically provisions the volume. Set existingClaim to use a
+# PVC managed outside this chart instead.
+persistence:
+  size: "1Gi"
+  storageClass: ""
+  existingClaim: ""
+  # Optionally bind the chart-managed claim to a pre-provisioned PV.
+  volumeName: ""
+  accessModes:
+    - ReadWriteOnce
+  # Preserve the chart-managed PVC when Helm uninstalls the release.
+  retain: true
+  annotations: {}
 
 # Additional volumes on the output Deployment definition.
 volumes: []

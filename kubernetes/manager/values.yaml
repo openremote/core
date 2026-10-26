@@ -82,6 +82,8 @@ service:
 ingress:
   enabled: false
   className: "nginx"
+  # When set, overrides the host of every rule without replacing its paths.
+  hostname: ""
   annotations: {}
     # kubernetes.io/ingress.class: nginx
     # kubernetes.io/tls-acme: "true"
@@ -111,22 +113,34 @@ resources: {}
 livenessProbe:
   httpGet:
     path: /
-    port: 8080
+    port: http
   periodSeconds: 5
 readinessProbe:
   httpGet:
     path: /
-    port: 8080
+    port: http
   periodSeconds: 5
 startupProbe:
   httpGet:
     path: /
-    port: 8080
+    port: http
   failureThreshold: 30
   periodSeconds: 5
 
-# Size of volume requested in PVC, must be aligned with available PV
-volumeSize: "1Gi"
+# Persistent manager data. When storageClass is empty, the cluster's default
+# StorageClass dynamically provisions the volume. Set existingClaim to use a
+# PVC managed outside this chart instead.
+persistence:
+  size: "1Gi"
+  storageClass: ""
+  existingClaim: ""
+  # Optionally bind the chart-managed claim to a pre-provisioned PV.
+  volumeName: ""
+  accessModes:
+    - ReadWriteOnce
+  # Preserve the chart-managed PVC when Helm uninstalls the release.
+  retain: true
+  annotations: {}
 
 # Additional volumes on the output Deployment definition.
 volumes: []
@@ -186,6 +200,31 @@ or:
   # The public HOSTNAME and SSL PORT of this manager
   hostname: "localhost"
   port: "-1"
+
+  # Manager web server settings, mapped to OR_WEBSERVER_* environment variables.
+  # Null or empty values are omitted to retain the application's defaults.
+  webserver:
+    # Interface binding; application default: 0.0.0.0.
+    listenHost: "0.0.0.0"
+    # Container HTTP port. The Service target and default probes follow this port.
+    # service.http.port controls the port exposed by the Service independently.
+    listenPort: 8080
+    # Comma-separated CORS origins in addition to OR_HOSTNAME and OR_ADDITIONAL_HOSTNAMES.
+    allowedOrigins: ""
+    # Comma-separated CORS methods and request headers; application defaults: *.
+    allowedMethods: ""
+    allowedHeaders: ""
+    # Comma-separated response headers exposed through CORS; none by default.
+    exposedHeaders: ""
+    # Log web server requests; application default: false.
+    dumpRequests: false
+    # Application default: the greater of the processor core count and 10.
+    workerThreadsMax: null
+    # Application default: the greater of the processor core count and 2.
+    ioThreadsMax: null
+    # Maximum request entity sizes in bytes; application defaults: 30000000.
+    maxEntitySize: null
+    multipartMaxEntitySize: null
 
   # It is important that all services have the same timezone and are time synchronized.
   # Bearer tokens are only valid for minutes, and authentication fails if Keycloak drifts

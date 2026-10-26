@@ -1,0 +1,5 @@
+# Docker Desktop provides local LoadBalancer support. For clusters without it,
+# override service.http.type to ClusterIP and use kubectl port-forward.
+service:
+  http:
+    type: LoadBalancer

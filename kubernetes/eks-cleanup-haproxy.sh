@@ -8,6 +8,10 @@ if [ -z "$CLUSTER_VPC_ID" ] || [ "$CLUSTER_VPC_ID" = "None" ]; then
   exit 1
 fi
 
+MANAGER_PV_NAME=$(kubectl get pvc manager -o jsonpath='{.spec.volumeName}' 2>/dev/null || true)
+PSQL_PV_NAME=$(kubectl get pvc postgresql -o jsonpath='{.spec.volumeName}' 2>/dev/null || true)
+PROXY_PV_NAME=$(kubectl get pvc proxy -o jsonpath='{.spec.volumeName}' 2>/dev/null || true)
+
 DNS_NAME=$(aws elbv2 describe-load-balancers --profile or --query "LoadBalancers[?VpcId=='$CLUSTER_VPC_ID' && Type=='network' && Scheme=='internet-facing'].DNSName | [0]")
 HOSTED_ZONE_ID=$(aws elbv2 describe-load-balancers --profile or --query "LoadBalancers[?VpcId=='$CLUSTER_VPC_ID' && Type=='network' && Scheme=='internet-facing'].CanonicalHostedZoneId | [0]")
 
@@ -44,12 +48,14 @@ while aws elbv2 describe-load-balancers  --profile or --query "LoadBalancers[?Vp
 done
 helm uninstall aws-load-balancer-controller -n kube-system
 
-MANAGER_VOLUMEID=$(kubectl get pv manager-data-pv -o=jsonpath='{.spec.awsElasticBlockStore.volumeID}')
-PSQL_VOLUMEID=$(kubectl get pv postgresql-data-pv -o=jsonpath='{.spec.awsElasticBlockStore.volumeID}')
-kubectl delete pv manager-data-pv
-kubectl delete pv postgresql-data-pv
-aws ec2 delete-volume --volume-id $MANAGER_VOLUMEID
-aws ec2 delete-volume --volume-id $PSQL_VOLUMEID
+# The component charts retain their PVCs on Helm uninstall. This legacy full
+# cleanup explicitly purges them; the StorageClass then deletes their EBS volumes.
+kubectl delete pvc manager postgresql proxy --ignore-not-found --wait=true
+for pv_name in "$MANAGER_PV_NAME" "$PSQL_PV_NAME" "$PROXY_PV_NAME"; do
+  if [ -n "$pv_name" ] && kubectl get "pv/$pv_name" >/dev/null 2>&1; then
+    kubectl wait --for=delete "pv/$pv_name" --timeout=5m
+  fi
+done
 helm uninstall or-setup
 
 # Manually deleting all addons, this should not be required but otherwise the delete cluster fails

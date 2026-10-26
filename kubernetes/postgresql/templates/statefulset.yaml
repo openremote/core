@@ -92,7 +92,7 @@ spec:
       volumes:
         - name: postgresql-data
           persistentVolumeClaim:
-            claimName: {{ include "postgresql.fullname" . }}
+            claimName: {{ include "postgresql.persistence.claimName" . }}
       {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
       {{- end }}

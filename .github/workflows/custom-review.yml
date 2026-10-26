@@ -15,7 +15,7 @@ jobs:
     name: Detect whether code changed
     runs-on: ubuntu-latest
     outputs: # See https://github.com/tj-actions/changed-files/tree/2bb135777322059ee3a3c9239999b159ff49febc#outputs-
-      any_modified: ${{ steps.changed-files.outputs.backend_any_modified == 'true' || steps.changed-files.outputs.ui_any_modified == 'true' }}
+      any_modified: ${{ steps.changed-files.outputs.backend_any_modified == 'true' || steps.changed-files.outputs.ui_any_modified == 'true' || steps.changed-files.outputs.deployment_any_modified == 'true' }}
       backend_any_modified: ${{ steps.changed-files.outputs.backend_any_modified }}
       backend_spotless_any_modified: ${{ steps.changed-files.outputs.backend_spotless_any_modified }}
       ui_any_modified: ${{ steps.changed-files.outputs.ui_any_modified }}
@@ -40,6 +40,9 @@ jobs:
               - '!**/*.md'
               - '!**/*.yml'
               - '!yarn.lock'
+            deployment:
+              - 'deployment/**'
+              - '!**/*.md'
             # Sources and configuration that spotlessBackendCheck reads
             backend_spotless:
               - '**/*.{gradle,groovy,java,md,tpl,xml,xsd,yaml,yml}'
@@ -76,7 +79,7 @@ jobs:
     name: Build
     needs: detect-changes
     if: ${{ !failure() && !cancelled() }}
-    uses: "./.github/workflows/install-dist.yml"
+    uses: "./.github/workflows/custom-install-dist.yml"
     with:
       skip: ${{ needs.detect-changes.outputs.any_modified != 'true' }}
 

@@ -64,7 +64,7 @@ import org.postgresql.copy.CopyManager;
 /**
  * Store and retrieve datapoints for asset attributes and periodically purge data points using
  * TimescaleDB's {@code drop_chunks()} with week-based retention aligned to 7-day chunk intervals.
- * Retention defaults to inifinite.
+ * Retention defaults to infinite.
  */
 public class AssetDatapointService extends AbstractDatapointService<AssetDatapoint>
     implements ProtocolDatapointService {

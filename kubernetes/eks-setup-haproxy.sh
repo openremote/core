@@ -15,15 +15,14 @@ helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
   --set serviceAccount.create=false \
   --set serviceAccount.name=aws-load-balancer-controller
 
-PSQL_VOLUMEID=$(aws ec2 create-volume --size 1 --availability-zone eu-west-1a --tag-specifications "ResourceType=volume,Tags=[{Key=Name,Value=psql-data}]" --query VolumeId)
-MANAGER_VOLUMEID=$(aws ec2 create-volume --size 1 --availability-zone eu-west-1a --tag-specifications "ResourceType=volume,Tags=[{Key=Name,Value=manager-data}]" --query VolumeId)
-
 # Wait for AWS LB ctrl to be ready
 kubectl rollout status deployment aws-load-balancer-controller -n kube-system --timeout=300s
 
 CLUSTER_DNS=$(kubectl get svc kube-dns -n kube-system -o jsonpath='{.spec.clusterIP}:{.spec.ports[?(@.name=="dns")].port}')
 
-helm install or-setup or-setup --set aws.enabled=true --set aws.managerVolumeId=$MANAGER_VOLUMEID --set aws.psqlVolumeId=$PSQL_VOLUMEID
+kubectl apply -f cluster/eks/storage-class.yaml
+
+helm install or-setup or-setup
 
 helm install proxy proxy -f proxy/values-eks.yaml --set or.nameserver=$CLUSTER_DNS --set or.hostname=$FQDN
 

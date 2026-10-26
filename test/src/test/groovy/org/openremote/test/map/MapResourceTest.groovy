@@ -20,13 +20,19 @@ package org.openremote.test.map
 
 import com.fasterxml.jackson.databind.node.ObjectNode
 import groovy.json.JsonSlurper
+import jakarta.ws.rs.ForbiddenException
 import jakarta.ws.rs.client.Entity
 import jakarta.ws.rs.core.MediaType
+import jakarta.ws.rs.core.Response
 import org.jboss.resteasy.client.jaxrs.ResteasyWebTarget
 import org.openremote.manager.map.MapService
+import org.openremote.manager.security.ManagerIdentityService
+import org.openremote.manager.setup.SetupService
 import org.openremote.model.manager.MapConfig
 import org.openremote.model.map.MapResource
+import org.openremote.model.security.ClientRole
 import org.openremote.model.util.ValueUtil
+import org.openremote.setup.integration.KeycloakTestSetup
 import org.openremote.test.ManagerContainerTrait
 import spock.lang.Shared
 import spock.lang.Specification
@@ -129,7 +135,24 @@ class MapResourceTest extends Specification implements ManagerContainerTrait {
     json2.glyphs == "http://127.0.0.1:" + serverPort + MapService.MAP_SHARED_DATA_BASE_URI + "/fonts/" + MapService.DEFAULT_GLYPHS_PATH
   }
 
+  def "Retrieve a vector tile"() {
+    when: "the zoom-zero tile is requested from the bundled MBTiles file"
+    def response = mapResource.getTile(0, 0, 0)
+
+    then: "the compressed vector tile is returned"
+    response.withCloseable { r ->
+      assert r.status == Response.Status.OK.statusCode
+      assert r.getHeaderString("Content-Encoding") == "gzip"
+      assert r.readEntity(byte[].class).length> 0
+      return true
+    }
+  }
+
   def "Upload custom map tiles"() {
+    given:
+    def mapService = container.getService(MapService.class)
+    def originalLimit = mapService.customMapLimit
+
     when: "valid tiles are uploaded"
     def response = clientTarget
             .path("map/upload")
@@ -150,11 +173,17 @@ class MapResourceTest extends Specification implements ManagerContainerTrait {
     json.options.default.bounds.size() == 4
     json.sources != null
 
-    when: "invalid tiles are uploaded"
+    and: "the custom-map status reports the uploaded file"
+    def customMapInfo = mapResource.getCustomMapInfo()
+    customMapInfo.get("filename").asText() == "eindhoven.mbtiles"
+    customMapInfo.get("limit").asInt() == originalLimit
+
+    when: "the custom map is deleted"
     mapResource.deleteMap(null)
 
-    then: "an internal server error should occur"
+    then: "the uploaded file and custom-map status are cleared"
     !Files.exists(Path.of("tmp/map/eindhoven.mbtiles"))
+    mapResource.getCustomMapInfo().get("filename").isNull()
 
     when: "invalid tiles are uploaded"
     response = clientTarget
@@ -195,6 +224,9 @@ class MapResourceTest extends Specification implements ManagerContainerTrait {
       assert r.status == 413
       return true
     }
+
+    cleanup:
+    mapService.customMapLimit = originalLimit
   }
 
   def "Configure custom tile server URL"() {
@@ -240,5 +272,41 @@ class MapResourceTest extends Specification implements ManagerContainerTrait {
     savedSettings.get("sprite").textValue() == MapService.DEFAULT_SPRITE_PATH
     savedSettings.get("glyphs").textValue() == MapService.DEFAULT_GLYPHS_PATH
     savedSettings.get("layers").isArray() && savedSettings.get("layers").size() > 0
+  }
+
+  def "Admin client roles alone cannot change global map settings"() {
+    given: "a master realm user has admin client roles but no superuser realm role"
+    def identityProvider = container.getService(ManagerIdentityService.class).getIdentityProvider()
+    def keycloakTestSetup = container.getService(SetupService.class).getTaskOfType(KeycloakTestSetup.class)
+    def username = "map-admin-without-superuser"
+    def user = keycloakTestSetup.createUser(MASTER_REALM, username, username, "Map", "Admin",
+            "${username}@openremote.local", true,
+            [ClientRole.READ_ADMIN, ClientRole.WRITE_ADMIN] as ClientRole[])
+    def token = authenticate(container, MASTER_REALM, KEYCLOAK_CLIENT_ID, username, username)
+    def restrictedMapResource = getClientApiTarget(serverUri(serverPort), MASTER_REALM, token)
+            .proxy(MapResource.class)
+
+    when: "the user saves map settings"
+    restrictedMapResource.saveSettings(null, new MapConfig())
+
+    then:
+    thrown(ForbiddenException)
+
+    when: "the user uploads custom map tiles"
+    restrictedMapResource.uploadMap(null, "map.mbtiles")
+
+    then:
+    thrown(ForbiddenException)
+
+    when: "the user deletes custom map tiles"
+    restrictedMapResource.deleteMap(null)
+
+    then:
+    thrown(ForbiddenException)
+
+    cleanup:
+    if (user != null) {
+      identityProvider.deleteUser(MASTER_REALM, user.id)
+    }
   }
 }

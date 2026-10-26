@@ -1,0 +1,64 @@
+# Single-node load profiles cannot assume spare capacity for surge Pods.
+strategy:
+  type: Recreate
+
+# CLI: render LOAD_MANAGER_REPOSITORY; legacy scripts override image.repository.
+image:
+  repository: "${LOAD_MANAGER_REPOSITORY}"
+  pullPolicy: Always
+  tag: "load2"
+
+livenessProbe:
+  httpGet:
+    path: /
+    port: 8080
+  periodSeconds: 5
+readinessProbe:
+  httpGet:
+    path: /
+    port: 8080
+  periodSeconds: 5
+startupProbe:
+  httpGet:
+    path: /
+    port: 8080
+  failureThreshold: 500
+  periodSeconds: 10
+
+service:
+  jmx:
+    enabled: true
+
+resources:
+  limits:
+    cpu: 1500m
+    memory: 8Gi
+  requests:
+    cpu: 1500m
+    memory: 8Gi
+
+persistence:
+  size: "32Gi"
+
+or:
+  env:
+    - name: OR_SETUP_USERS
+      value: "1000"
+    - name: OR_SETUP_ASSETS
+      value: "5"
+    - name: OR_SETUP_ASSETS_WITH_LOCATIONS
+      value: "0"
+    - name: OR_SETUP_LOCATION_CLUSTERS
+      value: "5"
+    - name: OR_SETUP_LOCATION_MAIN_CENTER
+      value: "4.469444,51.925"
+    - name: OR_SETUP_LOCATION_CENTER_DISTANCE
+      value: "3000"
+    - name: OR_SETUP_LOCATION_ASSET_RADIUS
+      value: "500"
+    - name: OR_SETUP_STORE_DATA_POINTS
+      value: "false"
+    - name: JAVA_OPTS_APPEND
+      value: "-Dhibernate.generate_statistics=true -Xlog:gc*,gc+ref=debug,gc+phases=debug,gc+age=debug,safepoint:file=gc.log"
+    - name: JAVA_TOOL_OPTIONS
+      value: "-Dcom.sun.management.jmxremote=true -Dcom.sun.management.jmxremote.ssl=false -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.port=8085 -Dcom.sun.management.jmxremote.rmi.port=8085 -Djava.rmi.server.hostname=127.0.0.1"
