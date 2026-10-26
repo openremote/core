@@ -133,10 +133,8 @@ export class OrDashboardBrowser extends OrElement {
     );
 
     // If an item gets dropped on the main grid, the dragged card needs to be reset to the sidebar.
-    // Since gridstack 13.1.0, the grid re-orders DOM children to the visual order behind Lit's back.
-    // See https://github.com/gridstack/gridstack.js/pull/3331
     // Therefore, we bump the nonce variable, and rebuild both grids from scratch using the keyed() in render().
-    // A clean rebuild restores the DOM order, so GridStack auto-positions every card back in its original slot.
+    // A clean rebuild lets GridStack auto-position every card back in its original slot.
     this.sidebarGrid?.on("removed", () => {
       this.rebuildNonce++;
       this.updateComplete.then(() => this.renderGrid());
