@@ -24,7 +24,7 @@
     "@types/react": "^18.3.12",
     "@wc-toolkit/storybook-helpers": "^10.7.7",
     "storybook": "~10.6.2",
-    "storybook-web-components-rsbuild": "~3.3.4",
+    "storybook-web-components-rsbuild": "~3.6.1",
     "typescript": "~5.9.3"
   }
 }
