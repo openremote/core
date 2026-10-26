@@ -70,10 +70,7 @@ class ResidenceNotifyAlarmTriggerTest extends Specification implements ManagerCo
     // CalendarEvent evaluates recurrences in UTC, so expected windows must also stay in UTC across DST.
     def from = Instant.ofEpochMilli(baseTime).truncatedTo(ChronoUnit.DAYS)
             .plus(1 + occurrence * 7L, ChronoUnit.DAYS).plus(6, ChronoUnit.HOURS)
-    return [
-      Date.from(from),
-      Date.from(from.plus(2, ChronoUnit.HOURS))
-    ]
+    return [Date.from(from), Date.from(from.plus(2, ChronoUnit.HOURS))]
   }
 
   def "Trigger notification when presence is detected and alarm enabled"() {
