@@ -38,6 +38,7 @@ export * from "./or-vaadin-radio-card";
 export * from "./or-vaadin-radio-group";
 export * from "./or-vaadin-select";
 export * from "./or-vaadin-slider";
+export * from "./or-vaadin-tabs";
 export * from "./or-vaadin-text-area";
 export * from "./or-vaadin-text-field";
 export * from "./or-vaadin-time-picker";

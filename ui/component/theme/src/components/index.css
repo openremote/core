@@ -38,6 +38,7 @@
 @import "./or-vaadin-radio-group.css";
 @import "./or-vaadin-select.css";
 @import "./or-vaadin-slider.css";
+@import "./or-vaadin-tabs.css";
 @import "./or-vaadin-text-area.css";
 @import "./or-vaadin-text-field.css";
 @import "./or-vaadin-time-picker.css"; /* Must be after the date-time-picker */
