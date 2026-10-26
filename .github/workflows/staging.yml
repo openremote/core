@@ -38,6 +38,7 @@ jobs:
 
       - name: Detect changes
         id: changed-files
+        if: github.ref_type != 'tag'
         uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
         with:
           files_yaml: |
@@ -77,7 +78,7 @@ jobs:
 
       - name: Get version details
         id: get-version-details
-        uses: openremote/core/.github/actions/get-version-details@3cde448ab3d2e825e7ab189881d0e6cf33a34486
+        uses: openremote/core/.github/actions/get-version-details@accaf8ed2cab816cb081ae57be6bebed93c049f0
 
       - name: Check if core repo
         id: is_core_repo
