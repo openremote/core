@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi10/openjdk-21-runtime:1.24-16
+FROM registry.access.redhat.com/ubi10/openjdk-21-runtime:1.24-17
 
 # Add git commit label must be specified at build time using --build-arg GIT_COMMIT=dadadadadad
 ARG GIT_COMMIT=unknown
@@ -188,3 +188,6 @@ RUN chmod +x /entrypoint.sh
 COPY heapdump-rename.sh /heapdump-rename.sh
 RUN chmod +x /heapdump-rename.sh
 ENTRYPOINT ["/entrypoint.sh"]
+
+# Update CA certificates to address CVE-2026-114406 until the base image includes the fix
+RUN microdnf upgrade -y ca-certificates && microdnf clean all
