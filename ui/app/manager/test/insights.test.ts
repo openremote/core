@@ -341,6 +341,42 @@ test("should keep widget cards in place and draggable after dragging one onto th
   await expect(insightsPage.getWidgets()).toHaveCount(2);
 });
 
+/**
+ * @given An empty dashboard grid
+ * @when Two widgets are dropped with the second visually before the first
+ * @then The DOM order still follows insertion instead of the visual layout
+ */
+test("should keep grid widgets in DOM order when placed out of visual order", async ({
+  manager,
+  shared,
+  page,
+  insightsPage,
+}) => {
+  await shared.interceptResponse<Dashboard>("**/dashboard", (dashboard) => {
+    if (dashboard) manager.dashboards.push(dashboard.id!);
+  });
+
+  await manager.setup("smartcity", { assets });
+  await manager.goToRealmStartPage("smartcity");
+  await manager.navigateToTab("Insights");
+  await page.click(".mdi-plus >> nth=0");
+  await expect(insightsPage.getDashboardListItems()).toHaveCount(1);
+
+  // First widget on the grid in DOM order, identified by its gridstack id
+  const getFirstWidgetId = () =>
+    insightsPage.getWidgetGSContainer(insightsPage.getWidgets().first()).getAttribute("gs-id");
+
+  // Widgets used to be re-ordered in the DOM to their visual layout on every grid change,
+  // detaching and re-attaching each element, which destroyed the chart and map contents.
+  await insightsPage.dragAndDropWidget("Image", [6, 0]);
+  const firstWidgetId = await getFirstWidgetId();
+
+  // Dropped visually before the first widget, so the visual order is the reverse of the DOM order
+  await insightsPage.dragAndDropWidget("Table", [0, 0]);
+
+  await expect.poll(() => getFirstWidgetId()).toBe(firstWidgetId);
+});
+
 test.afterEach(async ({ manager }) => {
   await manager.cleanUp();
 });
