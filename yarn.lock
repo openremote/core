@@ -2451,7 +2451,7 @@ __metadata:
     "@storybook/addon-docs": "npm:~10.6.2"
     "@storybook/web-components": "npm:~10.6.2"
     "@types/react": "npm:^18.3.12"
-    "@wc-toolkit/storybook-helpers": "npm:^10.5.1"
+    "@wc-toolkit/storybook-helpers": "npm:^10.7.7"
     lit: "npm:^3.3.1"
     storybook: "npm:~10.6.2"
     storybook-web-components-rsbuild: "npm:~3.3.4"
@@ -2507,7 +2507,7 @@ __metadata:
     "@typescript-eslint/parser": "npm:8.40.0"
     "@wc-toolkit/cem-inheritance": "npm:~1.2.2"
     "@wc-toolkit/jsx-types": "npm:~1.5.3"
-    "@wc-toolkit/storybook-helpers": "npm:^10.5.1"
+    "@wc-toolkit/storybook-helpers": "npm:^10.7.7"
     "@webcomponents/webcomponentsjs": "npm:^2.6.0"
     cross-env: "npm:^10.1.0"
     css-loader: "npm:^7.1.2"
@@ -4804,13 +4804,13 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@wc-toolkit/storybook-helpers@npm:^10.5.1":
-  version: 10.5.1
-  resolution: "@wc-toolkit/storybook-helpers@npm:10.5.1"
+"@wc-toolkit/storybook-helpers@npm:^10.7.7":
+  version: 10.7.7
+  resolution: "@wc-toolkit/storybook-helpers@npm:10.7.7"
   peerDependencies:
     lit: ^2.0.0 || ^3.0.0
     storybook: ">=10.1.11-0 <11.0.0-0"
-  checksum: 10c0/dcb98eddd375edeb2edfe03f6dc75c690fd2ff4bdda10c0b32bb5c8bc4c2400e24d8248c0ba510e33b51ef22bf3c74511f133a3aa4c8efb370faae7d3537279d
+  checksum: 10c0/467a41cc9a01396fee93fb48050c07926fb85c234adf0ad18e6bd01746ded3e52def413b344a23cbfb715f99ca0262e46ecdf281fbe22631e28ed510fb92afb9
   languageName: node
   linkType: hard
 
