@@ -1,0 +1,6 @@
+ignore:
+  - vulnerability: CVE-2026-91403
+    package:
+      name: java-21-openjdk-headless
+      type: rpm
+    reason: "Remediated by RHSA-2026:88455 via ca-certificates; Grype still flags the OpenJDK RPM."
