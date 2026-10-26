@@ -27,6 +27,7 @@ import { when } from "lit/directives/when.js";
 import { repeat } from "lit/directives/repeat.js";
 import { keyed } from "lit/directives/keyed.js";
 import type { DashboardGridNode } from "./or-dashboard-preview";
+import { keepDomOrder } from "./or-dashboard-engine";
 
 // TODO: Add webpack/rollup to build so consumers aren't forced to use the same tooling
 const gridcss = require("gridstack/dist/gridstack.min.css");
@@ -132,6 +133,8 @@ export class OrDashboardBrowser extends OrElement {
       this.sidebarElem
     );
 
+    keepDomOrder(this.sidebarGrid);
+
     // If an item gets dropped on the main grid, the dragged card needs to be reset to the sidebar.
     // Therefore, we bump the nonce variable, and rebuild both grids from scratch using the keyed() in render().
     // A clean rebuild lets GridStack auto-position every card back in its original slot.
@@ -153,6 +156,8 @@ export class OrDashboardBrowser extends OrElement {
       },
       this.backgroundElem
     );
+
+    keepDomOrder(this.backgroundGrid);
   }
 
   protected render() {
