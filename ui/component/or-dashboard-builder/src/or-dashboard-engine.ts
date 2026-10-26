@@ -16,7 +16,26 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
-import { GridStackEngine, type GridStackNode, type GridStackMoveOpts } from "gridstack";
+import { GridStackEngine, type GridStackNode, type GridStackMoveOpts, type GridStack } from "gridstack";
+
+/**
+ * Stops the grid from re-ordering its DOM children to match the visual layout.
+ * Grid items are rendered through Lit and positioned with CSS, so the order does not affect what the user sees.
+ * Re-ordering widgets detaches and re-attaches each HTML element, therefore this prevents widget content to be removed.
+ */
+export function keepDomOrder(grid?: GridStack | null) {
+  if (!grid) {
+    return;
+  }
+  const internals = grid as unknown as { _sortDom?: () => void };
+  if (typeof internals._sortDom !== "function") {
+    throw new Error(
+      "GridStack._sortDom is gone, so the grid cannot be stopped from re-ordering its DOM children. " +
+        "Check what the supported gridstack version does on change events before raising it."
+    );
+  }
+  internals._sortDom = () => {};
+}
 
 export class OrDashboardEngine extends GridStackEngine {
   // Cancelling move when it collides with the same widget.
