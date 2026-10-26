@@ -33,6 +33,8 @@ export * from "./or-vaadin-menu-bar";
 export * from "./or-vaadin-multi-select-combo-box";
 export * from "./or-vaadin-number-field";
 export * from "./or-vaadin-password-field";
+export * from "./or-vaadin-radio-button";
+export * from "./or-vaadin-radio-card";
 export * from "./or-vaadin-radio-group";
 export * from "./or-vaadin-select";
 export * from "./or-vaadin-slider";
