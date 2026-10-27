@@ -2149,7 +2149,7 @@ __metadata:
     "@openremote/util": "workspace:*"
     "@types/lodash.debounce": "npm:^4"
     "@types/lodash.throttle": "npm:^4"
-    gridstack: "npm:^12.4.2"
+    gridstack: "npm:~14.0.0"
     lit: "npm:^3.3.1"
     lodash.debounce: "npm:^4.0.8"
     lodash.throttle: "npm:^4.1.1"
@@ -7540,10 +7540,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"gridstack@npm:^12.4.2":
-  version: 12.4.2
-  resolution: "gridstack@npm:12.4.2"
-  checksum: 10c0/9b15dabf24947e3f8d529055cbfcd532449b0ea0d4b2ae3b7419eed1742ea394dd19148b023fcbd7d0d69f2b5bc9df33d0f3e01b4153e96f2a7b767e036499bc
+"gridstack@npm:~14.0.0":
+  version: 14.0.0
+  resolution: "gridstack@npm:14.0.0"
+  checksum: 10c0/9d74e027758b67e396e3bd3eaa3081d0ef0d37242e14d9050e12d7615a03b4a1b68954da301fcbfe5ce9223ba47ed6080013f6d606db4378ad7a4fb2c246b384
   languageName: node
   linkType: hard
 
