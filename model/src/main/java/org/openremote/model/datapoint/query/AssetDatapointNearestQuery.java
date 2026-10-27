@@ -44,8 +44,9 @@ public class AssetDatapointNearestQuery extends AssetDatapointQuery {
 
   @Override
   public String getSQLQuery(String tableName, Class<?> attributeType) throws IllegalStateException {
-    // Preserve an unavailable nearest value instead of rejecting its JSON null.
-    return "SELECT timestamp as X, cast(nullif(value, 'null'::jsonb) as numeric) as Y "
+    return "SELECT timestamp as X, cast("
+        + NULLABLE_VALUE_SQL
+        + " as numeric) as Y "
         + "    FROM "
         + tableName
         + " "

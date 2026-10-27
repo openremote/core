@@ -30,7 +30,7 @@ document.body.appendChild(textField);
 
 ### Group fields
 
-The group fields `or-vaadin-checkbox-group` and `or-vaadin-radio-group` should use the "native" Vaadin child components, `vaadin-checkbox` and `vaadin-radio-button`, respectively. These are registered when importing the group fields.
+The group field `or-vaadin-checkbox-group` takes `vaadin-checkbox` children and `or-vaadin-radio-group` takes `or-vaadin-radio-button` children. These are registered when importing the group fields.
 
 ```html
 <or-vaadin-checkbox-group>
@@ -39,8 +39,8 @@ The group fields `or-vaadin-checkbox-group` and `or-vaadin-radio-group` should u
 </or-vaadin-checkbox-group>
 
 <or-vaadin-radio-group>
-  <vaadin-radio-button></vaadin-radio-button>
-  <vaadin-radio-button></vaadin-radio-button>
+  <or-vaadin-radio-button></or-vaadin-radio-button>
+  <or-vaadin-radio-button></or-vaadin-radio-button>
 </or-vaadin-radio-group>
 ```
 

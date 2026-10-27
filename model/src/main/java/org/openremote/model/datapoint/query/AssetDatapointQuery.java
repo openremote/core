@@ -54,6 +54,15 @@ import org.openremote.model.attribute.AttributeRef;
     })
 public abstract class AssetDatapointQuery implements Serializable {
 
+  /** Converts stored JSON null to SQL NULL before casting or aggregating a value. */
+  protected static final String NULLABLE_VALUE_SQL = "nullif(value, 'null'::jsonb)";
+
+  /** Maps true/false to 1/0 while preserving unavailable boolean values as SQL NULL. */
+  protected static final String BOOLEAN_AS_NUMBER_SQL =
+      "CASE cast("
+          + NULLABLE_VALUE_SQL
+          + " as text)::boolean WHEN true THEN 1 WHEN false THEN 0 ELSE NULL END";
+
   @Schema(
       description =
           "Inclusive lower range bound as Unix time in milliseconds for `all`, `interval`, "

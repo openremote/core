@@ -52,13 +52,15 @@ public class AssetDatapointAllQuery extends AssetDatapointQuery {
     String conditionSuffix =
         " where ENTITY_ID = ? and ATTRIBUTE_NAME = ? and TIMESTAMP >= ? and TIMESTAMP <= ? order by timestamp desc";
     if (isNumber) {
-      // JSON null must become SQL NULL before it can be cast to a number.
-      return "select timestamp as X, cast(nullif(value, 'null'::jsonb) as numeric) as Y from "
+      return "select timestamp as X, cast("
+          + NULLABLE_VALUE_SQL
+          + " as numeric) as Y from "
           + tableName
           + conditionSuffix;
     } else if (isBoolean) {
-      // Preserve unavailable values instead of treating SQL NULL as false.
-      return "select timestamp as X, (case cast(cast(nullif(value, 'null'::jsonb) as text) as boolean) when true then 1 when false then 0 else null end) as Y from "
+      return "select timestamp as X, ("
+          + BOOLEAN_AS_NUMBER_SQL
+          + ") as Y from "
           + tableName
           + conditionSuffix;
     } else {
