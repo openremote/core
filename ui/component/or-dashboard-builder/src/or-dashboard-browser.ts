@@ -156,8 +156,6 @@ export class OrDashboardBrowser extends OrElement {
       },
       this.backgroundElem
     );
-
-    keepDomOrder(this.backgroundGrid);
   }
 
   protected render() {
