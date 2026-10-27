@@ -19,9 +19,9 @@ GitHub will not issue a CVE for an advisory that covers more than one independen
 
 The rule of thumb is whether one change would fix everything you are describing. If two findings need two separate fixes, they are two reports.
 
-### Behaviour That Is Intended
+### Behavior That Is Intended
 
-Some features exist to let OpenRemote reach other systems or to allow limited anonymous access for public apps/dashboards. Reports that only show these features doing what they are for are closed without an advisory.
+Some features exist to let OpenRemote reach other systems, to allow limited anonymous access for public apps/dashboards, or to give trusted users access across the whole manager. Reports that only show these features doing what they are for are closed without an advisory.
 
 #### Outbound connections to user-defined addresses
 
@@ -29,15 +29,27 @@ Integrations connect to whatever address they are configured with, internal addr
 
 Creating these needs `write:rules` or `write:assets`, and we treat holding those roles as permission to define integrations for the realm. Restricting where the manager can connect is the job of the deployment: run it in its own network segment and apply egress rules, for example blocking cloud metadata addresses such as `169.254.169.254`.
 
-#### Notification acknowledgement and delivery
+#### Notification delivery and acknowledgement
 
-The HTTP API endpoints for notification delivery and acknowledgement do not require authentication but do require the notification ID and target ID, this is by design for anonymous consoles.
+The HTTP API endpoints that mark a notification as delivered or acknowledged accept anonymous requests, so that anonymous consoles can report back. An anonymous request is only accepted for a notification sent to a publicly readable asset, and it must supply that notification's ID and its target ID.
 
-The following are still in scope:
+Authenticated callers are limited to notifications sent to themselves or to assets in their realm, and restricted users to assets linked to them.
+
+#### Groovy rules
+
+Groovy rules are not sandboxed. They run with the manager's privileges and can access the file system, the network and the host process. Creating or modifying them is therefore restricted to superusers, regardless of the `write:rules` role, and a superuser is trusted with the whole manager. Deployments that do not need Groovy rules can disable their execution with `OR_RULES_GROOVY_EXECUTION_ENABLED=false`.
+
+#### System logs
+
+The `read:logs` role grants access to the manager-wide system log, including entries relating to other realms. It is not restricted to the user's realm, so only grant it to users trusted across the whole manager.
+
+Reports showing any of the following are still in scope:
 
 - Reaching one of these features without the role it requires, or from another realm.
 - A response, credential or secret becoming readable by someone who could not read it otherwise.
 - Bypassing a destination restriction that an operator has configured.
+- Changing the delivery or acknowledgement state of a notification you could not otherwise act on, including as an authenticated user in the same realm, for example another user's notification or, as a restricted user, one sent to an asset not linked to you.
+- Creating or modifying a Groovy ruleset without being a superuser.
 
 ### What To Include
 
