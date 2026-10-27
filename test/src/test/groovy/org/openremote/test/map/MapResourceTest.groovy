@@ -47,6 +47,9 @@ import static org.openremote.model.Constants.*
 
 // TODO: Remove this once map service is removed and we fallback to standalone tile server
 class MapResourceTest extends Specification implements ManagerContainerTrait {
+
+  public static final Path MAPDATA_MBTILES_PATH = Path.of("manager/src/map/mapdata.mbtiles")
+
   @Shared
   static ResteasyWebTarget clientTarget
 
@@ -54,7 +57,10 @@ class MapResourceTest extends Specification implements ManagerContainerTrait {
   static MapResource mapResource
 
   def setupSpec() {
-    given: "the server container is started"
+    given: "the bundled map tiles are available"
+    verifyMapTiles()
+
+    and: "the server container is started"
     def container = startContainer(defaultConfig(), defaultServices())
 
     and: "an access_token is retrieved"
@@ -72,6 +78,23 @@ class MapResourceTest extends Specification implements ManagerContainerTrait {
 
     and: "the map resource is configured"
     mapResource = clientTarget.proxy(MapResource.class)
+  }
+
+  private static void verifyMapTiles() {
+    def message = """
+    Invalid or missing map tiles file: ${MAPDATA_MBTILES_PATH}
+    Ensure Git LFS is installed and run:
+      git lfs install
+      git lfs pull
+  """.stripIndent()
+
+    assert Files.isRegularFile(MAPDATA_MBTILES_PATH) : message
+
+    def header = Files.newInputStream(MAPDATA_MBTILES_PATH).withCloseable {
+      it.readNBytes(16)
+    }
+    assert new String(header, "US-ASCII") ==
+    "SQLite format 3\u0000" : message
   }
 
   def "Retrieve map settings"() {
@@ -158,7 +181,7 @@ class MapResourceTest extends Specification implements ManagerContainerTrait {
             .path("map/upload")
             .queryParam("filename", "eindhoven.mbtiles")
             .request()
-            .post(Entity.entity(Files.readAllBytes(Path.of("manager/src/map/mapdata.mbtiles")), MediaType.APPLICATION_OCTET_STREAM_TYPE))
+            .post(Entity.entity(Files.readAllBytes(MAPDATA_MBTILES_PATH), MediaType.APPLICATION_OCTET_STREAM_TYPE))
 
     then: "the custom tiles should be saved"
     new PollingConditions(timeout: 20, delay: 1).eventually {
