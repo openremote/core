@@ -46,6 +46,10 @@ export class InsightsPage implements BasePage {
     return this.page.locator("or-dashboard-browser #sidebar", options);
   }
 
+  getBrowserCards(options?: any) {
+    return this.page.locator("or-dashboard-browser #sidebarElement .grid-stack-item", options);
+  }
+
   getWidgetSettings(options?: any) {
     return this.page.locator(".settings-container:has(or-dashboard-widgetsettings)", options);
   }

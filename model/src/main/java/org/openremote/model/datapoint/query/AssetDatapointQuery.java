@@ -40,9 +40,11 @@ import org.openremote.model.attribute.AttributeRef;
     defaultImpl = AssetDatapointAllQuery.class)
 @Schema(
     description =
-        "Polymorphic historical-datapoint query. Select `all` to return every value, "
+        "Polymorphic historical or predicted datapoint query. Select `all` to return every value, "
             + "`interval` to aggregate values into time buckets, `lttb` to downsample a numeric "
-            + "or boolean series, or `nearest` to retrieve the last value at or before a time.",
+            + "or boolean series, or `nearest` to retrieve the last numeric value at or before a time. "
+            + "Returned datapoints use x for the timestamp and y for the value. When a query retains an "
+            + "unavailable datapoint, its JSON representation contains x but omits y.",
     discriminatorProperty = "type",
     discriminatorMapping = {
       @DiscriminatorMapping(value = "all", schema = AssetDatapointAllQuery.class),
@@ -51,6 +53,15 @@ import org.openremote.model.attribute.AttributeRef;
       @DiscriminatorMapping(value = "nearest", schema = AssetDatapointNearestQuery.class)
     })
 public abstract class AssetDatapointQuery implements Serializable {
+
+  /** Converts stored JSON null to SQL NULL before casting or aggregating a value. */
+  protected static final String NULLABLE_VALUE_SQL = "nullif(value, 'null'::jsonb)";
+
+  /** Maps true/false to 1/0 while preserving unavailable boolean values as SQL NULL. */
+  protected static final String BOOLEAN_AS_NUMBER_SQL =
+      "CASE cast("
+          + NULLABLE_VALUE_SQL
+          + " as text)::boolean WHEN true THEN 1 WHEN false THEN 0 ELSE NULL END";
 
   @Schema(
       description =

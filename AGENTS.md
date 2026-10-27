@@ -44,6 +44,10 @@ Annotate every endpoint with the resource role of its domain, e.g. `read:alarms`
 
 Access control belongs in the resource implementation, not in the service. Extend `ManagerWebResource` and use its checks rather than reaching for the identity provider: `throwIfNotRealmActiveAndAccessible` and `throwIfRestrictedUser` reject with a 403, and `isRealmActiveAndAccessible` and `isRestrictedUser` are there for conditions that need more than a rejection. Resolve the entity first and return 404 when it is missing, then require access to its realm, and apply restricted user rules in the same place. Service methods take already authorised input and state that in their javadoc with "Callers are responsible for enforcing realm authorization." Alarms and notifications are the reference for this shape; equivalent endpoints across the two must enforce the same way. Flows that never pass through a resource, such as notifications published to the message broker, authorise inside the service instead.
 
+## Spelling
+
+Write code, comments and docs in US English, e.g. `color`, not `colour`.
+
 ## UI
 
 Frontend conventions live in `ui/AGENTS.md`. Read it before changing anything under `ui/`.

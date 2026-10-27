@@ -18,10 +18,16 @@
  */
 @import "@vaadin/vaadin-lumo-styles/components/radio-group.css";
 
+or-vaadin-radio-group:has(> or-vaadin-radio-card)::part(group-field) {
+  gap: var(--or-radio-card-spacing, var(--lumo-space-xs));
+}
+
 :root::before,
 :host::before {
   --_lumo-vaadin-radio-group-inject: 1;
   --_lumo-vaadin-radio-group-inject-modules:
     lumo_mixins_group-field, lumo_mixins_field-label, lumo_mixins_field-required, lumo_mixins_field-error-message,
     lumo_mixins_field-helper, lumo_components_radio-group, lumo_mixins_field-internal;
+  --_lumo-or-vaadin-radio-card-inject: 1;
+  --_lumo-or-vaadin-radio-card-inject-modules: lumo_mixins_checkable-field, lumo_components_radio-button;
 }

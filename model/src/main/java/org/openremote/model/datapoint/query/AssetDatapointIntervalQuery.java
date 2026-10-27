@@ -47,7 +47,8 @@ public class AssetDatapointIntervalQuery extends AssetDatapointQuery {
       description =
           "When true, returns empty buckets across the requested range using time-bucket gap "
               + "filling; their aggregate is generally null. When false, only buckets containing datapoints are "
-              + "returned. Defaults to false.",
+              + "returned. MODE currently returns only buckets containing datapoints regardless of this flag. "
+              + "Defaults to false.",
       example = "true")
   public boolean gapFill;
 
@@ -55,9 +56,17 @@ public class AssetDatapointIntervalQuery extends AssetDatapointQuery {
       description =
           "Aggregation applied per bucket: `MIN`, `AVG`, and `MAX` calculate the corresponding "
               + "value; `DIFFERENCE` calculates the change between the last values of consecutive buckets; "
-              + "`COUNT` counts datapoints; `SUM` totals numeric values (or true values for booleans); `MODE` "
+              + "`COUNT` counts stored datapoints, including null-valued rows; `SUM` totals numeric values "
+              + "(or true values for booleans); `MODE` "
               + "selects the most frequent value; and `MEDIAN` selects the middle value. `DIFFERENCE` is numeric "
-              + "only.",
+              + "only. For numeric and boolean attributes, MIN, AVG, MAX, SUM, MODE and MEDIAN ignore null values and return null "
+              + "for buckets with no available values. Empty gap-filled buckets return null for COUNT. "
+              + "MODE ties select the smaller numeric value or true for booleans. Boolean MEDIAN returns 1 "
+              + "when the median of available 1/0 values is at least 0.5, otherwise 0; it returns null when unavailable. "
+              + "DIFFERENCE uses the last stored value per bucket. With gap filling enabled, empty buckets carry "
+              + "the previous bucket value, while explicit null values interrupt carry-forward. A difference is "
+              + "null if either endpoint is unavailable. The first returned bucket has a difference of zero "
+              + "if its value is available; observations outside the query range are not used.",
       requiredMode = Schema.RequiredMode.REQUIRED)
   public Formula formula;
 
@@ -117,12 +126,14 @@ public class AssetDatapointIntervalQuery extends AssetDatapointQuery {
         return "WITH interval_data AS ("
             + "SELECT "
             + function
-            + "(cast(? as interval), timestamp) AS x, public.locf(public.last(value::DOUBLE PRECISION, timestamp)) AS numeric_value "
+            + "(cast(? as interval), timestamp) AS x, public.locf(public.last("
+            + NULLABLE_VALUE_SQL
+            + "::DOUBLE PRECISION, timestamp)) AS numeric_value "
             + "FROM "
             + tableName
             + " "
             + "WHERE ENTITY_ID = ? AND ATTRIBUTE_NAME = ? AND TIMESTAMP >= ? AND TIMESTAMP <= ? GROUP BY x )"
-            + "SELECT x, COALESCE(numeric_value - LAG(numeric_value, 1, numeric_value) OVER (ORDER BY x), numeric_value) AS delta FROM interval_data ORDER BY x ASC";
+            + "SELECT x, numeric_value - LAG(numeric_value, 1, numeric_value) OVER (ORDER BY x) AS delta FROM interval_data ORDER BY x ASC";
       case COUNT:
         return "SELECT "
             + function
@@ -137,7 +148,9 @@ public class AssetDatapointIntervalQuery extends AssetDatapointQuery {
         return "SELECT "
             + function
             + "(cast(? as interval), timestamp) AS x, "
-            + "SUM(cast(value as numeric)) AS total_sum "
+            + "SUM(cast("
+            + NULLABLE_VALUE_SQL
+            + " as numeric)) AS total_sum "
             + "FROM "
             + tableName
             + " "
@@ -148,7 +161,9 @@ public class AssetDatapointIntervalQuery extends AssetDatapointQuery {
             + "  SELECT "
             + function
             + "(cast(? as interval), timestamp) AS x, "
-            + "         cast(value as numeric) AS num_value "
+            + "         cast("
+            + NULLABLE_VALUE_SQL
+            + " as numeric) AS num_value "
             + "  FROM "
             + tableName
             + " "
@@ -158,7 +173,7 @@ public class AssetDatapointIntervalQuery extends AssetDatapointQuery {
             + "    SELECT num_value FROM ( "
             + "         SELECT num_value, COUNT(*) AS freq "
             + "         FROM bucketed b2 "
-            + "         WHERE b2.x = d.x "
+            + "         WHERE b2.x = d.x AND num_value IS NOT NULL "
             + "         GROUP BY num_value "
             + "         ORDER BY freq DESC, num_value "
             + "         LIMIT 1 "
@@ -170,7 +185,9 @@ public class AssetDatapointIntervalQuery extends AssetDatapointQuery {
         return "SELECT "
             + function
             + "(cast(? as interval), timestamp) AS x, "
-            + "PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cast(value as numeric)) as median_value "
+            + "PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cast("
+            + NULLABLE_VALUE_SQL
+            + " as numeric)) as median_value "
             + "FROM "
             + tableName
             + " "
@@ -181,7 +198,9 @@ public class AssetDatapointIntervalQuery extends AssetDatapointQuery {
             + function
             + "(cast(? as interval), timestamp) AS x, "
             + this.formula.toString().toLowerCase()
-            + "(cast(value as numeric)) FROM "
+            + "(cast("
+            + NULLABLE_VALUE_SQL
+            + " as numeric)) FROM "
             + tableName
             + " WHERE ENTITY_ID = ? and ATTRIBUTE_NAME = ? and TIMESTAMP >= ? and TIMESTAMP <= ? GROUP BY x ORDER by x ASC";
     }
@@ -206,7 +225,9 @@ public class AssetDatapointIntervalQuery extends AssetDatapointQuery {
         return "SELECT "
             + function
             + "(cast(? as interval), timestamp) AS x, "
-            + "SUM(CASE WHEN cast(value as text)::boolean THEN 1 ELSE 0 END) AS true_count_sum "
+            + "SUM("
+            + BOOLEAN_AS_NUMBER_SQL
+            + ") AS true_count_sum "
             + "FROM "
             + tableName
             + " "
@@ -217,17 +238,19 @@ public class AssetDatapointIntervalQuery extends AssetDatapointQuery {
             + "   SELECT "
             + function
             + "(cast(? as interval), timestamp) AS x, "
-            + "          cast(value as text)::boolean AS bool_value "
+            + "          cast("
+            + NULLABLE_VALUE_SQL
+            + " as text)::boolean AS bool_value "
             + "   FROM "
             + tableName
             + " "
             + "   WHERE ENTITY_ID = ? and ATTRIBUTE_NAME = ? and TIMESTAMP >= ? and TIMESTAMP <= ? "
             + ") "
             + "SELECT d.x, ( "
-            + "    SELECT bool_value FROM ( "
+            + "    SELECT bool_value::integer FROM ( "
             + "         SELECT bool_value, COUNT(*) AS freq "
             + "         FROM bucketed b2 "
-            + "         WHERE b2.x = d.x "
+            + "         WHERE b2.x = d.x AND bool_value IS NOT NULL "
             + "         GROUP BY bool_value "
             + "         ORDER BY freq DESC, bool_value DESC "
             + "         LIMIT 1 "
@@ -239,8 +262,9 @@ public class AssetDatapointIntervalQuery extends AssetDatapointQuery {
         return "SELECT "
             + function
             + "(cast(? as interval), timestamp) AS x, "
-            + "CASE WHEN PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY (CASE WHEN cast(value as text)::boolean THEN 1 ELSE 0 END)) >= 0.5 "
-            + "THEN true ELSE false END AS median_value "
+            + "(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ("
+            + BOOLEAN_AS_NUMBER_SQL
+            + ")) >= 0.5)::integer AS median_value "
             + "FROM "
             + tableName
             + " "
@@ -251,7 +275,9 @@ public class AssetDatapointIntervalQuery extends AssetDatapointQuery {
             + function
             + "(cast(? as interval), timestamp) AS x, "
             + this.formula.toString().toLowerCase()
-            + "(case when cast(cast(value as text) as boolean) is true then 1 else 0 end) FROM "
+            + "("
+            + BOOLEAN_AS_NUMBER_SQL
+            + ") FROM "
             + tableName
             + " WHERE ENTITY_ID = ? and ATTRIBUTE_NAME = ? and TIMESTAMP >= ? and TIMESTAMP <= ? GROUP BY x ORDER by x ASC";
     }

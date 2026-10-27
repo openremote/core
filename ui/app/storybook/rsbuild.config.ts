@@ -71,10 +71,16 @@ export default defineConfig({
     bundlerChain: (chain, { CHAIN_ID }) => {
       chain.module.rule(CHAIN_ID.RULE.CSS).exclude.add(/(maplibre|@material|gridstack|@mdi).*\.css$/); // Exclude the external CSS imports from default bundling.
     },
-    rspack: (config, { addRules }) => {
+    rspack: (config, { addRules, appendPlugins, rspack }) => {
       addRules([{ test: /(maplibre|@material|gridstack|@mdi).*\.css$/, type: "asset/source" }]); // Add rule to treat external CSS imports as raw strings.
       addRules([{ test: /\.wasm$/, type: "asset/resource" }]);
       addRules([{ test: /maplibre-gl[\\/]dist[\\/].+\.mjs$/, parser: { url: false } }]); // maplibre builds its worker URL at runtime, so its own `new URL()` calls are not build time assets.
+      // @wc-toolkit/storybook-helpers imports "node:path", but Storybook only polyfills "path"
+      appendPlugins(
+        new rspack.NormalModuleReplacementPlugin(/^node:path$/, (resource) => {
+          resource.request = "path";
+        })
+      );
       return config;
     },
   },

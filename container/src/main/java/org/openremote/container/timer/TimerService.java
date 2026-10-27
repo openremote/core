@@ -22,7 +22,6 @@ import static org.openremote.model.util.MapAccess.getString;
 
 import java.time.*;
 import java.time.temporal.Temporal;
-import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
@@ -83,13 +82,11 @@ public class TimerService implements ContainerService, RulesClock {
     PSEUDO {
       protected AtomicLong offset = new AtomicLong();
       protected volatile Long stopTime;
-      // Explicitly define a UTC Clock
+      // Use UTC internally without changing the JVM's default time zone.
       protected java.time.Clock utcClock = java.time.Clock.systemUTC();
 
       @Override
       public void init() {
-        // Force JVM timezone to UTC for legacy date conversions to avoid DST issues in tests
-        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
         long current = getCurrentTimeMillis();
         LOG.info("Initialized pseudo clock to: " + current + " / " + Instant.ofEpochMilli(current));
       }

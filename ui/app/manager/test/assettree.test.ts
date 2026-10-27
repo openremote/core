@@ -183,7 +183,6 @@ test(`Open browser tab directly to the battery asset`, async ({
   await applyParentAssets(parentAssets, manager);
   const id = manager.assets.find((asset) => asset.name === batteryAssets[0].name)?.id;
   expect(id).toBeDefined();
-  await manager.goToRealmStartPage("smartcity");
   await assetsPage.gotoAssetId("smartcity", id!);
   await expect(assetTree.getFilterInput()).toHaveValue(id!);
   await expect(assetTree.getAssetNodes()).toHaveCount(2); // The parent city asset + selected battery asset
