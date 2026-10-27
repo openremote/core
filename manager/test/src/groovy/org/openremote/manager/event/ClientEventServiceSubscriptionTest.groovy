@@ -164,8 +164,7 @@ class ClientEventServiceSubscriptionTest extends Specification {
 
     when: "a regular user of the building realm subscribes"
     def subscription = new EventSubscription<>(eventClass, requestedFilter)
-    // TODO: Change to ClientRole.READ_ROLE once subscription authorizer correctly uses this role
-    service.procesInboundEvent(exchangeFor(sessionKey, channel, subscription, regularUser("building", ClientRole.READ_ASSETS), "building"))
+    service.procesInboundEvent(exchangeFor(sessionKey, channel, subscription, regularUser("building", ClientRole.READ_RULES), "building"))
 
     then: "the subscription should be accepted"
     service.sentPayloads.last().is(subscription)
@@ -177,12 +176,14 @@ class ClientEventServiceSubscriptionTest extends Specification {
     service.sendToSubscribers(rulesEvent(eventClass, "building"))
 
     then: "the user should only receive the building realm event"
-    service.triggeredEvents.size() == 1
+    service.triggeredEvents*.realm == ["building"]
 
     where:
     eventClass             | requestedFilter
     RulesetChangedEvent    | null
+    RulesetChangedEvent    | new RealmFilter<>("smartcity")
     RulesEngineStatusEvent | null
+    RulesEngineStatusEvent | new RealmFilter<>("smartcity")
   }
 
   def "rejects #eventClass.simpleName subscription from a regular user without the read rules role"() {
@@ -194,7 +195,6 @@ class ClientEventServiceSubscriptionTest extends Specification {
     service.sessionChannels.put(sessionKey, channel)
 
     when: "a regular user of the building realm with only the read assets role subscribes"
-    // TODO: Change to ClientRole.READ_ROLE once subscription authorizer correctly uses this role
     def exchange = exchangeFor(sessionKey, channel, new EventSubscription<>(eventClass), regularUser("building", ClientRole.READ_ASSETS), "building")
     service.procesInboundEvent(exchange)
 
@@ -217,10 +217,10 @@ class ClientEventServiceSubscriptionTest extends Specification {
 
   private static SharedEvent rulesEvent(Class<?> eventClass, String realm) {
     eventClass == RulesetChangedEvent
-            ? new RulesetChangedEvent(0L, realm, realm == null
+            ? new RulesetChangedEvent(0L, realm, realm, realm == null
             ? new GlobalRuleset("Global rules", Ruleset.Lang.GROOVY, "global rule source")
             : new RealmRuleset(realm, "Realm rules", Ruleset.Lang.GROOVY, "realm rule source"))
-            : new RulesEngineStatusEvent(0L, realm, new RulesEngineInfo(RulesEngineStatus.RUNNING, 0, 0))
+            : new RulesEngineStatusEvent(0L, realm, realm, new RulesEngineInfo(RulesEngineStatus.RUNNING, 0, 0))
   }
 
   private Exchange exchangeFor(String sessionKey, WebSocketChannel channel, Object body) {
