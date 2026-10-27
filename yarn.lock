@@ -1821,7 +1821,7 @@ __metadata:
     lodash.transform: "npm:^4.6.0"
     moment: "npm:^2.31.0"
     platform: "npm:^1.3.6"
-    qs: "npm:^6.16.0"
+    qs: "npm:^6.16.1"
     url-search-params-polyfill: "npm:^8.1.0"
   languageName: unknown
   linkType: soft
@@ -1952,7 +1952,7 @@ __metadata:
     "@types/lodash.debounce": "npm:^4"
     lit: "npm:^3.3.1"
     lodash.debounce: "npm:^4.0.8"
-    qs: "npm:^6.16.0"
+    qs: "npm:^6.16.1"
   languageName: unknown
   linkType: soft
 
@@ -2439,7 +2439,7 @@ __metadata:
     "@openremote/util": "workspace:*"
     "@types/qs": "npm:^6.9.7"
     axios: "npm:1.20.0"
-    qs: "npm:^6.16.0"
+    qs: "npm:^6.16.1"
   languageName: unknown
   linkType: soft
 
@@ -9727,13 +9727,23 @@ __metadata:
   languageName: node
   linkType: hard
 
-"qs@npm:^6.12.3, qs@npm:^6.16.0":
+"qs@npm:^6.12.3":
   version: 6.16.0
   resolution: "qs@npm:6.16.0"
   dependencies:
     es-define-property: "npm:^1.0.1"
     side-channel: "npm:^1.1.1"
   checksum: 10c0/eb3e31992fbd70e31a1791e571ed817d70975de7d3bfcbbbec93d77d1dd305877e9e8fdbcc62303c228ee5c3606685622cd6231c042dbc4790bb4e7c65fcbe18
+  languageName: node
+  linkType: hard
+
+"qs@npm:^6.16.1":
+  version: 6.16.1
+  resolution: "qs@npm:6.16.1"
+  dependencies:
+    es-define-property: "npm:^1.0.1"
+    side-channel: "npm:^1.1.1"
+  checksum: 10c0/84ee9124b251ab2953132fbea1d70c966aa6e6496cccabedbbb83afa412bf4177bddebc779ca3ddafe23da83b2f593d530b41be6a726e971404fabb20ff22c94
   languageName: node
   linkType: hard
 
