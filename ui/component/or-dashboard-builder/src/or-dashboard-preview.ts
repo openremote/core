@@ -37,7 +37,7 @@ import { type GridItemHTMLElement, GridStack, type GridStackElement, type GridSt
 import { showSnackbar } from "@openremote/or-mwc-components/or-mwc-snackbar";
 import { when } from "lit/directives/when.js";
 import { guard } from "lit/directives/guard.js";
-import { keepDomOrder, OrDashboardEngine } from "./or-dashboard-engine";
+import { OrDashboardEngine } from "./or-dashboard-engine";
 import { WidgetService } from "./service/widget-service";
 import { OrDashboardWidgetContainer } from "./or-dashboard-widgetcontainer";
 import type { OrVaadinNumberField } from "@openremote/or-vaadin-components/or-vaadin-number-field";
