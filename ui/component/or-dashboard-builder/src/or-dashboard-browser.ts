@@ -27,7 +27,6 @@ import { when } from "lit/directives/when.js";
 import { repeat } from "lit/directives/repeat.js";
 import { keyed } from "lit/directives/keyed.js";
 import type { DashboardGridNode } from "./or-dashboard-preview";
-import { keepDomOrder } from "./or-dashboard-engine";
 
 // TODO: Add webpack/rollup to build so consumers aren't forced to use the same tooling
 const gridcss = require("gridstack/dist/gridstack.min.css");
