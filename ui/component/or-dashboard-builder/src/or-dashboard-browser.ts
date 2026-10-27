@@ -133,8 +133,6 @@ export class OrDashboardBrowser extends OrElement {
       this.sidebarElem
     );
 
-    keepDomOrder(this.sidebarGrid);
-
     // If an item gets dropped on the main grid, the dragged card needs to be reset to the sidebar.
     // Therefore, we bump the nonce variable, and rebuild both grids from scratch using the keyed() in render().
     // A clean rebuild lets GridStack auto-position every card back in its original slot.
