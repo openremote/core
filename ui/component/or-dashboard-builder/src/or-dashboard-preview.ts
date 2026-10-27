@@ -471,8 +471,6 @@ export class OrDashboardPreview extends translate(i18next)(OrElement) {
         gridElement!
       );
 
-      keepDomOrder(this.grid);
-
       if (this.grid) {
         gridElement!.style.backgroundSize = "" + this.grid.cellWidth() + "px " + this.grid.getCellHeight() + "px";
       }
