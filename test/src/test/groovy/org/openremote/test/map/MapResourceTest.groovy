@@ -203,7 +203,7 @@ class MapResourceTest extends Specification implements ManagerContainerTrait {
             .path("map/upload")
             .queryParam("filename", "../mapdata.mbtiles")
             .request()
-            .post(Entity.entity(Files.readAllBytes(Path.of("manager/src/map/mapdata.mbtiles")), MediaType.APPLICATION_OCTET_STREAM_TYPE))
+            .post(Entity.entity(new byte[16], MediaType.APPLICATION_OCTET_STREAM_TYPE))
 
     then: "bad request error should occur"
     response.withCloseable { r ->
@@ -217,7 +217,7 @@ class MapResourceTest extends Specification implements ManagerContainerTrait {
             .path("map/upload")
             .queryParam("filename", "mapdata.mbtiles")
             .request()
-            .post(Entity.entity(Files.readAllBytes(Path.of("manager/src/map/mapdata.mbtiles")), MediaType.APPLICATION_OCTET_STREAM_TYPE))
+            .post(Entity.entity(new byte[11], MediaType.APPLICATION_OCTET_STREAM_TYPE))
 
     then: "request entity too large error should occur"
     response.withCloseable { r ->
