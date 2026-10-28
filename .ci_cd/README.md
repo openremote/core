@@ -1,7 +1,7 @@
 # CI/CD workflow files
 
 The files in this directory are used by the [CI/CD workflows](../.github/workflows) of this repo and custom
-projects/forks, which deploy to a linux host via SSH (see [deployment.yml](../.github/workflows/deployment.yml)).
+projects/forks, which deploy to a Linux host via SSH (see [deployment.yml](../.github/workflows/deployment.yml)).
 
 # `ci_cd.json` File
 
