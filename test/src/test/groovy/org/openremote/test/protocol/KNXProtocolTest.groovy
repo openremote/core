@@ -135,7 +135,15 @@ class KNXProtocolTest extends Specification implements ManagerContainerTrait {
 
     then: "the living room thing to be fully deployed"
     conditions.eventually {
-      assert ((KNXProtocol) agentService.getProtocolInstance(knxAgent1.id)).attributeStatusMap.get(new AttributeRef(knxThing.id, "light1ToggleOnOff")) != null
+      def protocol = (KNXProtocol) agentService.getProtocolInstance(knxAgent1.id)
+      def attributeRef = new AttributeRef(knxThing.id, "light1ToggleOnOff")
+      synchronized (protocol.attributeStatusMap) {
+        assert protocol.attributeStatusMap.get(attributeRef) != null
+      }
+      // Status monitoring is registered before commands, so wait for both before writing.
+      synchronized (protocol.attributeActionMap) {
+        assert protocol.attributeActionMap.get(attributeRef) != null
+      }
     }
 
     when: "change light1ToggleOnOff value to 'true'"

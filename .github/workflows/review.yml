@@ -1,3 +1,12 @@
+# ---------------------------------------------------------------------------------------------------------------------
+# This environment workflow runs for pull requests and merge queue checks of this repo, it handles:
+#
+# - Linting, building and testing
+# - Checking that the packages can be published
+#
+# Custom projects use custom-review.yml instead.
+# ---------------------------------------------------------------------------------------------------------------------
+
 name: Review
 
 on:
