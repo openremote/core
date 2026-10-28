@@ -23,6 +23,7 @@ import org.openremote.manager.rules.RulesEngineId
 import org.openremote.model.asset.impl.ThingAsset
 import org.openremote.model.attribute.AttributeEvent
 import org.openremote.model.query.AssetQuery
+import org.openremote.model.query.filter.PathPredicate
 import spock.lang.Specification
 
 class AssetsFacadeTest extends Specification {
@@ -38,12 +39,18 @@ class AssetsFacadeTest extends Specification {
     }
     def availableAssets = [root, child]
     List<AssetQuery> queries = []
+    List<PathPredicate> requiredPaths = []
+    def lookup = { AssetQuery query, PathPredicate requiredPath ->
+      queries.add(query)
+      requiredPaths.add(requiredPath)
+      // An asset-ID query returns each matching asset once, even for repeated IDs.
+      availableAssets.findAll { query.ids.contains(it.id) }
+    }
     def storage = Stub(AssetStorageService) {
       find("root", true) >> root
-      findAll(_ as AssetQuery) >> { AssetQuery query ->
-        queries.add(query)
-        // An asset-ID query returns each matching asset once, even for repeated IDs.
-        availableAssets.findAll { query.ids.contains(it.id) }
+      findAll(_ as AssetQuery) >> { AssetQuery query -> lookup(query, null) }
+      findAll(_ as AssetQuery, _ as PathPredicate) >> { AssetQuery query, PathPredicate requiredPath ->
+        lookup(query, requiredPath)
       }
     }
     def engineId = scope == "global" ? new RulesEngineId() :
@@ -63,7 +70,8 @@ class AssetsFacadeTest extends Specification {
     queries.size() == 1
     queries[0].ids.toSet() == targetIds.toSet()
     queries[0].realm?.name == (scope == "global" ? null : "building")
-    queries[0].paths?.collect { it.path.toList() } == (scope == "asset" ? [["root"]] : null)
+    queries[0].paths == null
+    requiredPaths.collect { it?.path?.toList() } == [scope == "asset" ? ["root"] : null]
 
     and: "every original event is forwarded exactly once, in the supplied order"
     forwarded.size() == events.size()
@@ -90,12 +98,18 @@ class AssetsFacadeTest extends Specification {
       getId() >> "child"
     }
     List<AssetQuery> queries = []
+    List<PathPredicate> requiredPaths = []
+    def lookup = { AssetQuery query, PathPredicate requiredPath ->
+      queries.add(query)
+      requiredPaths.add(requiredPath)
+      // Model a partial result from the scoped lookup: only permitted assets were found.
+      [root, child].findAll { query.ids.contains(it.id) }
+    }
     def storage = Stub(AssetStorageService) {
       find("root", true) >> root
-      findAll(_ as AssetQuery) >> { AssetQuery query ->
-        queries.add(query)
-        // Model a partial result from the scoped lookup: only permitted assets were found.
-        [root, child].findAll { query.ids.contains(it.id) }
+      findAll(_ as AssetQuery) >> { AssetQuery query -> lookup(query, null) }
+      findAll(_ as AssetQuery, _ as PathPredicate) >> { AssetQuery query, PathPredicate requiredPath ->
+        lookup(query, requiredPath)
       }
     }
     def engineId = scope == "global" ? new RulesEngineId() :
@@ -116,7 +130,8 @@ class AssetsFacadeTest extends Specification {
     queries.size() == 1
     queries[0].ids.toSet() == targetIds.toSet()
     queries[0].realm?.name == (scope == "global" ? null : "building")
-    queries[0].paths?.collect { it.path.toList() } == (scope == "asset" ? [["root"]] : null)
+    queries[0].paths == null
+    requiredPaths.collect { it?.path?.toList() } == [scope == "asset" ? ["root"] : null]
 
     and: "no events are forwarded, including those for permitted assets"
     forwarded.empty
