@@ -38,20 +38,31 @@ The date and time picker wrappers set their `i18n` themselves: the date order, c
 
 ### Styling the component's shadow-DOM internals
 
-Pick the approach by how much of the base component you need to keep. The base + Lumo styles are keyed off the element's `static get is()`, so a wrapper that does _not_ override `is` still reports the base tag (e.g. `vaadin-checkbox-group`) and inherits the full base + Lumo theme.
+**How Vaadin applies styles.** A Vaadin element's shadow root has three layers, later ones winning at equal specificity:
 
-**Small tweaks to an existing component (preferred default).** Do NOT override `is`, since that detaches the element from the base + Lumo styles keyed off `is` and strips the inherited theme/layout entirely. Do NOT use `static get styles()` — ThemableMixin injects those _before_ Lumo, so Lumo wins; and for wrapper classes that don't override `is`, ThemableMixin may not associate the child's `static get styles()` with the finalized element at all. Instead apply styles in one of these ways:
+1. Base styles defined in `static get styles()` of the Vaadin component class or our `or-vaadin-*` classes. The Lumo theme drops these when it injects, unless the component sets `includeBaseStyles: true` (badge, slider). Components without `LumoInjectionMixin`, such as `vaadin-dialog`, always keep them.
+2. Lumo modules defined through `@media lumo_<name>` blocks are injected per tag as listed in `--_lumo-<tag>-inject-modules`. Lumo defines its modules and lists them this way in `@vaadin/vaadin-lumo-styles/components/<name>.css`. The list in our `ui/component/theme/src/components/or-vaadin-<name>.css` overwrites Lumo's list for that tag, so we include Lumo's declared list and include our own `@media lumo_` blocks. `components/index.css` therefore imports our file after every other file that declares a list for the same tag, including through a Lumo import.
+3. Styles registered with ``registerStyles("<tag>", css`…`)`` are added after Lumo to elements whose `is` matches the tag, and are inherited by subclasses. Register them before `customElements.define` runs for that tag, otherwise existing instances are restyled and a console warning is logged. For our own tag that means on module level above the class.
 
-- **External `::part()` rule (preferred for part properties).** Add the rule in `ui/component/theme/src/components/or-vaadin-<name>.css` (imported from that dir's `index.css`), keyed on the real tag name: `or-vaadin-<tag>::part(<part>) { … }`. This is a plain browser CSS feature — the global stylesheet pierces the shadow DOM boundary through the exposed part with no ThemableMixin involvement. It scopes cleanly to that tag only and is invisible to the `is`-based lookup.
-- **Lumo `@media` module injection (for rules that must live inside the shadow DOM).** Use this only when `::part()` is insufficient — e.g. `:host` pseudo-class selectors, `::slotted`, or pseudo-elements that cannot be reached from outside. Define the rules in a named `@media <module-name>` block in the theme CSS file and add that name to `--_lumo-vaadin-<tag>-inject-modules`. The injector stamps those rules into the shadow DOM _after_ Lumo, so they always win.
-- **Slotted native inputs (`<textarea>`, `<input>`) are light DOM, not shadow DOM.** Style them with a normal descendant rule from the surrounding tree (`or-vaadin-<tag> textarea { … }`) or with inline styles from the wrapper class; both win over the base component's `::slotted()` rules in the cascade.
+Lumo and `registerStyles` match the element's `static get is()`, while base styles come with the class. From outside, custom properties and `::part()` rules beat the shadow DOM's own rules, and slotted light-DOM children such as native inputs take normal selectors. `test/styling-contract.test.ts` checks the theme and every element the package index exports against these layers.
 
-**A component that fully owns its visuals via `registerStyles()`.** Only when the component re-implements the look from scratch (so it has no inherited theme to preserve) override `is` and register styles from its own module; do NOT use `static get styles()`. Vaadin's `ThemableMixin.finalizeStyles()` injects `static` styles _before_ the Lumo theme injector, so the theme overrides them and nothing appears to apply; styles registered via `registerStyles()` are injected _after_ the injector, so they always win. Recipe (see `or-vaadin-toggle.ts`):
+Base styles and registered styles ship with the component code. Our Lumo module lists, `@media lumo_` blocks and `::part()` rules live in `@openremote/theme`. An app without that theme therefore gets the base styles, or Lumo's default lists if it loads Lumo itself, plus our registered styles. The hard-coded fallbacks below keep our own components usable there.
 
-- Call `registerStyles("or-vaadin-<tag>", css\`...\`)`from`@vaadin/vaadin-themable-mixin/register-styles.js` at module top (before the element is finalized).
-- Override `static get is() { return "or-vaadin-<tag>"; }`. The base class reports its own tag (e.g. `vaadin-checkbox`), and `registerStyles`/`getStylesForThis()` key off `is`; without this the styles either don't match or leak onto every instance of the base component. (This same override is what detaches the element from the base theme, which is acceptable here because the component re-styles everything itself.)
-- Out-specify base rules with `:host(...)` prefixes (e.g. the checkbox base hides its marker with `:host(:not([checked])) [part='checkbox']::after { opacity: 0 }`).
-- Give every themed CSS var a hard-coded fallback (e.g. `var(--lumo-primary-color, #47a942)`) so the component also looks correct standalone, with no theme loaded.
+**Public API.** Projects may rely on what the custom-elements manifest documents: tags, attributes, properties, events, slots, `--or-*` properties and theme variants, plus the documented Vaadin API of thin wrappers. Do not rename or remove those in one step; keep the old name working with a warning for a release. Shadow structure, internal classes, Lumo module names, `--_*` properties and the parts of our own components are internal, and code that depends on Vaadin internals stays in this repo.
+
+**Choosing the approach.** Use the first that fits:
+
+1. A documented custom property, for a value such as a color, size or spacing.
+2. A `::part()` rule in `ui/component/theme/src/components/or-vaadin-<name>.css`, keyed on the real tag.
+3. A Lumo module in that file, for rules that must live inside the shadow DOM, such as `:host(...)` states, `::slotted()` or internal elements.
+4. A theme variant: a Lumo module scoped by `:host([theme~="<variant>"])`, for one small change to an existing component, such as order, direction or colors. Lumo support for a Vaadin base variant, like `reverse`, keeps the Vaadin name.
+5. A new `or-vaadin-<name>` component when the change touches several of those, needs another slot or template, or changes the semantics, as `or-vaadin-toggle` and `or-vaadin-radio-card` do:
+   - Override `static get is()` and call `registerStyles("or-vaadin-<name>", …)` at module top, before the class is defined.
+   - Reuse the Lumo look of the parts it keeps by listing their modules for the new tag, and style them through the Vaadin properties those modules read. Without listed modules the Vaadin base styles apply and need out-specifying with `:host(...)`.
+   - Keep the slots the Vaadin mixins fill and the part names the reused modules target.
+   - Expose `--or-*` properties with hard-coded fallbacks, and slots, rather than parts.
+
+A look specific to one project stays in that project, built on the above. Do not add `static get styles()` to a wrapper whose Vaadin class drops its base styles under Lumo, and do not call `registerStyles()` for a `vaadin-*` tag, as it reaches every instance and subclass.
 
 ### Registering an input type in the input pipeline
 

@@ -57,6 +57,7 @@ public class AssetsFacade<T extends Ruleset> extends Assets {
 
   @Override
   public Stream<Asset<?>> getResults(AssetQuery assetQuery) {
+    PathPredicate requiredPath = null;
 
     if (RealmRuleset.class.isAssignableFrom(rulesEngineId.getScope())) {
       // Realm is restricted to rules
@@ -86,14 +87,18 @@ public class AssetsFacade<T extends Ruleset> extends Assets {
       if (restrictedAsset == null) {
         throw new IllegalStateException("Asset is no longer available: " + rulesEngineId);
       }
-      assetQuery.paths(new PathPredicate(restrictedAsset.getPath()));
+      // Keep the caller's path alternatives and constrain all of them to the engine subtree.
+      requiredPath = new PathPredicate(restrictedAsset.getPath());
     }
 
     AssetQuery.Select oldValue = assetQuery.select;
     assetQuery.select = new AssetQuery.Select().excludeAttributes();
 
     try {
-      return assetStorageService.findAll(assetQuery).stream();
+      return (requiredPath == null
+              ? assetStorageService.findAll(assetQuery)
+              : assetStorageService.findAll(assetQuery, requiredPath))
+          .stream();
     } finally {
       assetQuery.select = oldValue;
     }

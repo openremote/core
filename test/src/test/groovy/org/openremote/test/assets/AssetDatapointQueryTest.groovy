@@ -444,19 +444,21 @@ class AssetDatapointQueryTest extends Specification implements ManagerContainerT
     )
 
     then: "MODE datapoints should be correct"
-    assert modeDatapoints1.size() == 6
+    assert modeDatapoints1.size() == 7 // Include the empty bucket at the inclusive end timestamp.
     assert modeDatapoints1[0].timestamp == time30.toEpochMilli()
     assert modeDatapoints1[1].timestamp == time30.plus(5, ChronoUnit.MINUTES).toEpochMilli()
     assert modeDatapoints1[2].timestamp == time30.plus(10, ChronoUnit.MINUTES).toEpochMilli()
     assert modeDatapoints1[3].timestamp == time30.plus(15, ChronoUnit.MINUTES).toEpochMilli()
     assert modeDatapoints1[4].timestamp == time30.plus(20, ChronoUnit.MINUTES).toEpochMilli()
     assert modeDatapoints1[5].timestamp == time30.plus(25, ChronoUnit.MINUTES).toEpochMilli()
+    assert modeDatapoints1[6].timestamp == timeNow.toEpochMilli()
     assert modeDatapoints1[0].value == 10
     assert modeDatapoints1[1].value == 15
     assert modeDatapoints1[2].value == 90
     assert modeDatapoints1[3].value == 20
     assert modeDatapoints1[4].value == 25
     assert modeDatapoints1[5].value == 30
+    assert modeDatapoints1[6].value == null
 
     when: "requesting interval datapoints using MEDIAN"
     def medianDatapoints1 = assetDatapointService.queryDatapoints(
@@ -489,9 +491,11 @@ class AssetDatapointQueryTest extends Specification implements ManagerContainerT
     )
 
     then: "MODE datapoints should return 90, because it is most common within the interval"
-    assert modeDatapoints2.size() == 1
+    assert modeDatapoints2.size() == 2 // Include the empty bucket at the inclusive end timestamp.
     assert modeDatapoints2[0].timestamp == time60.toEpochMilli()
     assert modeDatapoints2[0].value == 90
+    assert modeDatapoints2[1].timestamp == timeNow.toEpochMilli()
+    assert modeDatapoints2[1].value == null
   }
 
   def "All query should return the correct data when the maximum is respected"() {

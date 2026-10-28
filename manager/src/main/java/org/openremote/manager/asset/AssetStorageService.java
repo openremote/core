@@ -626,6 +626,18 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
     return persistenceService.doReturningTransaction(em -> findAll(em, query));
   }
 
+  /**
+   * Applies a required path in addition to all caller query filters, before pagination. The query's
+   * path alternatives retain their OR semantics. Callers are responsible for enforcing realm
+   * authorization.
+   */
+  public List<Asset<?>> findAll(AssetQuery query, PathPredicate requiredPath) {
+    if (requiredPath == null || !requiredPath.hasPath()) {
+      throw new IllegalArgumentException("Required asset path must not be empty");
+    }
+    return persistenceService.doReturningTransaction(em -> findAll(em, query, requiredPath));
+  }
+
   public Integer count(AssetQuery query) {
     return persistenceService.doReturningTransaction(em -> count(em, query));
   }
@@ -2017,8 +2029,12 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
             .access(access));
   }
 
-  @SuppressWarnings("unchecked")
   protected List<Asset<?>> findAll(EntityManager em, AssetQuery query) {
+    return findAll(em, query, null);
+  }
+
+  @SuppressWarnings("unchecked")
+  protected List<Asset<?>> findAll(EntityManager em, AssetQuery query, PathPredicate requiredPath) {
 
     long startMillis = System.currentTimeMillis();
 
@@ -2046,7 +2062,7 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
       query.orderBy = new OrderBy(OrderBy.Property.CREATED_ON);
 
     Pair<PreparedAssetQuery, Boolean> queryAndContainsCalendarPredicate =
-        buildQuery(query, timerService::getCurrentTimeMillis);
+        buildQuery(query, timerService::getCurrentTimeMillis, false, requiredPath);
     PreparedAssetQuery querySql = queryAndContainsCalendarPredicate.key;
     boolean containsCalendarPredicate = queryAndContainsCalendarPredicate.value;
 
@@ -2354,6 +2370,11 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
 
   protected static Pair<PreparedAssetQuery, Boolean> buildQuery(
       AssetQuery query, Supplier<Long> timeProvider, boolean count) {
+    return buildQuery(query, timeProvider, count, null);
+  }
+
+  protected static Pair<PreparedAssetQuery, Boolean> buildQuery(
+      AssetQuery query, Supplier<Long> timeProvider, boolean count, PathPredicate requiredPath) {
     LOG.finest("Building: " + query);
     StringBuilder sb = new StringBuilder();
     boolean recursive = query.recursive;
@@ -2361,6 +2382,13 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
     sb.append(buildSelectString(query, 1, binders, timeProvider));
     sb.append(buildFromString(query, 1));
     boolean containsCalendarPredicate = appendWhereClause(sb, query, 1, binders, timeProvider);
+
+    if (requiredPath != null) {
+      int pos = binders.size() + 1;
+      String pathPattern = "*." + String.join(".", requiredPath.path) + ".*";
+      sb.append(" AND A.PATH ~ lquery(?").append(pos).append(")");
+      binders.add((em, st) -> st.setParameter(pos, pathPattern));
+    }
 
     if (recursive) {
       sb.insert(0, "WITH RECURSIVE top_level_assets AS ((");
