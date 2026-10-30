@@ -42,6 +42,7 @@ import org.openremote.model.asset.impl.RoomAsset
 import org.openremote.model.asset.impl.ThingAsset
 import org.openremote.model.attribute.Attribute
 import org.openremote.model.attribute.AttributeEvent
+import org.openremote.model.attribute.AttributeMap
 import org.openremote.model.attribute.MetaItem
 import org.openremote.model.auth.UsernamePassword
 import org.openremote.model.event.shared.SharedEvent
@@ -80,6 +81,9 @@ class MqttBrokerTest extends Specification implements ManagerContainerTrait {
   private UsernamePassword mqttCredentials
   private UsernamePassword restrictedMqttCredentials
   private final List<MQTT_IOClient> clients = []
+  private final Map<String, AttributeMap> originalAttributes = [:]
+  private final List<String> createdAssetIds = []
+  private List<UserAssetLink> originalUserAssetLinks
   private final PollingConditions conditions = new PollingConditions(timeout: 15, initialDelay: 0.1, delay: 0.2)
 
   // MQTT callbacks add events asynchronously. Blocking queues let absence checks use timed poll()
@@ -88,9 +92,11 @@ class MqttBrokerTest extends Specification implements ManagerContainerTrait {
   private final BlockingQueue<SharedEvent> receivedEvents = new LinkedBlockingQueue<>()
   private final Consumer<MQTTMessage<String>> eventConsumer = eventConsumerFor(receivedEvents)
 
+  def setupSpec() {
+    startContainer(defaultConfig(), defaultServices())
+  }
+
   def setup() {
-    // Reset demo assets and user links before each feature, including when the manager is reused.
-    def container = startContainer(defaultConfig(), defaultServices())
     managerTestSetup = container.getService(SetupService.class).getTaskOfType(ManagerTestSetup.class)
     keycloakTestSetup = container.getService(SetupService.class).getTaskOfType(KeycloakTestSetup.class)
     mqttBrokerService = container.getService(MQTTBrokerService.class)
@@ -118,6 +124,33 @@ class MqttBrokerTest extends Specification implements ManagerContainerTrait {
           assert clients.every { it.getConnectionStatus() == ConnectionStatus.DISCONNECTED }
           assert mqttBrokerService.getUserConnections(keycloakTestSetup.serviceUser.id).isEmpty()
           assert mqttBrokerService.getUserConnections(keycloakTestSetup.serviceUser2.id).isEmpty()
+          assert defaultMQTTHandler.sessionSubscriptionConsumers.isEmpty()
+        }
+      }
+
+      // Restore fixtures only after clients and subscriptions are gone, so cleanup cannot trigger reconnects
+      // or deliver restoration events to a test client.
+      if (!createdAssetIds.isEmpty()) {
+        assert assetStorageService.deleteUntilFinished(createdAssetIds).get(15, TimeUnit.SECONDS)
+      }
+      originalAttributes.each { assetId, attributes ->
+        def asset = assetStorageService.find(assetId)
+        asset.setAttributes(attributes)
+        assetStorageService.merge(asset)
+      }
+      if (originalUserAssetLinks != null) {
+        def currentLinks = assetStorageService.findUserAssetLinks(keycloakTestSetup.realmBuilding.name,
+                keycloakTestSetup.serviceUser2.id, null as String)
+        assetStorageService.deleteUserAssetLinks(currentLinks.findAll { current ->
+          !originalUserAssetLinks.any { it.id == current.id }
+        })
+        assetStorageService.storeUserAssetLinks(originalUserAssetLinks.findAll { original ->
+          !currentLinks.any { it.id == original.id }
+        })
+      }
+      if (!originalAttributes.isEmpty()) {
+        conditions.eventually {
+          assert noEventProcessedIn(assetProcessingService, 300)
         }
       }
     } finally {
@@ -221,6 +254,7 @@ class MqttBrokerTest extends Specification implements ManagerContainerTrait {
 
   def "MQTT attribute subscriptions receive events and writes and stop after unsubscribe"() {
     given: "a connected MQTT client"
+    preserveAttributes(managerTestSetup.apartment1HallwayId)
     def mqttClientId = UniqueIdentifierGenerator.generateId()
     def client = connectMqttClient(mqttClientId)
 
@@ -342,6 +376,7 @@ class MqttBrokerTest extends Specification implements ManagerContainerTrait {
 
   def "MQTT wildcard and value subscriptions filter events and survive reconnects"() {
     given: "a connected MQTT client and a collector for raw attribute values"
+    preserveAttributes(managerTestSetup.apartment1HallwayId)
     def mqttClientId = UniqueIdentifierGenerator.generateId()
     def client = connectMqttClient(mqttClientId)
     List<Object> receivedValues = new CopyOnWriteArrayList<>()
@@ -433,6 +468,7 @@ class MqttBrokerTest extends Specification implements ManagerContainerTrait {
 
   def "MQTT asset subscriptions receive realm children and descendants and stop after unsubscribe"() {
     given: "a connected MQTT client"
+    preserveAttributes(managerTestSetup.smartBuildingId)
     def mqttClientId = UniqueIdentifierGenerator.generateId()
     def client = connectMqttClient(mqttClientId)
 
@@ -469,8 +505,10 @@ class MqttBrokerTest extends Specification implements ManagerContainerTrait {
 
     when: "an asset is added as a descendant to the subscribed asset"
     def childAsset = new ThingAsset("child")
+            .setId(UniqueIdentifierGenerator.generateId())
             .setParentId(managerTestSetup.apartment1LivingroomId)
             .setRealm(managerTestSetup.realmBuildingName)
+    createdAssetIds.add(childAsset.id)
     childAsset = assetStorageService.merge(childAsset)
 
     then: "another event should be sent"
@@ -499,6 +537,7 @@ class MqttBrokerTest extends Specification implements ManagerContainerTrait {
 
   def "MQTT last wills update authorised attributes and clients can publish after reconnect"() {
     given: "an independent observer subscribed to the last will attribute"
+    preserveAttributes(managerTestSetup.apartment1HallwayId)
     def observerId = UniqueIdentifierGenerator.generateId()
     def observer = connectMqttClient(observerId)
     def observerTopic = "${keycloakTestSetup.realmBuilding.name}/$observerId/$DefaultMQTTHandler.ATTRIBUTE_TOPIC/$MQTTHandler.TOKEN_SINGLE_LEVEL_WILDCARD/$managerTestSetup.apartment1HallwayId".toString()
@@ -574,6 +613,7 @@ class MqttBrokerTest extends Specification implements ManagerContainerTrait {
 
   def "MQTT last wills cannot update unauthorised attributes"() {
     given: "a client ID for the restricted user"
+    preserveAttributes(managerTestSetup.apartment2LivingroomId)
     def mqttClientId = UniqueIdentifierGenerator.generateId()
 
     when: "a restricted client connects with a last will topic for an unauthorised asset/attribute"
@@ -607,6 +647,7 @@ class MqttBrokerTest extends Specification implements ManagerContainerTrait {
 
   def "MQTT restricted subscriptions are retried when user asset links change"() {
     given: "a connected restricted client that retains failed subscriptions"
+    preserveUserAssetLinks()
     def mqttClientId = UniqueIdentifierGenerator.generateId()
     List<String> subFailures = new CopyOnWriteArrayList<>()
     def client = createMqttClient(mqttClientId, restrictedMqttCredentials)
@@ -695,6 +736,8 @@ class MqttBrokerTest extends Specification implements ManagerContainerTrait {
 
   def "MQTT restricted attribute subscriptions filter asset links and restricted read metadata"() {
     given: "a restricted client linked to the bathroom but not the hallway"
+    preserveAttributes(managerTestSetup.apartment1HallwayId, managerTestSetup.apartment1BathroomId)
+    preserveUserAssetLinks()
     assetStorageService.storeUserAssetLinks(List.of(
                     new UserAssetLink(keycloakTestSetup.realmBuilding.name,
                     keycloakTestSetup.serviceUser2.id, managerTestSetup.apartment1BathroomId)))
@@ -774,6 +817,8 @@ class MqttBrokerTest extends Specification implements ManagerContainerTrait {
 
   def "MQTT restricted asset subscriptions filter attributes and stop after unlinking"() {
     given: "a restricted client linked to an asset with an attribute without restricted read access"
+    preserveAttributes(managerTestSetup.apartment1BathroomId)
+    preserveUserAssetLinks()
     assetStorageService.storeUserAssetLinks(List.of(
                     new UserAssetLink(keycloakTestSetup.realmBuilding.name,
                     keycloakTestSetup.serviceUser2.id, managerTestSetup.apartment1BathroomId)))
@@ -861,6 +906,17 @@ class MqttBrokerTest extends Specification implements ManagerContainerTrait {
     assert receivedEvents.poll(1, TimeUnit.SECONDS) == null
     receivedEvents.clear()
     client.removeAllMessageConsumers()
+  }
+
+  private void preserveAttributes(String... assetIds) {
+    assetIds.each { assetId ->
+      originalAttributes.putIfAbsent(assetId, ValueUtil.clone(assetStorageService.find(assetId).attributes))
+    }
+  }
+
+  private void preserveUserAssetLinks() {
+    originalUserAssetLinks = assetStorageService.findUserAssetLinks(keycloakTestSetup.realmBuilding.name,
+            keycloakTestSetup.serviceUser2.id, null as String)
   }
 
   private MQTT_IOClient createMqttClient(String clientId, UsernamePassword credentials = null,
