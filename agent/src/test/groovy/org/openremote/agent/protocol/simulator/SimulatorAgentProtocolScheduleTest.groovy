@@ -22,6 +22,7 @@ import spock.lang.Specification
 
 import java.time.Instant
 import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.ZoneOffset
 
 class SimulatorAgentProtocolScheduleTest extends Specification {
@@ -41,7 +42,7 @@ class SimulatorAgentProtocolScheduleTest extends Specification {
       instant("1999-01-01T00:00:00.000Z"),
       start,
       instant("9999-12-31T23:59:59.999Z")
-    ].each { assert schedule.tryAdvanceActive(it, 0) == start }
+    ].each { assert schedule.tryAdvanceActive(it) == start }
   }
 
   def "a non-recurring schedule with an end keeps returning its start"() {
@@ -52,11 +53,11 @@ class SimulatorAgentProtocolScheduleTest extends Specification {
 
     expect:
     ([instant("1999-01-01T00:00:00.000Z")] + (0..9).collect { start + DAY * it })
-    .each { assert schedule.tryAdvanceActive(it, 0) == start }
+    .each { assert schedule.tryAdvanceActive(it) == start }
 
     and: "the end is checked separately"
     schedule.isAfterScheduleEnd(end + 1)
-    schedule.tryAdvanceActive(end + 1, 0) == start
+    schedule.tryAdvanceActive(end + 1) == start
   }
 
   def "a daily recurrence returns its last occurrence after UNTIL"() {
@@ -65,17 +66,17 @@ class SimulatorAgentProtocolScheduleTest extends Specification {
     def schedule = schedule(start, null, "FREQ=DAILY;UNTIL=20000104T235959")
 
     expect:
-    schedule.tryAdvanceActive(instant("1999-01-01T00:00:00.000Z") + DAY - 1, 0) == start
+    schedule.tryAdvanceActive(instant("1999-01-01T00:00:00.000Z") + DAY - 1) == start
     (0..3).each { day ->
       def occurrence = start + DAY * day
-      assert schedule.tryAdvanceActive(occurrence, 0) == occurrence
-      assert schedule.tryAdvanceActive(occurrence + DAY - 1, 0) == occurrence
+      assert schedule.tryAdvanceActive(occurrence) == occurrence
+      assert schedule.tryAdvanceActive(occurrence + DAY - 1) == occurrence
     }
 
     and:
     def lastOccurrence = instant("2000-01-04T00:00:00.000Z")
-    schedule.tryAdvanceActive(lastOccurrence, 0) == lastOccurrence
-    schedule.tryAdvanceActive(lastOccurrence + DAY, 0) == lastOccurrence
+    schedule.tryAdvanceActive(lastOccurrence) == lastOccurrence
+    schedule.tryAdvanceActive(lastOccurrence + DAY) == lastOccurrence
   }
 
   def "a daily recurrence returns its last occurrence after COUNT"() {
@@ -84,17 +85,17 @@ class SimulatorAgentProtocolScheduleTest extends Specification {
     def schedule = schedule(start, null, "FREQ=DAILY;COUNT=4")
 
     expect:
-    schedule.tryAdvanceActive(instant("1999-01-01T00:00:00.000Z") + DAY - 1, 0) == start
+    schedule.tryAdvanceActive(instant("1999-01-01T00:00:00.000Z") + DAY - 1) == start
     (0..2).each { day ->
       def occurrence = start + DAY * day
-      assert schedule.tryAdvanceActive(occurrence, 0) == occurrence
-      assert schedule.tryAdvanceActive(occurrence + DAY - 1, 0) == occurrence
+      assert schedule.tryAdvanceActive(occurrence) == occurrence
+      assert schedule.tryAdvanceActive(occurrence + DAY - 1) == occurrence
     }
 
     and:
     def lastOccurrence = instant("2000-01-04T00:00:00.000Z")
-    schedule.tryAdvanceActive(lastOccurrence, 0) == lastOccurrence
-    schedule.tryAdvanceActive(lastOccurrence + DAY, 0) == lastOccurrence
+    schedule.tryAdvanceActive(lastOccurrence) == lastOccurrence
+    schedule.tryAdvanceActive(lastOccurrence + DAY) == lastOccurrence
   }
 
   def "a recurrence with BYHOUR and BYMINUTE starts at the configured time"() {
@@ -104,8 +105,7 @@ class SimulatorAgentProtocolScheduleTest extends Specification {
 
     expect:
     schedule.tryAdvanceActive(
-            instant("1999-01-01T00:00:00.000Z") + DAY - 1,
-            0
+            instant("1999-01-01T00:00:00.000Z") + DAY - 1
     ) == start + 17 * HOUR + 30 * MINUTE
   }
 
@@ -117,17 +117,17 @@ class SimulatorAgentProtocolScheduleTest extends Specification {
     def schedule = schedule(start, null, "FREQ=MINUTELY;UNTIL=20000101T000500")
 
     expect:
-    schedule.tryAdvanceActive(instant("1999-01-01T00:00:00.000Z") + MINUTE - 1, 0) == start
+    schedule.tryAdvanceActive(instant("1999-01-01T00:00:00.000Z") + MINUTE - 1) == start
     (0..3).each { minute ->
       def occurrence = start + MINUTE * minute
-      assert schedule.tryAdvanceActive(occurrence, 0) == occurrence
-      assert schedule.tryAdvanceActive(occurrence + MINUTE - 1, 0) == occurrence
+      assert schedule.tryAdvanceActive(occurrence) == occurrence
+      assert schedule.tryAdvanceActive(occurrence + MINUTE - 1) == occurrence
     }
 
     and:
     def lastOccurrence = instant("2000-01-01T00:04:00.000Z")
-    schedule.tryAdvanceActive(lastOccurrence + MINUTE, 0) == lastOccurrence
-    schedule.tryAdvanceActive(lastOccurrence + 2 * MINUTE, 0) == lastOccurrence
+    schedule.tryAdvanceActive(lastOccurrence + MINUTE) == lastOccurrence
+    schedule.tryAdvanceActive(lastOccurrence + 2 * MINUTE) == lastOccurrence
   }
 
   def "a recurrence catches up with the current time"() {
@@ -137,8 +137,8 @@ class SimulatorAgentProtocolScheduleTest extends Specification {
     def now = instant("2000-01-01T01:00:00.000Z")
 
     expect:
-    schedule.tryAdvanceActive(now, 0) == start + 60 * MINUTE
-    schedule.tryAdvanceActive(now + MINUTE, 0) == start + 61 * MINUTE
+    schedule.tryAdvanceActive(now) == start + 60 * MINUTE
+    schedule.tryAdvanceActive(now + MINUTE) == start + 61 * MINUTE
   }
 
   def "an hourly recurrence calculates offset delays"() {
@@ -197,12 +197,44 @@ class SimulatorAgentProtocolScheduleTest extends Specification {
     delays(schedule, recurringDelayExpectations())
   }
 
+  def "a daily recurrence starting in an hour skipped by daylight saving starts where the clocks land"() {
+    given: "a daily occurrence at 02:30, which Europe/Amsterdam skips on the 29th of March 2026"
+    def timezone = ZoneId.of("Europe/Amsterdam")
+    def schedule = schedule(instant("2026-03-01T02:30:00.000Z"), null, "FREQ=DAILY")
+
+    expect: "the occurrence of the 29th starts at 03:30, after the clocks move from 02:00 to 03:00"
+    schedule.tryAdvanceActive(instant("2026-03-28T12:00:00.000Z"), timezone) == instant("2026-03-28T02:30:00.000Z")
+    schedule.tryAdvanceActive(instant("2026-03-29T03:10:00.000Z"), timezone) == instant("2026-03-29T03:30:00.000Z")
+    schedule.tryAdvanceActive(instant("2026-03-29T12:00:00.000Z"), timezone) == instant("2026-03-29T03:30:00.000Z")
+    schedule.tryAdvanceActive(instant("2026-03-30T12:00:00.000Z"), timezone) == instant("2026-03-30T02:30:00.000Z")
+  }
+
+  def "datapoints of an occurrence starting in a skipped hour keep their offsets from #now"() {
+    given: "a daily occurrence at 02:30, which Europe/Amsterdam skips on the 29th of March 2026"
+    def timezone = ZoneId.of("Europe/Amsterdam")
+    def schedule = schedule(instant("2026-03-01T02:30:00.000Z"), null, "FREQ=DAILY")
+
+    expect: "datapoints 0, 10 and 40 minutes into the occurrence follow its start at 03:30"
+    def timeSinceOccurrenceStarted = instant(now) - schedule.tryAdvanceActive(instant(now), timezone)
+    [0, 600, 2400].collect {
+      instant(now) + schedule.getDelay(it, timeSinceOccurrenceStarted).asLong
+    } == expected.collect { instant(it) }
+
+    where:
+    // spotless:off
+    now                        || expected
+    "2026-03-28T12:00:00.000Z" || ["2026-03-29T03:30:00.000Z", "2026-03-29T03:40:00.000Z", "2026-03-29T04:10:00.000Z"]
+    "2026-03-29T03:10:00.000Z" || ["2026-03-29T03:30:00.000Z", "2026-03-29T03:40:00.000Z", "2026-03-29T04:10:00.000Z"]
+    "2026-03-29T03:35:00.000Z" || ["2026-03-30T02:30:00.000Z", "2026-03-29T03:40:00.000Z", "2026-03-29T04:10:00.000Z"]
+    // spotless:on
+  }
+
   private static void delays(
           SimulatorProtocol.Schedule schedule,
           Map<Long, Long> expectedDelays
   ) {
     expectedDelays.each { now, expected ->
-      def timeSinceOccurrenceStarted = now - schedule.tryAdvanceActive(now, 0)
+      def timeSinceOccurrenceStarted = now - schedule.tryAdvanceActive(now)
       assert schedule.getDelay(100, timeSinceOccurrenceStarted).asLong == expected
     }
   }
