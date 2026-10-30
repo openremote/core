@@ -57,6 +57,8 @@ public class AssetsFacade<T extends Ruleset> extends Assets {
 
   @Override
   public Stream<Asset<?>> getResults(AssetQuery assetQuery) {
+    // Rules can reuse queries. Isolate nested predicates as well as the scope and storage defaults.
+    assetQuery = new AssetQuery(assetQuery);
     PathPredicate requiredPath = null;
 
     if (RealmRuleset.class.isAssignableFrom(rulesEngineId.getScope())) {
@@ -91,17 +93,11 @@ public class AssetsFacade<T extends Ruleset> extends Assets {
       requiredPath = new PathPredicate(restrictedAsset.getPath());
     }
 
-    AssetQuery.Select oldValue = assetQuery.select;
     assetQuery.select = new AssetQuery.Select().excludeAttributes();
-
-    try {
-      return (requiredPath == null
-              ? assetStorageService.findAll(assetQuery)
-              : assetStorageService.findAll(assetQuery, requiredPath))
-          .stream();
-    } finally {
-      assetQuery.select = oldValue;
-    }
+    return (requiredPath == null
+            ? assetStorageService.findAll(assetQuery)
+            : assetStorageService.findAll(assetQuery, requiredPath))
+        .stream();
   }
 
   public AssetsFacade<T> dispatch(AttributeEvent... events) {
