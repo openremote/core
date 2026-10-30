@@ -25,7 +25,41 @@ import org.openremote.model.util.TsIgnore;
 /** Facade for sending {@link Alarm}s from rules RHS. */
 @TsIgnore
 public abstract class Alarms {
+  /**
+   * Creates an alarm for assets within the engine's scope. Realm- and asset-scoped engines use
+   * their own realm. Asset-scoped engines require at least one target, and every target must be the
+   * scoped asset itself or a descendant. Realm-scoped engines may omit targets.
+   *
+   * <p>Global engines use the supplied alarm realm, or infer it from the target assets when it is
+   * null or blank. All targets must belong to the resolved realm. The supplied alarm definition is
+   * preserved for global engines so it can be reused with targets in another realm.
+   *
+   * <p>An assignee is optional; when provided, the user must belong to the alarm's realm.
+   * Restricted assignees require at least one target and explicit links to every target asset. The
+   * caller must set the alarm's source ID to identify the ruleset.
+   *
+   * @return the created alarm ID, or {@code null} if the realm cannot be resolved, an asset-scoped
+   *     engine has no targets, an asset is outside the engine's asset scope, or the assignee cannot
+   *     access the targets
+   * @throws IllegalArgumentException if an asset ID is invalid or belongs to a different realm
+   */
   public abstract Long create(Alarm alarm, List<String> assetIds);
 
+  /**
+   * Adds asset links to an existing alarm. Realm- and asset-scoped engines require the alarm to
+   * belong to the engine's realm. Global engines use the existing alarm's realm. Every requested
+   * asset must belong to the alarm's realm.
+   *
+   * <p>Asset-scoped engines require at least one existing link, and all existing and requested
+   * assets must be within the engine's subtree. An assignee is optional; when provided, the user
+   * must belong to the alarm's realm. Restricted assignees must have explicit links to every
+   * existing and requested asset.
+   *
+   * <p>No links are changed if scope or assignee access is denied. Null or empty asset lists are
+   * ignored. Duplicate and existing links are accepted without changing their timestamps.
+   *
+   * @throws IllegalArgumentException if the alarm ID or an asset ID is invalid, or the alarm or a
+   *     requested asset belongs to a different realm
+   */
   public abstract void linkAssets(List<String> assetIds, Long alarmId);
 }
