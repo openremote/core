@@ -24,6 +24,7 @@ import org.openremote.manager.datapoint.AssetPredictedDatapointService
 import org.openremote.manager.setup.SetupService
 import org.openremote.model.asset.impl.ThingAsset
 import org.openremote.model.attribute.Attribute
+import org.openremote.model.datapoint.DatapointQueryTooLargeException
 import org.openremote.model.datapoint.ValueDatapoint
 import org.openremote.model.datapoint.query.AssetDatapointAllQuery
 import org.openremote.model.datapoint.query.AssetDatapointIntervalQuery
@@ -277,8 +278,8 @@ class AssetDatapointNullQueryTest extends Specification implements ManagerContai
         new ValueDatapoint<>(bucketStart + bucket * 60_000L + index * 1_000L, value)
       }
     }
-    datapoints.add(new ValueDatapoint<>(bucketStart - 1_000L, high))
-    datapoints.add(new ValueDatapoint<>(bucketStart + 360_000L, low))
+    datapoints.add(new ValueDatapoint<>(bucketStart - 61_000L, high))
+    datapoints.add(new ValueDatapoint<>(bucketStart + 420_000L, low))
     service.upsertValues(asset.id, "value", datapoints)
 
     when: "the six-minute range is queried for its most frequent available values"
@@ -287,10 +288,32 @@ class AssetDatapointNullQueryTest extends Specification implements ManagerContai
             "1 minute", Formula.MODE, gapFill))
 
     then: "nulls cannot win and existing numeric and boolean tie-breaking is preserved"
-    // Preserve existing MODE behavior: empty buckets are omitted for either gapFill setting.
-    result.collect { it.timestamp } == [0L, 60_000L, 180_000L, 240_000L, 300_000L]
-    .collect { bucketStart + it }
-    result.collect { it.value } == [lowResult, null, tieResult, 0D, highResult]
+    result.collect { it.timestamp } == (gapFill
+    ? [0L, 60_000L, 120_000L, 180_000L, 240_000L, 300_000L]
+    : [0L, 60_000L, 180_000L, 240_000L, 300_000L]).collect { bucketStart + it }
+    result.collect { it.value } == (gapFill
+    ? [lowResult, null, null, tieResult, 0D, highResult]
+    : [lowResult, null, tieResult, 0D, highResult])
+
+    when: "the range includes empty leading and trailing buckets"
+    def extended = service.queryDatapoints(asset.id, "value",
+            new AssetDatapointIntervalQuery(bucketStart - 60_000L, bucketStart + 419_999L,
+            "1 minute", Formula.MODE, gapFill))
+
+    then: "gap filling covers the requested range rather than just the observed timestamps"
+    extended.collect { [it.timestamp, it.value] } == (gapFill
+    ? [[bucketStart - 60_000L, null]] + result.collect {
+      [it.timestamp, it.value]
+    } + [[bucketStart + 360_000L, null]]
+    : result.collect { [it.timestamp, it.value] })
+
+    when: "only the empty bucket is queried"
+    def empty = service.queryDatapoints(asset.id, "value",
+            new AssetDatapointIntervalQuery(bucketStart + 120_000L, bucketStart + 179_999L,
+            "1 minute", Formula.MODE, gapFill))
+
+    then: "an entirely empty range also follows the gap-fill setting"
+    empty.collect { [it.timestamp, it.value] } == (gapFill ? [[bucketStart + 120_000L, null]] : [])
 
     when: "only the entirely unavailable bucket is queried"
     def unavailable = service.queryDatapoints(asset.id, "value",
@@ -308,6 +331,43 @@ class AssetDatapointNullQueryTest extends Specification implements ManagerContai
         [ValueType.BOOLEAN, false, true, false, 0D, 1D, 1D]
       ].collect { [storage, gapFill, *it] }
     }
+  }
+
+  def "MODE counts gap-filled buckets toward the query limit for #storage #valueType.name"() {
+    given: "a sparse range with more buckets than the query limit"
+    asset = assetStorageService.merge(new ThingAsset("Mode query limit test")
+            .setRealm(realm).addOrReplaceAttributes(new Attribute<>("value", valueType)))
+    def service = storage == "historical" ? historicalService : predictedService
+    def originalLimit = service.maxAmountOfQueryPoints
+    def bucketStart = Instant.ofEpochMilli(start).truncatedTo(ChronoUnit.MINUTES).toEpochMilli()
+    def value = valueType == ValueType.BOOLEAN ? true : 1G
+    service.upsertValues(asset.id, "value", [
+      new ValueDatapoint<>(bucketStart, value),
+      new ValueDatapoint<>(bucketStart + 180_000L, value)
+    ])
+    service.maxAmountOfQueryPoints = 2
+
+    when: "only populated buckets are requested"
+    def result = service.queryDatapoints(asset.id, "value",
+            new AssetDatapointIntervalQuery(bucketStart, bucketStart + 239_999L,
+            "1 minute", Formula.MODE, false))
+
+    then: "the two populated buckets fit within the limit"
+    result.collect { it.timestamp } == [bucketStart, bucketStart + 180_000L]
+
+    when: "gap filling increases the result to four buckets"
+    service.queryDatapoints(asset.id, "value",
+            new AssetDatapointIntervalQuery(bucketStart, bucketStart + 239_999L,
+            "1 minute", Formula.MODE, true))
+
+    then: "the generated empty buckets also count toward the limit"
+    thrown(DatapointQueryTooLargeException)
+
+    cleanup:
+    service.maxAmountOfQueryPoints = originalLimit
+
+    where:
+    [storage, valueType] << [["historical", "predicted"], [ValueType.NUMBER, ValueType.BIG_NUMBER, ValueType.BOOLEAN]].combinations()
   }
 
   def "DIFFERENCE preserves unavailable values for #storage #valueType.name with gapFill=#gapFill"() {

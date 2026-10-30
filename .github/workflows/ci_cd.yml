@@ -15,16 +15,14 @@
 # 'deployment/build.gradle' must exist with an installDist task that prepares the deployment image in the
 # 'deployment/build' directory; if this condition is not met the deployment will fail.
 #
-# Secrets, inputs and environment variables are combined for consumption by the '.ci_cd/deploy.sh' bash script, they are
-# combined in the following priority:
+# Secrets, inputs and environment variables are combined for consumption by the '.ci_cd/deploy.sh' bash script, later
+# entries override earlier ones:
 #
+# - secrets and inputs (inputs from manual trigger using workflow_dispatch override secrets with the same name)
 # - '.ci_cd/env/.env'
 # - '.ci_cd/env/{ENVIRONMENT}.env'
-# - secrets
-# - inputs (from manual trigger using workflow_dispatch)
 #
-# The above variables are output to 'temp/env' file for each requested deployment. If a secret called 'SSH_PASSWORD' is
-# found that is output to 'ssh.env' file (so it is not copied to the host), if a secret called 'SSH_KEY' is
+# The above variables are output to 'temp/env' file for each requested deployment. If a secret called 'SSH_KEY' is
 # found that is output to 'ssh.key' file (so it is not copied to the host). Sensitive credentials should always be stored
 # in github secrets so they are encrypted, do not store within repo files (even private repos as these are not encrypted).
 #
@@ -33,7 +31,8 @@
 # MANUAL TRIGGER
 #
 # This workflow can be triggered by push, release, manually or schedule (from any repo other than openremote/core)
-# if triggered manually then the following inputs are available and these override any set in env files and/or secrets:
+# if triggered manually then the following inputs are available, they override secrets with the same name but not
+# values from the '.ci_cd/env' files:
 #
 # Inputs:
 #
@@ -47,7 +46,6 @@
 # - COMMIT                - Which branch/SHA should be checked out for the deployment (defaults to trigger commit)
 # - OR_HOSTNAME           - FQDN of host to deploy to (e.g. demo.openremote.app)
 # - SSH_USER              - Set/override the SSH user to use for SSH/SCP commands
-# - SSH_PASSWORD          - Set/override the SSH password to use for SSH/SCP commands (SSH key should be preferred)
 # - SSH_PORT              - Set/override the SSH port to use for SSH/SCP commands
 # - OR_ADMIN_PASSWORD     - The admin password to set for clean installs
 # ---------------------------------------------------------------------------------------------------------------------
