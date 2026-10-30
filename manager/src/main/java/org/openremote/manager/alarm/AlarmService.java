@@ -300,6 +300,19 @@ public class AlarmService extends RouteBuilder implements ContainerService {
               .realmRoles(new StringPredicate(Constants.SUPER_USER_REALM_ROLE))
               .serviceUsers(false);
       users.addAll(Arrays.asList(identityProvider.queryUsers(userQuery)));
+      if (users.isEmpty()) {
+        return users;
+      }
+      // UserQuery matches directly assigned roles; composite roles are not expanded.
+      UserQuery restrictedUsersQuery =
+          new UserQuery()
+              .realm(new RealmPredicate(alarm.getRealm()))
+              .ids(users.stream().map(User::getId).toArray(String[]::new))
+              .realmRoles(new StringPredicate(Constants.RESTRICTED_USER_REALM_ROLE));
+      Set<String> restrictedUserIds =
+          Arrays.stream(identityProvider.queryUsers(restrictedUsersQuery))
+              .map(User::getId)
+              .collect(Collectors.toSet());
       List<String> assetIds =
           getAssetLinks(alarm.getId(), alarm.getRealm()).stream()
               .map(link -> link.getId().getAssetId())
@@ -308,8 +321,7 @@ public class AlarmService extends RouteBuilder implements ContainerService {
       // Both notification channels include all linked assets, so partial access is insufficient.
       users.removeIf(
           user ->
-              Arrays.asList(identityProvider.getUserRealmRoles(alarm.getRealm(), user.getId()))
-                      .contains(Constants.RESTRICTED_USER_REALM_ROLE)
+              restrictedUserIds.contains(user.getId())
                   && !assetStorageService.isUserAssets(user.getId(), assetIds));
     } else {
       users.add(identityProvider.getUser(alarm.getAssigneeId()));
