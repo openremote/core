@@ -32,7 +32,6 @@ import org.openremote.container.message.MessageBrokerService
 import org.openremote.container.persistence.PersistenceService
 import org.openremote.container.security.keycloak.KeycloakIdentityProvider
 import org.openremote.container.timer.TimerService
-import org.openremote.container.util.LogUtil
 import org.openremote.container.web.WebService
 import org.openremote.container.web.WebTargetBuilder
 import org.openremote.manager.agent.AgentService
@@ -80,10 +79,6 @@ trait ContainerTrait {
 
   @Shared
   AtomicReference<ResteasyClient> testClient = new AtomicReference<>()
-
-  static {
-    LogUtil.initialiseJUL()
-  }
 
   Logger LOG = LoggerFactory.getLogger(ContainerTrait.class)
 

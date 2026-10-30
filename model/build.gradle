@@ -25,6 +25,7 @@ dependencies {
 
   api libs.easyRulesCore
   api libs.ical4j
+  api libs.groovyCallsite // Required for legacy Groovy call sites used by iCal4j
   api libs.reflections
   api libs.guava
 
@@ -43,14 +44,12 @@ dependencies {
 
   api libs.exp4j
 
-  dependencies {
-    testImplementation libs.groovy
-    testImplementation libs.jsonassert
-    testImplementation platform(libs.spockBom)
-    testImplementation libs.spockCore
-    testRuntimeOnly libs.jakartaEl
-    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
-  }
+  testImplementation libs.groovy
+  testImplementation libs.jsonassert
+  testImplementation platform(libs.spockBom)
+  testImplementation libs.spockCore
+  testRuntimeOnly libs.jakartaEl
+  testRuntimeOnly "org.junit.platform:junit-platform-launcher"
 }
 
 tasks.withType(Test) {

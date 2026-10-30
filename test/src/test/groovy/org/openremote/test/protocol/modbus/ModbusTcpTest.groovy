@@ -41,6 +41,7 @@ import org.openremote.model.attribute.Attribute
 import org.openremote.model.attribute.AttributeEvent
 import org.openremote.model.attribute.MetaItem
 import org.openremote.model.attribute.MetaMap
+import org.openremote.model.value.AttributeDescriptor
 import org.openremote.model.value.ValueType
 import org.openremote.test.ManagerContainerTrait
 import spock.lang.Shared
@@ -301,7 +302,7 @@ class ModbusTcpTest extends Specification implements ManagerContainerTrait {
 
     when: "the attribute is updated"
     assetProcessingService.sendAttributeEvent(new AttributeEvent(ship.getId(), ShipAsset.SPEED, 123D))
-    ship.addOrReplaceAttributes(new Attribute<?>(ShipAsset.SPEED, 10))
+    ship.addOrReplaceAttributes(new Attribute<>(ShipAsset.SPEED as AttributeDescriptor, 10))
 
     then: "the value is sent to the Modbus server"
     conditions.eventually {
