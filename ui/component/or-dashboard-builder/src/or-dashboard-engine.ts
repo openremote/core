@@ -16,7 +16,24 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
-import { GridStackEngine, type GridStackNode, type GridStackMoveOpts } from "gridstack";
+import { GridStackEngine, type GridStackNode, type GridStackMoveOpts, GridStack } from "gridstack";
+
+/*
+ * Stops every grid from re-ordering its DOM children to match the visual layout.
+ * Grid items are rendered through Lit and positioned with CSS, so the order does not affect what the user sees.
+ * Re-ordering widgets detaches and re-attaches each HTML element, therefore this prevents widget content from being removed.
+ * It is set on the prototype, because the constructor already re-orders the children a grid is built over.
+ */
+const gridStackInternals = GridStack.prototype as unknown as { _sortDom?: () => GridStack };
+if (typeof gridStackInternals._sortDom !== "function") {
+  throw new Error(
+    "GridStack._sortDom is gone, so the grid cannot be stopped from re-ordering its DOM children. " +
+      "Check what the supported gridstack version does on change events before raising it."
+  );
+}
+gridStackInternals._sortDom = function (this: GridStack) {
+  return this;
+};
 
 export class OrDashboardEngine extends GridStackEngine {
   // Cancelling move when it collides with the same widget.

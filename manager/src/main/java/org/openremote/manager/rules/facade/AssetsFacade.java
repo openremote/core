@@ -57,6 +57,9 @@ public class AssetsFacade<T extends Ruleset> extends Assets {
 
   @Override
   public Stream<Asset<?>> getResults(AssetQuery assetQuery) {
+    // Rules can reuse queries. Isolate nested predicates as well as the scope and storage defaults.
+    assetQuery = new AssetQuery(assetQuery);
+    PathPredicate requiredPath = null;
 
     if (RealmRuleset.class.isAssignableFrom(rulesEngineId.getScope())) {
       // Realm is restricted to rules
@@ -86,24 +89,23 @@ public class AssetsFacade<T extends Ruleset> extends Assets {
       if (restrictedAsset == null) {
         throw new IllegalStateException("Asset is no longer available: " + rulesEngineId);
       }
-      assetQuery.paths(new PathPredicate(restrictedAsset.getPath()));
+      // Keep the caller's path alternatives and constrain all of them to the engine subtree.
+      requiredPath = new PathPredicate(restrictedAsset.getPath());
     }
 
-    AssetQuery.Select oldValue = assetQuery.select;
     assetQuery.select = new AssetQuery.Select().excludeAttributes();
-
-    try {
-      return assetStorageService.findAll(assetQuery).stream();
-    } finally {
-      assetQuery.select = oldValue;
-    }
+    return (requiredPath == null
+            ? assetStorageService.findAll(assetQuery)
+            : assetStorageService.findAll(assetQuery, requiredPath))
+        .stream();
   }
 
   public AssetsFacade<T> dispatch(AttributeEvent... events) {
     if (events == null || events.length == 0) return this;
 
-    // Check if the asset ID of every event can be found with the default security of this facade
-    String[] ids = Arrays.stream(events).map(AttributeEvent::getId).toArray(String[]::new);
+    // Validate each distinct target asset while retaining every event for dispatch below.
+    String[] ids =
+        Arrays.stream(events).map(AttributeEvent::getId).distinct().toArray(String[]::new);
 
     AssetQuery query = new AssetQuery().ids(ids);
     long count = this.getResults(query).count();
