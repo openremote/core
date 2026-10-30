@@ -55,6 +55,7 @@ import { createMenuBarItem, type MenuBarItem } from "@openremote/or-vaadin-compo
 import { OrVaadinDateTimePicker } from "@openremote/or-vaadin-components/or-vaadin-date-time-picker";
 import { when } from "lit/directives/when.js";
 import { createRef, type Ref, ref } from "lit/directives/ref.js";
+import { getChartAxisBounds, getNavigationDuration, shiftTimeframe, type TimeframeDirection } from "./timeframe";
 import "@openremote/or-translate";
 
 echarts.use([GridComponent, TooltipComponent, DataZoomComponent, BarChart, CanvasRenderer, UniversalTransition]);
@@ -502,6 +503,7 @@ export class OrAttributeBarChart extends OrElement {
   protected _style!: CSSStyleDeclaration;
   protected _startOfPeriod?: number; // Start timestamp of the visible period
   protected _endOfPeriod?: number; // End timestamp of the visible period
+  protected _navigationDuration?: number;
   protected _latestError?: string;
   protected _dataAbortController?: AbortController;
   protected _containerResizeObserver?: ResizeObserver;
@@ -562,6 +564,17 @@ export class OrAttributeBarChart extends OrElement {
       const dates: [Date, Date] = this._getTimeSelectionDates(this.timePrefixKey!, this.timeWindowKey!);
       this._startOfPeriod = this.timeframe ? this.timeframe[0].getTime() : dates[0].getTime();
       this._endOfPeriod = this.timeframe ? this.timeframe[1].getTime() : dates[1].getTime();
+      const timeWindow = this.timeWindowOptions.get(this.timeWindowKey!);
+      if (!timeWindow) {
+        throw new Error(`Unsupported time window selected: ${this.timeWindowKey}`);
+      }
+      this._navigationDuration = getNavigationDuration(
+        this._startOfPeriod,
+        this._endOfPeriod,
+        this._isCustomWindow,
+        timeWindow[0],
+        timeWindow[1]
+      );
       this._intervalConfig = this._getInterval(this._startOfPeriod, this._endOfPeriod, this.interval!);
       this._loadData();
     }
@@ -982,6 +995,7 @@ export class OrAttributeBarChart extends OrElement {
     const recommendedTicks = this._chartElem?.clientWidth ? this._chartElem.clientWidth / 50 : Number.MAX_SAFE_INTEGER;
     const maxTicks = Math.floor(recommendedTicks * 1.5);
     const splitNumber = Math.max(1, Math.min(xAxisTicks, maxTicks));
+    const [axisMin, axisMax] = getChartAxisBounds(this._startOfPeriod!, this._endOfPeriod!, this._data);
     this._chart?.setOption({
       xAxis: {
         show: splitNumber > 1,
@@ -1049,19 +1063,21 @@ export class OrAttributeBarChart extends OrElement {
     return [startDate.toDate(), endDate.toDate()];
   }
 
-  protected _shiftTimeframe(currentStart: Date, currentEnd: Date, timeWindowSelected: string, direction: string) {
-    const timeWindow = this.timeWindowOptions.get(timeWindowSelected);
-
-    if (!timeWindow) {
+  protected _shiftTimeframe(
+    currentStart: Date,
+    currentEnd: Date,
+    timeWindowSelected: string,
+    direction: TimeframeDirection
+  ) {
+    if (!this.timeWindowOptions.has(timeWindowSelected)) {
       throw new Error(`Unsupported time window selected: ${timeWindowSelected}`);
     }
 
-    const [unit, value] = timeWindow;
-    const newStart = moment(currentStart);
-    direction === "previous" ? newStart.subtract(value, unit) : newStart.add(value, unit);
-    const newEnd = moment(currentEnd);
-    direction === "previous" ? newEnd.subtract(value, unit) : newEnd.add(value, unit);
-    this.timeframe = [newStart.toDate(), newEnd.toDate()];
+    const [unit, value] = this.timeWindowOptions.get(timeWindowSelected)!;
+    const duration =
+      this._navigationDuration ??
+      getNavigationDuration(currentStart.getTime(), currentEnd.getTime(), this._isCustomWindow, unit, value);
+    this.timeframe = shiftTimeframe(currentStart, currentEnd, duration, unit, value, direction, this._isCustomWindow);
   }
 
   protected _getInterval(
@@ -1374,25 +1390,13 @@ export class OrAttributeBarChart extends OrElement {
       console.error("Could not update bar chart data; the bar chart is not initialized yet.");
       return;
     }
-    // When data retrieved from HTTP API uses different start-end times, update them.
-    // For example, if 'endOfPeriod' is 18:03, but the interval is 15 min, the latest API datapoint will be from 18:15.
-    const firstEntry = this._data?.[0]?.data as [number, number][] | undefined;
-    if (firstEntry) {
-      const firstTimestamp = firstEntry[0][0];
-      if (firstTimestamp !== this._startOfPeriod) {
-        this._startOfPeriod = firstTimestamp;
-      }
-      const endTimestamp = [...firstEntry].reverse()[0][0];
-      if (endTimestamp !== this._endOfPeriod) {
-        this._endOfPeriod = endTimestamp;
-      }
-    }
 
     // Update ticks / labels
     const xAxisTicks = Math.max(1, (this._endOfPeriod! - this._startOfPeriod!) / this._intervalConfig!.millis - 1);
     const recommendedTicks = this._chartElem?.clientWidth ? this._chartElem.clientWidth / 50 : Number.MAX_SAFE_INTEGER;
     const maxTicks = Math.floor(recommendedTicks * 1.5);
     const splitNumber = Math.max(1, Math.min(xAxisTicks, maxTicks));
+    const [axisMin, axisMax] = getChartAxisBounds(this._startOfPeriod!, this._endOfPeriod!, this._data);
 
     // Update chart
     this._chart.setOption({
@@ -1400,8 +1404,8 @@ export class OrAttributeBarChart extends OrElement {
         show: splitNumber > 1,
         splitNumber,
         minInterval: this._intervalConfig!.millis,
-        min: this._startOfPeriod,
-        max: this._endOfPeriod,
+        min: axisMin,
+        max: axisMax,
         axisLabel: {
           interval: this._intervalConfig?.millis,
           rotate: splitNumber > recommendedTicks ? 45 : 0,

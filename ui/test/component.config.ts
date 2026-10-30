@@ -25,9 +25,9 @@ const { CI } = process.env;
 /**
  * See https://playwright.dev/docs/test-configuration.
  */
-export const defineCtConfig = (path: string) => {
+export const defineCtConfig = (path: string, overrides: PlaywrightTestConfig = {}) => {
   const name = basename(path);
-  return baseConfig({
+  const config = {
     testMatch: "*.test.ts",
     /* The general timeout setting which tests should pass within */
     timeout: 60_000,
@@ -40,14 +40,18 @@ export const defineCtConfig = (path: string) => {
     /* Traces, videos and other per-test output. See https://playwright.dev/docs/test-use-options */
     outputDir: resolve(path, "build/test-results"),
     /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
-    use: {
-      /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
-      trace: "retain-on-failure",
-      video: "on",
-      ctTemplateDir: resolve(__dirname, "playwright"),
-      ctCacheDir: resolve(path, "build/.cache"),
-    },
     /* Configure projects */
     projects: [{ name, testDir: resolve(path, "test"), fullyParallel: true, use: { ct: name } }] as Project[],
-  } as PlaywrightTestConfig);
+    ...overrides,
+    use: {
+      ...({
+        trace: "retain-on-failure",
+        video: "on",
+        ctTemplateDir: resolve(__dirname, "playwright"),
+        ctCacheDir: resolve(path, "build/.cache"),
+      } as PlaywrightTestConfig["use"]),
+      ...overrides.use,
+    },
+  } as PlaywrightTestConfig;
+  return baseConfig(config);
 };
