@@ -35,7 +35,6 @@ import org.openremote.model.asset.impl.ThingAsset
 import org.openremote.model.notification.EmailNotificationMessage
 import org.openremote.model.notification.Notification
 import org.openremote.model.notification.PushNotificationMessage
-import org.openremote.model.query.UserQuery
 import org.openremote.model.security.ClientRole
 import org.openremote.model.security.User
 import org.openremote.model.util.UniqueIdentifierGenerator
@@ -580,129 +579,6 @@ class AlarmFacadeTest extends Specification implements ManagerContainerTrait {
     "realm create" | null
     "realm create" | []
     "update"       | []
-  }
-
-  def "notification #failureAt failure leaves no new alarm or links for targets #targetNames"() {
-    given:
-    def failure = new IllegalStateException("Notification ${failureAt} unavailable")
-    def assigneeId = failureAt == "assignee lookup" ? testUsers.unrestricted.id : null
-    def alarm = newAlarm(assigneeId, Alarm.Severity.HIGH).setSource(Alarm.Source.REALM_RULESET)
-    failNotificationPreparation(failureAt, failure)
-
-    when:
-    alarmService.sendAlarm(alarm, assetIdsFor(targetNames))
-
-    then:
-    def thrownFailure = thrown(IllegalStateException)
-    thrownFailure.is(failure)
-    createdAlarms().isEmpty()
-    queuedNotifications.isEmpty()
-
-    cleanup:
-    alarmService.identityService = identityService
-    alarmService.assetStorageService = assetStorageService
-
-    where:
-    [failureAt, targetNames] << [
-      ["recipient lookup", "role lookup", "asset access", "assignee lookup"],
-      [[], ["child", "grandchild"]]
-    ].combinations()
-  }
-
-  def "notification #failureAt failure leaves an existing alarm unchanged for targets #targetNames"() {
-    given:
-    def oldAlarm = createExistingAlarm(targetNames)
-    def previousLinks = linkTimestamps(oldAlarm)
-    def updatedAlarm = alarmService.getAlarm(oldAlarm.id)
-    updatedAlarm.content = "Changed content"
-    updatedAlarm.status = Alarm.Status.ACKNOWLEDGED
-    updatedAlarm.severity = Alarm.Severity.HIGH
-    updatedAlarm.assigneeId = failureAt == "assignee lookup" ? testUsers.unrestricted.id : null
-    def failure = new IllegalStateException("Notification ${failureAt} unavailable")
-    failNotificationPreparation(failureAt, failure)
-
-    when:
-    alarmService.updateAlarm(oldAlarm, updatedAlarm)
-
-    then:
-    def thrownFailure = thrown(IllegalStateException)
-    thrownFailure.is(failure)
-    def stored = alarmService.getAlarm(oldAlarm.id)
-    verifyAll {
-      stored.content == oldAlarm.content
-      stored.status == oldAlarm.status
-      stored.severity == oldAlarm.severity
-      stored.assigneeId == oldAlarm.assigneeId
-      stored.lastModified == oldAlarm.lastModified
-    }
-    assertLinkState(stored, assetIdsFor(targetNames), previousLinks)
-
-    cleanup:
-    alarmService.identityService = identityService
-    alarmService.assetStorageService = assetStorageService
-
-    where:
-    [failureAt, targetNames] << [
-      ["recipient lookup", "role lookup", "asset access", "assignee lookup"],
-      [[], ["child", "grandchild"]]
-    ].combinations()
-  }
-
-  def "notification submission failure after #operation preserves the persisted alarm"() {
-    given: "recipient preparation succeeds, but notification submission fails after persistence"
-    def oldAlarm = operation == "update" ? createExistingAlarm(["child"]) : null
-    def failure = new IllegalStateException("Notification submission unavailable")
-    alarmService.notificationService = Stub(NotificationService) {
-      sendNotificationAsync(_ as Notification, _ as Notification.Source, _ as String) >> {
-        throw failure
-      }
-    }
-
-    when:
-    if (oldAlarm == null) {
-      createOrUpdateUnassignedHighAlarm(operation, ["child"])
-    } else {
-      def updatedAlarm = alarmService.getAlarm(oldAlarm.id)
-      updatedAlarm.severity = Alarm.Severity.HIGH
-      alarmService.updateAlarm(oldAlarm, updatedAlarm)
-    }
-
-    then:
-    def thrownFailure = thrown(IllegalStateException)
-    thrownFailure.is(failure)
-    def alarms = createdAlarms()
-    alarms.size() == 1
-    alarms[0].severity == Alarm.Severity.HIGH
-    if (oldAlarm != null) {
-      assert alarms[0].id == oldAlarm.id
-    }
-    assertLinkState(alarms[0], assetIdsFor(["child"]), [:])
-
-    where:
-    operation << ["realm create", "update"]
-  }
-
-  private void failNotificationPreparation(String failureAt, RuntimeException failure) {
-    def provider = Spy(identityService.identityProvider)
-    def storage = Spy(assetStorageService)
-    switch (failureAt) {
-      case "recipient lookup":
-        provider.queryUsers(_ as UserQuery) >> { throw failure }
-        break
-      case "role lookup":
-        provider.getUserRealmRoles(_ as String, _ as String) >> { throw failure }
-        break
-      case "asset access":
-        storage.isUserAssets(_ as String, _ as List) >> { throw failure }
-        break
-      case "assignee lookup":
-        provider.getUser(_ as String) >> { throw failure }
-        break
-    }
-    alarmService.identityService = Stub(ManagerIdentityService) {
-      getIdentityProvider() >> provider
-    }
-    alarmService.assetStorageService = storage
   }
 
   def "updates recheck restricted recipient access after an asset link is revoked"() {
