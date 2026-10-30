@@ -1,0 +1,38 @@
+{
+  "$schema" : "http://json-schema.org/draft-07/schema#",
+  "definitions" : {
+    "SubType" : {
+      "title" : "Sub Type",
+      "additionalProperties" : true,
+      "type" : "object",
+      "properties" : {
+        "type" : {
+          "const" : "SubType"
+        }
+      },
+      "required" : [ "type" ]
+    },
+    "SubTypeSuperclass" : {
+      "title" : "Sub Type Superclass",
+      "additionalProperties" : true,
+      "type" : "object",
+      "properties" : {
+        "type" : {
+          "const" : "SubTypeSuperclass"
+        }
+      },
+      "required" : [ "type" ]
+    }
+  },
+  "type" : "object",
+  "discriminator" : {
+    "propertyName" : "type"
+  },
+  "oneOf" : [ {
+    "$ref" : "#/definitions/SubType"
+  }, {
+    "$ref" : "#/definitions/SubTypeSuperclass"
+  } ],
+  "title" : "Polymorphic Type",
+  "additionalProperties" : true
+}
