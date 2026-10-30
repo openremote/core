@@ -19,8 +19,9 @@
 import { css, html, type LitElement, type PropertyValues, type TemplateResult } from "lit";
 import { OrElement } from "@openremote/or-element";
 import { customElement, property, query } from "lit/decorators.js";
-import { InputType } from "./util";
+import { InputType, inputTypeIsJson, parseJson } from "./util";
 import "./or-vaadin-checkbox";
+import "./or-vaadin-date-picker";
 import "./or-vaadin-date-time-picker";
 import "./or-vaadin-email-field";
 import "./or-vaadin-number-field";
@@ -29,6 +30,7 @@ import "./or-vaadin-select";
 import "./or-vaadin-slider";
 import "./or-vaadin-text-field";
 import "./or-vaadin-text-area";
+import "./or-vaadin-time-picker";
 import "./or-vaadin-toggle";
 
 /**
@@ -60,6 +62,7 @@ export class OrVaadinInput extends OrElement {
    * Be aware: all CustomElements defined here need to be imported during initialization; dynamic imports are not expected to work.
    */
   public static readonly VAADIN_CLASSES: (CustomElementConstructor | undefined)[] = [
+    customElements.get("or-vaadin-date-picker"),
     customElements.get("or-vaadin-date-time-picker"),
     customElements.get("or-vaadin-number-field"),
     customElements.get("or-vaadin-password-field"),
@@ -67,6 +70,7 @@ export class OrVaadinInput extends OrElement {
     customElements.get("or-vaadin-slider"),
     customElements.get("or-vaadin-text-area"),
     customElements.get("or-vaadin-text-field"),
+    customElements.get("or-vaadin-time-picker"),
   ];
 
   /**
@@ -77,14 +81,20 @@ export class OrVaadinInput extends OrElement {
   public static readonly TEMPLATES = new Map<InputType, (onChange: (ev: Event) => void) => TemplateResult>([
     [InputType.BIG_INT, OrVaadinInput.getNumberFieldTemplate],
     [InputType.CHECKBOX, OrVaadinInput.getCheckboxTemplate],
+    [InputType.DATE, OrVaadinInput.getDatePickerTemplate],
     [InputType.DATETIME, OrVaadinInput.getDateTimePickerTemplate],
+    [InputType.EMAIL, OrVaadinInput.getEmailFieldTemplate],
+    [InputType.JSON, OrVaadinInput.getJsonTemplate],
+    [InputType.JSON_OBJECT, OrVaadinInput.getJsonTemplate],
     [InputType.NUMBER, OrVaadinInput.getNumberFieldTemplate],
     [InputType.PASSWORD, OrVaadinInput.getPasswordFieldTemplate],
     [InputType.RANGE, OrVaadinInput.getSliderTemplate],
     [InputType.SELECT, OrVaadinInput.getSelectTemplate],
     [InputType.SWITCH, OrVaadinInput.getSwitchTemplate],
+    [InputType.TELEPHONE, OrVaadinInput.getTextFieldTemplate],
     [InputType.TEXT, OrVaadinInput.getTextFieldTemplate],
     [InputType.TEXTAREA, OrVaadinInput.getTextAreaTemplate],
+    [InputType.TIME, OrVaadinInput.getTimePickerTemplate],
   ]);
 
   /**
@@ -93,7 +103,11 @@ export class OrVaadinInput extends OrElement {
    */
   public static readonly CHANGE_EVENTS = new Map<InputType, string>([
     [InputType.BIG_INT, "submit"],
+    [InputType.EMAIL, "submit"],
+    [InputType.JSON, "submit"],
+    [InputType.JSON_OBJECT, "submit"],
     [InputType.NUMBER, "submit"],
+    [InputType.TELEPHONE, "submit"],
     [InputType.TEXTAREA, "submit"],
     [InputType.TEXT, "submit"],
     [InputType.PASSWORD, "submit"],
@@ -143,15 +157,16 @@ export class OrVaadinInput extends OrElement {
   }
 
   updated(changedProps: PropertyValues) {
+    // A new type renders a different Vaadin element, which starts out without any of the attributes
+    if (changedProps.has("type")) {
+      this._applyAttributes();
+    }
     changedProps.forEach((_, key) => this._onPropertyChange(String(key), this[String(key) as keyof OrVaadinInput]));
     return super.updated(changedProps);
   }
 
   firstUpdated(_changedProps: PropertyValues) {
-    for (const name of this.getAttributeNames()) {
-      // console.debug(this._getLoggingPrefix() + `firstUpdated for ${name} (${typeof this.getAttribute(name)}) to`, this.getAttribute(name));
-      this._applyAttribute(name, this.getAttribute(name), this._elem);
-    }
+    this._applyAttributes();
     return super.firstUpdated(_changedProps);
   }
 
@@ -171,6 +186,10 @@ export class OrVaadinInput extends OrElement {
       case InputType.SWITCH: {
         return (this._elem as HTMLInputElement | undefined)?.checked;
       }
+      case InputType.JSON:
+      case InputType.JSON_OBJECT: {
+        return parseJson(this.type, this._elem?.value).value;
+      }
       default: {
         return this._elem?.value;
       }
@@ -182,7 +201,14 @@ export class OrVaadinInput extends OrElement {
    * @see {@link https://developer.mozilla.org/en-US/docs/Web/API/HTMLInputElement/checkValidity|HTMLInputElement/checkValidity}
    */
   public checkValidity(): boolean {
-    return this._elem?.checkValidity() ?? false;
+    if (!(this._elem?.checkValidity() ?? false)) {
+      return false;
+    }
+    // A text area accepts any text, so JSON types need their own parse check on top of the field constraints
+    if (inputTypeIsJson(this.type)) {
+      return parseJson(this.type, this._elem?.value).valid;
+    }
+    return true;
   }
 
   render() {
@@ -231,6 +257,17 @@ export class OrVaadinInput extends OrElement {
   }
 
   /**
+   * Internal function to apply every attribute of the root element to the child Vaadin element.
+   * @protected
+   */
+  protected _applyAttributes(elem = this._elem) {
+    for (const name of this.getAttributeNames()) {
+      // console.debug(this._getLoggingPrefix() + `applying ${name} (${typeof this.getAttribute(name)}) to`, this.getAttribute(name));
+      this._applyAttribute(name, this.getAttribute(name), elem);
+    }
+  }
+
+  /**
    * Internal function to apply an attribute to the child Vaadin element.
    * @param name - Attribute name
    * @param value - Value to apply
@@ -260,8 +297,33 @@ export class OrVaadinInput extends OrElement {
     return html`<or-vaadin-checkbox id="elem" @change=${onChange}></or-vaadin-checkbox>`;
   }
 
+  public static getDatePickerTemplate(onChange?: (e: Event) => void) {
+    return html`<or-vaadin-date-picker id="elem" @change=${onChange}></or-vaadin-date-picker>`;
+  }
+
   public static getDateTimePickerTemplate(onChange?: (e: Event) => void) {
     return html`<or-vaadin-date-time-picker id="elem" @change=${onChange}></or-vaadin-date-time-picker>`;
+  }
+
+  public static getEmailFieldTemplate(onChange?: (e: Event) => void) {
+    return html`<or-vaadin-email-field id="elem" @change=${onChange}></or-vaadin-email-field>`;
+  }
+
+  /**
+   * Template for the JSON types, whose value a text area holds as text. No field constraint rejects malformed JSON,
+   * so the parse result sets the invalid state before the change is passed on.
+   */
+  public static getJsonTemplate(onChange?: (e: Event) => void) {
+    // Lit calls an event listener with the element that rendered the template as `this`
+    function onJsonChange(this: OrVaadinInput, ev: Event) {
+      const textArea = this.native as (HTMLInputElement & { invalid: boolean }) | undefined;
+      if (textArea) {
+        textArea.invalid = !this.checkValidity();
+      }
+      onChange?.call(this, ev);
+    }
+
+    return html`<or-vaadin-text-area id="elem" @change=${onJsonChange}></or-vaadin-text-area>`;
   }
 
   public static getNumberFieldTemplate(onChange?: (e: Event) => void) {
@@ -290,6 +352,10 @@ export class OrVaadinInput extends OrElement {
 
   public static getTextFieldTemplate(onChange?: (e: Event) => void) {
     return html`<or-vaadin-text-field id="elem" @change=${onChange}></or-vaadin-text-field>`;
+  }
+
+  public static getTimePickerTemplate(onChange?: (e: Event) => void) {
+    return html`<or-vaadin-time-picker id="elem" @change=${onChange}></or-vaadin-time-picker>`;
   }
 
   protected _getLoggingPrefix(): string {

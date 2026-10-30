@@ -31,9 +31,10 @@ import {
   uiTypeIs,
   formatIs,
 } from "@openremote/or-json-forms";
-import { InputType, type OrInputChangedEvent } from "@openremote/or-mwc-components/or-mwc-input";
+import type { SelectItem } from "@openremote/or-vaadin-components/or-vaadin-select";
+import type { OrVaadinComboBox } from "@openremote/or-vaadin-components/or-vaadin-combo-box";
 import { html } from "lit";
-import "@openremote/or-mwc-components/or-mwc-input";
+import "@openremote/or-vaadin-components/or-vaadin-combo-box";
 import { i18next } from "@openremote/or-translate";
 import { until } from "lit/directives/until.js";
 
@@ -118,19 +119,24 @@ const agentIdRenderer = (state: JsonFormsStateContext, props: ControlProps) => {
   };
 
   const loadedTemplatePromise = loadAgents().then((agents) => {
-    const options: [string, string][] = agents.map((agent) => [agent.id!, agent.name + " (" + agent.id + ")"]);
+    const options: SelectItem[] = agents.map((agent) => ({
+      value: agent.id!,
+      label: agent.name + " (" + agent.id + ")",
+    }));
 
+    // A combo box rather than a select, so the list can be filtered and the agent id copied out of the field
     return html`
-      <or-mwc-input
-        .label="${i18next.t("agentId")}"
+      <or-vaadin-combo-box
         required
         class="agent-id-picker"
-        @or-mwc-input-changed="${(ev: OrInputChangedEvent) => onAgentChanged(agents.find((agent) => agent.id === ev.detail.value))}"
-        type="${InputType.SELECT}"
-        .value="${props.data}"
-        .placeholder="${i18next.t("selectAgent")}"
-        .options="${options}"
-      ></or-mwc-input>
+        @change="${(ev: Event) =>
+          onAgentChanged(agents.find((agent) => agent.id === (ev.currentTarget as OrVaadinComboBox).value))}"
+        placeholder="${i18next.t("selectAgent")}"
+        .items="${options}"
+        .value="${props.data ?? ""}"
+      >
+        <or-translate slot="label" value="agentId"></or-translate>
+      </or-vaadin-combo-box>
     `;
   });
 
@@ -142,7 +148,7 @@ const agentIdRenderer = (state: JsonFormsStateContext, props: ControlProps) => {
         width: 100%;
       }
     </style>
-    ${until(loadedTemplatePromise, html`<or-mwc-input class="agent-id-picker" .type="${InputType.SELECT}"></or-mwc-input>`)}
+    ${until(loadedTemplatePromise, html`<or-vaadin-combo-box class="agent-id-picker"></or-vaadin-combo-box>`)}
   `;
 
   return getTemplateWrapper(template, undefined);

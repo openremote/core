@@ -756,6 +756,7 @@
   "addItem": "Voeg item toe",
   "array": "Array",
   "agentId": "Agent ID",
+  "selectAgent": "Selecteer agent",
   "agentNotFound": "Agent niet gevonden",
   "agentTypeMismatch": "Agent type mismatch",
   "loadFailedRoles": "Rollen ophalen mislukt",

@@ -171,9 +171,11 @@ async function buildBundle(ctConfig: FullConfig, configDir: string): Promise<Con
     },
     devtool: "source-map",
     devServer: {
-      static: {
-        directory: dirs.templateDir,
-      },
+      static: [
+        { directory: dirs.templateDir },
+        // Ace loads its syntax workers from the server root, so the bundled copies have to be served from there
+        { directory: path.dirname(require.resolve("ace-builds/src-noconflict/worker-json.js")) },
+      ],
       // Force ipv4
       host: "127.0.0.1",
       port: 0,

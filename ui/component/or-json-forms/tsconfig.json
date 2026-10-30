@@ -12,7 +12,7 @@
     { "path": "../rest" },
     { "path": "../model" },
     { "path": "../or-translate" },
-    { "path": "../or-mwc-components" },
+    { "path": "../or-vaadin-components" },
     { "path": "../or-icon" }
   ]
 }

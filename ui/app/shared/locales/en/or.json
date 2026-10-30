@@ -768,6 +768,7 @@
   "addItem": "Add item",
   "array": "Array",
   "agentId": "Agent ID",
+  "selectAgent": "Select agent",
   "agentNotFound": "Agent not found",
   "agentTypeMismatch": "Agent type mismatch",
   "loadFailedRoles": "Failed to load roles",

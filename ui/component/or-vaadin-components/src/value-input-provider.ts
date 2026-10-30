@@ -49,9 +49,11 @@ import { ifDefined } from "lit/directives/if-defined.js";
 import { styleMap } from "lit/directives/style-map.js";
 import {
   InputType,
+  inputTypeIsJson,
   inputTypeSupportsHelperText,
   inputTypeSupportsLabel,
   inputTypeSupportsSendButton,
+  stringifyJson,
   type SupportedWellknownValueTypes,
 } from "./util";
 import { OrVaadinInput } from "./or-vaadin-input";
@@ -149,7 +151,10 @@ export const getValueHolderInputTemplateProvider: ValueInputProviderGenerator = 
         )
       : Util.getMetaValueFormat(valueHolder as Attribute<any>, valueHolderDescriptor as AttributeDescriptor, assetType);
 
-  const supportsVaadinInput = (type: InputType) => OrVaadinInput.TEMPLATES.has(type);
+  // No valueConverter below turns an attribute timestamp into what the date or time picker takes
+  const typesWithoutValueConversion: InputType[] = [InputType.DATE, InputType.TIME];
+  const supportsVaadinInput = (type: InputType) =>
+    OrVaadinInput.TEMPLATES.has(type) && !typesWithoutValueConversion.includes(type);
 
   // Enforces which value types are supported making SUPPORTED_WELLKNOWN_VALUE_TYPES the single source of truth through type checking
   let _exhaustiveTypeCheck: never;
@@ -352,29 +357,26 @@ export const getValueHolderInputTemplateProvider: ValueInputProviderGenerator = 
       max = undefined;
     }
 
-    // Refine the input type based on formatting
-    if (format) {
-      if (format.timeStyle && !format.dateStyle) {
-        inputType = InputType.TIME;
-      } else if (format.dateStyle && !format.timeStyle) {
-        inputType = InputType.DATE;
-      }
+    // A format showing only a date or only a time refines the input type, and that narrower type is left without the
+    // conversion below, so it stays on the fallback input
+    if (format?.timeStyle && !format.dateStyle) {
+      inputType = InputType.TIME;
+    } else if (format?.dateStyle && !format.timeStyle) {
+      inputType = InputType.DATE;
+    } else {
+      // or-vaadin-date-time-picker works with local ISO strings, while the value is a timestamp or an ISO 8601 string
+      step = OrVaadinDateTimePicker.getStep(format);
+      // A minimum rounds up, so that the earliest value the picker allows still meets it
+      min = min === undefined ? undefined : OrVaadinDateTimePicker.getLocalizedISOString(new Date(min), step, true);
+      max = max === undefined ? undefined : OrVaadinDateTimePicker.getLocalizedISOString(new Date(max), step);
+      valueConverter = (v) => {
+        const timestamp = v ? Date.parse(v) : Number.NaN;
+        if (Number.isNaN(timestamp)) {
+          return null;
+        }
+        return valueDescriptor.jsonType === "string" ? new Date(timestamp).toISOString() : timestamp;
+      };
     }
-  }
-
-  // or-vaadin-date-time-picker works with local ISO strings, while the value is a timestamp or an ISO 8601 string
-  if (inputType === InputType.DATETIME) {
-    step = OrVaadinDateTimePicker.getStep(format);
-    // A minimum rounds up, so that the earliest value the picker allows still meets it
-    min = min === undefined ? undefined : OrVaadinDateTimePicker.getLocalizedISOString(new Date(min), step, true);
-    max = max === undefined ? undefined : OrVaadinDateTimePicker.getLocalizedISOString(new Date(max), step);
-    valueConverter = (v) => {
-      const timestamp = v ? Date.parse(v) : Number.NaN;
-      if (Number.isNaN(timestamp)) {
-        return null;
-      }
-      return valueDescriptor.jsonType === "string" ? new Date(timestamp).toISOString() : timestamp;
-    };
   }
 
   if (inputType === InputType.NUMBER && format?.resolution) {
@@ -417,6 +419,9 @@ export const getValueHolderInputTemplateProvider: ValueInputProviderGenerator = 
         value = undefined;
       } else if (inputType === InputType.DATETIME && value !== undefined && value !== null) {
         value = OrVaadinDateTimePicker.getLocalizedISOString(new Date(value), step);
+      } else if (inputTypeIsJson(inputType)) {
+        // The value attribute carries text, so a JSON value is shown as formatted JSON
+        value = stringifyJson(value);
       }
 
       // The step is set before the value, so that a date time picker does not trim the value to its default precision.

@@ -32,7 +32,6 @@
     "@openremote/core": "workspace:*",
     "@openremote/or-components": "workspace:*",
     "@openremote/or-element": "workspace:*",
-    "@openremote/or-mwc-components": "workspace:*",
     "@openremote/or-translate": "workspace:*",
     "@openremote/or-vaadin-components": "workspace:*",
     "ajv": "^8.20.0",
