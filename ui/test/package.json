@@ -42,6 +42,6 @@
     "playwright-core": "1.59.1",
     "ts-loader": "~9.5.2",
     "typescript": "~5.9.3",
-    "webpack": "^5.108.3"
+    "webpack": "^5.112.0"
   }
 }
