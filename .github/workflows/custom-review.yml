@@ -1,3 +1,16 @@
+# ---------------------------------------------------------------------------------------------------------------------
+# This environment workflow runs for pull requests of custom projects
+# (https://github.com/openremote/custom-project), it handles:
+#
+# - Linting
+# - Building the project including the deployment, nothing is published
+# - Running unit and integration tests
+#
+# Jobs are skipped based on which files changed (see the detect-changes job).
+#
+# The calling workflow must not use the same concurrency group as this workflow, GitHub cancels the run as a deadlock.
+# ---------------------------------------------------------------------------------------------------------------------
+
 name: Custom review
 
 on:

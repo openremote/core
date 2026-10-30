@@ -1816,12 +1816,12 @@ __metadata:
     "@types/qs": "npm:^6.9.7"
     axios: "npm:1.20.0"
     i18next: "npm:^26.3.6"
-    i18next-http-backend: "npm:^4.0.2"
+    i18next-http-backend: "npm:^4.0.4"
     keycloak-js: "npm:^25.0.1"
     lodash.transform: "npm:^4.6.0"
     moment: "npm:^2.31.0"
     platform: "npm:^1.3.6"
-    qs: "npm:^6.16.0"
+    qs: "npm:^6.16.1"
     url-search-params-polyfill: "npm:^8.1.0"
   languageName: unknown
   linkType: soft
@@ -1952,7 +1952,7 @@ __metadata:
     "@types/lodash.debounce": "npm:^4"
     lit: "npm:^3.3.1"
     lodash.debounce: "npm:^4.0.8"
-    qs: "npm:^6.16.0"
+    qs: "npm:^6.16.1"
   languageName: unknown
   linkType: soft
 
@@ -2149,7 +2149,7 @@ __metadata:
     "@openremote/util": "workspace:*"
     "@types/lodash.debounce": "npm:^4"
     "@types/lodash.throttle": "npm:^4"
-    gridstack: "npm:^12.4.2"
+    gridstack: "npm:~14.0.0"
     lit: "npm:^3.3.1"
     lodash.debounce: "npm:^4.0.8"
     lodash.throttle: "npm:^4.1.1"
@@ -2438,7 +2438,7 @@ __metadata:
     "@openremote/util": "workspace:*"
     "@types/qs": "npm:^6.9.7"
     axios: "npm:1.20.0"
-    qs: "npm:^6.16.0"
+    qs: "npm:^6.16.1"
   languageName: unknown
   linkType: soft
 
@@ -2477,7 +2477,7 @@ __metadata:
     css-loader: "npm:^7.1.2"
     html-webpack-plugin: "npm:^5.6.6"
     i18next: "npm:^26.3.6"
-    i18next-http-backend: "npm:^4.0.2"
+    i18next-http-backend: "npm:^4.0.4"
     playwright: "npm:1.59.1"
     playwright-core: "npm:1.59.1"
     ts-loader: "npm:~9.5.2"
@@ -7128,9 +7128,9 @@ __metadata:
   linkType: hard
 
 "fast-uri@npm:^3.0.1":
-  version: 3.1.8
-  resolution: "fast-uri@npm:3.1.8"
-  checksum: 10c0/c9c47860a7f9110176d94bb30a02942182f0bfc8d6780e9702f320336dc2dadb83b1d9879cceaf8d4b439642d1ec6d78c317cb808ab155455551bd5d9d7c22d8
+  version: 3.1.9
+  resolution: "fast-uri@npm:3.1.9"
+  checksum: 10c0/052757540d8c0bbc16bb124a45b8f5cb5d0932f9b89f019221ee41cdb3cafc1db44b2e809d6b888b87922af3e5560a863124454e9d9193e1fc955887357b5add
   languageName: node
   linkType: hard
 
@@ -7539,10 +7539,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"gridstack@npm:^12.4.2":
-  version: 12.4.2
-  resolution: "gridstack@npm:12.4.2"
-  checksum: 10c0/9b15dabf24947e3f8d529055cbfcd532449b0ea0d4b2ae3b7419eed1742ea394dd19148b023fcbd7d0d69f2b5bc9df33d0f3e01b4153e96f2a7b767e036499bc
+"gridstack@npm:~14.0.0":
+  version: 14.0.0
+  resolution: "gridstack@npm:14.0.0"
+  checksum: 10c0/9d74e027758b67e396e3bd3eaa3081d0ef0d37242e14d9050e12d7615a03b4a1b68954da301fcbfe5ce9223ba47ed6080013f6d606db4378ad7a4fb2c246b384
   languageName: node
   linkType: hard
 
@@ -7742,10 +7742,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"i18next-http-backend@npm:^4.0.2":
-  version: 4.0.2
-  resolution: "i18next-http-backend@npm:4.0.2"
-  checksum: 10c0/23515d90f57d58505d68b7847a13c01ee1fe7668931ee4ca82499f7ea36f2740aa58125f0050ce1026b18ae16826f6c10ffb1b9e5bed358aa305dab820dbf49f
+"i18next-http-backend@npm:^4.0.4":
+  version: 4.0.4
+  resolution: "i18next-http-backend@npm:4.0.4"
+  checksum: 10c0/f7b6a07820f2a4917da1bd8af70c27ec6dfdfbb9b954240ad5d914cfcabc4b75288b821aa54e9394319e22d6db116b1a9af7a9346cca7f06966257c22872fe0d
   languageName: node
   linkType: hard
 
@@ -9726,13 +9726,13 @@ __metadata:
   languageName: node
   linkType: hard
 
-"qs@npm:^6.12.3, qs@npm:^6.16.0":
-  version: 6.16.0
-  resolution: "qs@npm:6.16.0"
+"qs@npm:^6.12.3, qs@npm:^6.16.1":
+  version: 6.16.1
+  resolution: "qs@npm:6.16.1"
   dependencies:
     es-define-property: "npm:^1.0.1"
     side-channel: "npm:^1.1.1"
-  checksum: 10c0/eb3e31992fbd70e31a1791e571ed817d70975de7d3bfcbbbec93d77d1dd305877e9e8fdbcc62303c228ee5c3606685622cd6231c042dbc4790bb4e7c65fcbe18
+  checksum: 10c0/84ee9124b251ab2953132fbea1d70c966aa6e6496cccabedbbb83afa412bf4177bddebc779ca3ddafe23da83b2f593d530b41be6a726e971404fabb20ff22c94
   languageName: node
   linkType: hard
 

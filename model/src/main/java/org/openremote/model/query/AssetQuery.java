@@ -221,6 +221,75 @@ public class AssetQuery implements Serializable {
 
   public AssetQuery() {}
 
+  /** Copies query options and nested predicates without changing null or empty selections. */
+  public AssetQuery(AssetQuery source) {
+    recursive = source.recursive;
+    select =
+        source.select == null
+            ? null
+            : new Select()
+                .attributes(
+                    source.select.attributes == null ? null : source.select.attributes.clone());
+    access = source.access;
+    ids = source.ids == null ? null : source.ids.clone();
+    names =
+        source.names == null
+            ? null
+            : Arrays.stream(source.names)
+                .map(p -> (StringPredicate) ValuePredicate.copy(p))
+                .toArray(StringPredicate[]::new);
+    parents =
+        source.parents == null
+            ? null
+            : Arrays.stream(source.parents)
+                .map(p -> p == null ? null : new ParentPredicate(p.id))
+                .toArray(ParentPredicate[]::new);
+    paths =
+        source.paths == null
+            ? null
+            : Arrays.stream(source.paths)
+                .map(
+                    p ->
+                        p == null
+                            ? null
+                            : new PathPredicate(p.path == null ? null : p.path.clone()))
+                .toArray(PathPredicate[]::new);
+    realm = source.realm == null ? null : new RealmPredicate(source.realm.name);
+    userIds = source.userIds == null ? null : source.userIds.clone();
+    types = source.types == null ? null : source.types.clone();
+    attributes = copyAttributes(source.attributes);
+    includeDeletePending = source.includeDeletePending;
+    orderBy =
+        source.orderBy == null
+            ? null
+            : new OrderBy(source.orderBy.property, source.orderBy.descending);
+    limit = source.limit;
+    offset = source.offset;
+  }
+
+  private static LogicGroup<AttributePredicate> copyAttributes(
+      LogicGroup<AttributePredicate> source) {
+    if (source == null) return null;
+    return new LogicGroup<>(
+        source.operator,
+        source.groups == null
+            ? null
+            : source.groups.stream()
+                .map(AssetQuery::copyAttributes)
+                .collect(Collectors.toCollection(ArrayList::new)),
+        source.items == null
+            ? null
+            : source.items.stream()
+                .map(
+                    p ->
+                        p == null
+                            ? null
+                            : p instanceof LocationAttributePredicate location
+                                ? new LocationAttributePredicate(location)
+                                : new AttributePredicate(p))
+                .collect(Collectors.toCollection(ArrayList::new)));
+  }
+
   /** Resolves the concrete {@link Asset} types that are covered by the supplied asset types */
   @SuppressWarnings("unchecked")
   public static String[] getResolvedAssetTypes(String[] assetTypes) {

@@ -47,8 +47,7 @@ public class AssetDatapointIntervalQuery extends AssetDatapointQuery {
       description =
           "When true, returns empty buckets across the requested range using time-bucket gap "
               + "filling; their aggregate is generally null. When false, only buckets containing datapoints are "
-              + "returned. MODE currently returns only buckets containing datapoints regardless of this flag. "
-              + "Defaults to false.",
+              + "returned. Empty buckets count toward the datapoint query limit. Defaults to false.",
       example = "true")
   public boolean gapFill;
 
@@ -157,30 +156,18 @@ public class AssetDatapointIntervalQuery extends AssetDatapointQuery {
             + "WHERE ENTITY_ID = ? and ATTRIBUTE_NAME = ? and TIMESTAMP >= ? and TIMESTAMP <= ? "
             + "GROUP BY x ORDER by x ASC";
       case MODE:
-        return "WITH bucketed AS ( "
-            + "  SELECT "
+        // Relies on PostgreSQL MODE retaining the first tied value in sort order (ASC: smaller).
+        return "SELECT "
             + function
             + "(cast(? as interval), timestamp) AS x, "
-            + "         cast("
+            + "MODE() WITHIN GROUP (ORDER BY cast("
             + NULLABLE_VALUE_SQL
-            + " as numeric) AS num_value "
-            + "  FROM "
+            + " as numeric) ASC) AS mode_value "
+            + "FROM "
             + tableName
             + " "
-            + "  WHERE ENTITY_ID = ? and ATTRIBUTE_NAME = ? and TIMESTAMP >= ? and TIMESTAMP <= ? "
-            + ") "
-            + "SELECT d.x, ( "
-            + "    SELECT num_value FROM ( "
-            + "         SELECT num_value, COUNT(*) AS freq "
-            + "         FROM bucketed b2 "
-            + "         WHERE b2.x = d.x AND num_value IS NOT NULL "
-            + "         GROUP BY num_value "
-            + "         ORDER BY freq DESC, num_value "
-            + "         LIMIT 1 "
-            + "    ) AS mode_sub "
-            + ") AS mode_value "
-            + "FROM (SELECT DISTINCT x FROM bucketed) d "
-            + "ORDER BY d.x ASC";
+            + "WHERE ENTITY_ID = ? and ATTRIBUTE_NAME = ? and TIMESTAMP >= ? and TIMESTAMP <= ? "
+            + "GROUP BY x ORDER by x ASC";
       case MEDIAN:
         return "SELECT "
             + function
@@ -234,30 +221,18 @@ public class AssetDatapointIntervalQuery extends AssetDatapointQuery {
             + "WHERE ENTITY_ID = ? and ATTRIBUTE_NAME = ? and TIMESTAMP >= ? and TIMESTAMP <= ? "
             + "GROUP BY x ORDER by x ASC";
       case MODE:
-        return "WITH bucketed AS ( "
-            + "   SELECT "
+        // Relies on PostgreSQL MODE retaining the first tied value in sort order (DESC: true).
+        return "SELECT "
             + function
             + "(cast(? as interval), timestamp) AS x, "
-            + "          cast("
+            + "MODE() WITHIN GROUP (ORDER BY cast("
             + NULLABLE_VALUE_SQL
-            + " as text)::boolean AS bool_value "
-            + "   FROM "
+            + " as text)::boolean DESC)::integer AS mode_value "
+            + "FROM "
             + tableName
             + " "
-            + "   WHERE ENTITY_ID = ? and ATTRIBUTE_NAME = ? and TIMESTAMP >= ? and TIMESTAMP <= ? "
-            + ") "
-            + "SELECT d.x, ( "
-            + "    SELECT bool_value::integer FROM ( "
-            + "         SELECT bool_value, COUNT(*) AS freq "
-            + "         FROM bucketed b2 "
-            + "         WHERE b2.x = d.x AND bool_value IS NOT NULL "
-            + "         GROUP BY bool_value "
-            + "         ORDER BY freq DESC, bool_value DESC "
-            + "         LIMIT 1 "
-            + "    ) AS mode_sub "
-            + ") AS mode_value "
-            + "FROM (SELECT DISTINCT x FROM bucketed) d "
-            + "ORDER BY d.x ASC";
+            + "WHERE ENTITY_ID = ? and ATTRIBUTE_NAME = ? and TIMESTAMP >= ? and TIMESTAMP <= ? "
+            + "GROUP BY x ORDER by x ASC";
       case MEDIAN:
         return "SELECT "
             + function
