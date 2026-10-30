@@ -33,7 +33,7 @@ import {
   type UserSession,
 } from "@openremote/model";
 import { i18next } from "@openremote/or-translate";
-import { OrMwcDialog, showDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
+import { type OrVaadinDialog, showDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
 import { showSnackbar } from "@openremote/or-mwc-components/or-mwc-snackbar";
 import { type GenericAxiosResponse, isAxiosError } from "@openremote/rest";
 import type { OrAssetTreeRequestSelectionEvent, OrAssetTreeSelectionEvent } from "@openremote/or-asset-tree";
@@ -826,10 +826,27 @@ export class PageUsers extends Page<AppStateKeyed> {
       });
     };
 
-    const dialog = showDialog(
-      new OrMwcDialog()
-        .setHeading(i18next.t("linkedAssets"))
-        .setContent(html`
+    let dialog: OrVaadinDialog | undefined;
+    const onCancel = () => {
+      user.userAssetLinks = user.previousAssetLinks;
+      user.previousAssetLinks = undefined;
+      openBtn.disabled = false;
+      dialog?.close();
+    };
+    const onOk = () => {
+      openBtn.disabled = false;
+      this.onUserChanged(suffix);
+      this.requestUpdate();
+      dialog?.close();
+    };
+
+    dialog = showDialog(
+      this.shadowRoot!,
+      html`
+        <or-vaadin-dialog width="384px" no-close-on-esc no-close-on-outside-click>
+          <h2 slot="header-content">
+            <or-translate value="linkedAssets"></or-translate>
+          </h2>
           <or-asset-tree
             id="chart-asset-tree"
             readonly
@@ -848,36 +865,16 @@ export class PageUsers extends Page<AppStateKeyed> {
               }
             }}"
           ></or-asset-tree>
-        `)
-        .setActions([
-          {
-            default: true,
-            actionName: "cancel",
-            content: "cancel",
-            action: () => {
-              user.userAssetLinks = user.previousAssetLinks;
-              user.previousAssetLinks = undefined;
-              openBtn.disabled = false;
-            },
-          },
-          {
-            actionName: "ok",
-            content: "ok",
-            action: () => {
-              openBtn.disabled = false;
-              this.onUserChanged(suffix);
-              this.requestUpdate();
-            },
-          },
-        ])
-        .setDismissAction({
-          actionName: "cancel",
-          action: () => {
-            user.userAssetLinks = user.previousAssetLinks;
-            user.previousAssetLinks = undefined;
-            openBtn.disabled = false;
-          },
-        })
+          <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
+            <or-vaadin-button theme="tertiary" @click=${onCancel}>
+              <or-translate value="cancel"></or-translate>
+            </or-vaadin-button>
+            <or-vaadin-button theme="primary" @click=${onOk}>
+              <or-translate value="ok"></or-translate>
+            </or-vaadin-button>
+          </div>
+        </or-vaadin-dialog>
+      `
     );
   }
 

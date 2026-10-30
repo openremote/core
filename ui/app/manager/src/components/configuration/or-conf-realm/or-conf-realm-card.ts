@@ -35,10 +35,10 @@ import {
 } from "@openremote/core";
 import { i18next, translate } from "@openremote/or-translate";
 import type { FileInfo, ManagerAppRealmConfig } from "@openremote/model";
-import { type DialogAction, OrMwcDialog, showDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
 import { when } from "lit/directives/when.js";
 import { DefaultHeaderMainMenu, DefaultHeaderSecondaryMenu } from "../../../index";
 import type { OrVaadinMultiSelectComboBox } from "@openremote/or-vaadin-components/or-vaadin-multi-select-combo-box";
+import { getConfirmDialogContent, showConfirmDialog } from "@openremote/or-vaadin-components/or-vaadin-confirm-dialog";
 
 @customElement("or-conf-realm-card")
 export class OrConfRealmCard extends translate(i18next)(OrElement) {
@@ -229,37 +229,13 @@ export class OrConfRealmCard extends translate(i18next)(OrElement) {
   }
 
   protected _showRemoveRealmDialog() {
-    const dialogActions: DialogAction[] = [
-      {
-        actionName: "cancel",
-        content: "cancel",
-      },
-      {
-        default: true,
-        actionName: "ok",
-        content: "yes",
-        action: () => {
-          this.dispatchEvent(new CustomEvent("remove"));
-        },
-      },
-    ];
-    showDialog(
-      new OrMwcDialog()
-        .setHeading(i18next.t("delete"))
-        .setActions(dialogActions)
-        .setContent(html` ${i18next.t("configuration.deleteRealmCustomizationConfirm")} `)
-        .setStyles(html`
-          <style>
-            .mdc-dialog__surface {
-              padding: 4px 8px;
-            }
-
-            #dialog-content {
-              padding: 24px;
-            }
-          </style>
-        `)
-        .setDismissAction(null)
+    showConfirmDialog(
+      this.shadowRoot!,
+      html`
+        <or-vaadin-confirm-dialog @confirm=${() => this.dispatchEvent(new CustomEvent("remove"))}>
+          ${getConfirmDialogContent("error", "delete", "configuration.deleteRealmCustomizationConfirm", "delete", "cancel")}
+        </or-vaadin-confirm-dialog>
+      `
     );
   }
 

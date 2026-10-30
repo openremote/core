@@ -28,8 +28,11 @@ import { type AppStateKeyed, Page, type PageProvider } from "@openremote/or-app"
 import { ClientRole, type Realm } from "@openremote/model";
 import { i18next } from "@openremote/or-translate";
 import type { OrIcon } from "@openremote/or-icon";
-import { InputType } from "@openremote/or-mwc-components/or-mwc-input";
-import { type DialogAction, OrMwcDialog, showDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
+import {
+  getConfirmDialogContent,
+  type OrVaadinConfirmDialog,
+  showConfirmDialog,
+} from "@openremote/or-vaadin-components/or-vaadin-confirm-dialog";
 import { showSnackbar } from "@openremote/or-mwc-components/or-mwc-snackbar";
 import type { OrVaadinTextField } from "@openremote/or-vaadin-components/or-vaadin-text-field";
 import type { OrVaadinButton } from "@openremote/or-vaadin-components/or-vaadin-button";
@@ -522,8 +525,8 @@ export class PageRealms extends Page<AppStateKeyed> {
     let confirmedName = "";
     const okBtnRef: Ref<OrVaadinButton> = createRef();
 
-    const doDelete = async (dialog: OrMwcDialog) => {
-      if (okBtnRef.value.disabled) return;
+    const doDelete = async (dialog?: OrVaadinConfirmDialog) => {
+      if (okBtnRef.value!.disabled) return;
       try {
         await manager.rest.api.RealmResource.delete(realm.name);
         this._realms = this._realms.filter((r) => r !== realm);
@@ -531,6 +534,8 @@ export class PageRealms extends Page<AppStateKeyed> {
       } catch (e) {
         const snackbarKey = (e as any)?.response?.status === 409 ? "realmDeleteFailedHasAssets" : "realmDeleteFailed";
         showSnackbar(undefined, snackbarKey, "dismiss");
+      } finally {
+        dialog?.close();
       }
     };
 
@@ -550,45 +555,23 @@ export class PageRealms extends Page<AppStateKeyed> {
       </or-vaadin-text-field>
     </div>`;
 
-    const dialogActions: DialogAction[] = [
-      {
-        actionName: "ok",
-        content: html`<or-mwc-input .type="${InputType.BUTTON}" ${ref(okBtnRef)} disabled label="ok"></or-mwc-input>`,
-        action: doDelete,
-      },
-      {
-        default: true,
-        actionName: "cancel",
-        content: "cancel",
-      },
-    ];
-
-    const dialog = showDialog(
-      new OrMwcDialog()
-        .setContent(dialogContent)
-        .setActions(dialogActions)
-        .setStyles(html`
-          <style>
-            .mdc-dialog__surface {
-              display: flex;
-              width: 400px;
-              max-width: 100%;
-              overflow: visible;
-              overflow-x: visible !important;
-              overflow-y: visible !important;
-            }
-            #dialog-content {
-              text-align: center;
-              flex: 1;
-              overflow: visible;
-              min-height: 0;
-            }
-            or-asset-tree {
-              height: 100%;
-            }
-          </style>
-        `)
-        .setDismissAction(null)
+    const dialog = showConfirmDialog(
+      this.shadowRoot!,
+      html`
+        <or-vaadin-confirm-dialog @confirm=${() => doDelete(dialog)}>
+          ${getConfirmDialogContent(
+            "error",
+            "deleteRealmConfirm",
+            dialogContent,
+            html`
+              <or-vaadin-button theme="primary error" ${ref(okBtnRef)} disabled slot="confirm-button">
+                <or-translate value="delete"></or-translate>
+              </or-vaadin-button>
+            `,
+            "cancel"
+          )}
+        </or-vaadin-confirm-dialog>
+      `
     );
   }
 

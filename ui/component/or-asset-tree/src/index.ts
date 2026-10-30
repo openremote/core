@@ -64,12 +64,12 @@ import { getAssetDescriptorIconTemplate, type OrIcon } from "@openremote/or-icon
 import type { ListItem } from "@openremote/or-mwc-components/or-mwc-list";
 import "@openremote/or-mwc-components/or-mwc-list";
 import { i18next } from "@openremote/or-translate";
-import "@openremote/or-mwc-components/or-mwc-dialog";
-import { OrMwcDialog, showDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
+import { type OrVaadinDialog, showDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
 import type { OrAddAssetDialog, OrAddChangedEvent } from "./or-add-asset-dialog";
 import "./or-add-asset-dialog";
 import { showSnackbar } from "@openremote/or-mwc-components/or-mwc-snackbar";
 import { when } from "lit/directives/when.js";
+import { createRef, ref, type Ref } from "lit/directives/ref.js";
 import debounce from "lodash.debounce";
 
 export interface AssetTreeTypeConfig {
@@ -1564,108 +1564,102 @@ export class OrAssetTree extends subscribe(manager)(OrElement) {
     const agentTypes = types.filter((t) => t.descriptorType === "agent");
     const assetTypes = types.filter((t) => t.descriptorType === "asset");
     const parent = this._selectedNodes && this._selectedNodes.length === 1 ? this._selectedNodes[0].asset : undefined;
-    let dialog: OrMwcDialog;
+    let dialog: OrVaadinDialog | undefined;
+    const addAssetDialogRef: Ref<OrAddAssetDialog> = createRef();
+    const addBtnRef: Ref<OrVaadinButton> = createRef();
 
     const onAddChanged = (ev: OrAddChangedEvent) => {
       const nameValid = !!ev.detail.name && ev.detail.name.trim().length > 0 && ev.detail.name.trim().length < 1024;
-      const addBtn = dialog.shadowRoot!.getElementById("add-btn") as OrVaadinButton;
+      const addBtn = addBtnRef.value!;
       addBtn.disabled = !ev.detail.descriptor || !nameValid;
+    };
+    const onCancel = () => dialog?.close();
+    const onOk = () => {
+      const addAssetDialog = addAssetDialogRef.value!;
+      const descriptor = addAssetDialog.selectedType;
+      const selectedOptionalAttributes = addAssetDialog.selectedAttributes;
+      const name = addAssetDialog.name.trim();
+      const parent = addAssetDialog.parent;
+
+      if (!descriptor) {
+        return;
+      }
+
+      const asset: Asset = {
+        name,
+        type: descriptor.name,
+        realm: manager.displayRealm,
+      };
+
+      // Construct attributes
+      const assetTypeInfo = AssetModelUtil.getAssetTypeInfo(descriptor.name!);
+
+      if (!assetTypeInfo) {
+        return;
+      }
+
+      if (assetTypeInfo.attributeDescriptors) {
+        asset.attributes = {};
+        assetTypeInfo.attributeDescriptors
+          .filter((attributeDescriptor) => !attributeDescriptor.optional)
+          .forEach((attributeDescriptor) => {
+            asset.attributes![attributeDescriptor.name!] = {
+              name: attributeDescriptor.name,
+              type: attributeDescriptor.type,
+              meta: attributeDescriptor.meta ? { ...attributeDescriptor.meta } : undefined,
+            } as Attribute<any>;
+          });
+      }
+
+      if (selectedOptionalAttributes) {
+        selectedOptionalAttributes?.forEach((attribute) => {
+          asset.attributes![attribute.name!] = {
+            name: attribute.name,
+            type: attribute.type,
+            meta: attribute.meta ? { ...attribute.meta } : undefined,
+          };
+        });
+      }
+
+      if (this.selectedIds) {
+        asset.parentId = parent ? parent.id : undefined;
+      }
+      const detail: AddEventDetail = {
+        asset,
+      };
+      dialog?.close();
+      Util.dispatchCancellableEvent(this, new OrAssetTreeRequestAddEvent(detail)).then((detail) => {
+        if (detail.allow) {
+          this.dispatchEvent(new OrAssetTreeAddEvent(detail.detail));
+        }
+      });
     };
 
     dialog = showDialog(
-      new OrMwcDialog()
-        .setHeading(i18next.t("addAsset"))
-        .setContent(html`
+      this.shadowRoot!,
+      html`
+        <or-vaadin-dialog width="1024px" no-close-on-esc no-close-on-outside-click>
+          <h2 slot="header-content">
+            <or-translate value="addAsset"></or-translate>
+          </h2>
           <or-add-asset-dialog
-            id="add-panel"
+            ${ref(addAssetDialogRef)}
             .config="${this.config}"
             .agentTypes="${agentTypes}"
             .assetTypes="${assetTypes}"
             .parent="${parent}"
             @or-add-asset-changed="${onAddChanged}"
           ></or-add-asset-dialog>
-        `)
-        .setActions([
-          {
-            actionName: "cancel",
-            content: html`<or-vaadin-button><or-translate value="cancel"></or-translate></or-vaadin-button>`,
-          },
-          {
-            actionName: "add",
-            content: html`<or-vaadin-button id="add-btn" theme="primary" disabled>
+          <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
+            <or-vaadin-button theme="tertiary" @click=${onCancel}>
+              <or-translate value="cancel"></or-translate>
+            </or-vaadin-button>
+            <or-vaadin-button theme="primary" ${ref(addBtnRef)} disabled @click=${onOk}>
               <or-translate value="add"></or-translate>
-            </or-vaadin-button>`,
-            action: () => {
-              const addAssetDialog = dialog.shadowRoot!.getElementById("add-panel") as OrAddAssetDialog;
-              const descriptor = addAssetDialog.selectedType;
-              const selectedOptionalAttributes = addAssetDialog.selectedAttributes;
-              const name = addAssetDialog.name.trim();
-              const parent = addAssetDialog.parent;
-
-              if (!descriptor) {
-                return;
-              }
-
-              const asset: Asset = {
-                name,
-                type: descriptor.name,
-                realm: manager.displayRealm,
-              };
-
-              // Construct attributes
-              const assetTypeInfo = AssetModelUtil.getAssetTypeInfo(descriptor.name!);
-
-              if (!assetTypeInfo) {
-                return;
-              }
-
-              if (assetTypeInfo.attributeDescriptors) {
-                asset.attributes = {};
-                assetTypeInfo.attributeDescriptors
-                  .filter((attributeDescriptor) => !attributeDescriptor.optional)
-                  .forEach((attributeDescriptor) => {
-                    asset.attributes![attributeDescriptor.name!] = {
-                      name: attributeDescriptor.name,
-                      type: attributeDescriptor.type,
-                      meta: attributeDescriptor.meta ? { ...attributeDescriptor.meta } : undefined,
-                    } as Attribute<any>;
-                  });
-              }
-
-              if (selectedOptionalAttributes) {
-                selectedOptionalAttributes?.forEach((attribute) => {
-                  asset.attributes![attribute.name!] = {
-                    name: attribute.name,
-                    type: attribute.type,
-                    meta: attribute.meta ? { ...attribute.meta } : undefined,
-                  };
-                });
-              }
-
-              if (this.selectedIds) {
-                asset.parentId = parent ? parent.id : undefined;
-              }
-              const detail: AddEventDetail = {
-                asset,
-              };
-              Util.dispatchCancellableEvent(this, new OrAssetTreeRequestAddEvent(detail)).then((detail) => {
-                if (detail.allow) {
-                  this.dispatchEvent(new OrAssetTreeAddEvent(detail.detail));
-                }
-              });
-            },
-          },
-        ])
-        .setStyles(html`
-          <style>
-            .mdc-dialog__content {
-              padding: 0 !important;
-              border-bottom: solid var(--or-app-color5, #cccccc) 1px;
-              border-top: solid var(--or-app-color5, #cccccc) 1px;
-            }
-          </style>
-        `)
-        .setDismissAction(null)
+            </or-vaadin-button>
+          </div>
+        </or-vaadin-dialog>
+      `
     );
   }
 

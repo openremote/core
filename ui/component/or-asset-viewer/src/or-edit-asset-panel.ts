@@ -24,7 +24,7 @@ import {
   type ValueInputProviderOptions,
   getValueHolderInputTemplateProvider,
 } from "@openremote/or-vaadin-components/value-input-provider";
-import { InputType, type OrMwcInput, type OrInputChangedEvent } from "@openremote/or-mwc-components/or-mwc-input";
+import { InputType, type OrInputChangedEvent } from "@openremote/or-mwc-components/or-mwc-input";
 import { i18next } from "@openremote/or-translate";
 import {
   type Asset,
@@ -36,8 +36,9 @@ import {
 import { DefaultColor5, DefaultColor3, Util } from "@openremote/core";
 import "@openremote/or-mwc-components/or-mwc-input";
 import type { OrIcon } from "@openremote/or-icon";
-import { showDialog, OrMwcDialog, type DialogAction } from "@openremote/or-mwc-components/or-mwc-dialog";
-import { type ListItem, ListType, type OrMwcList } from "@openremote/or-mwc-components/or-mwc-list";
+import { showDialog, type OrVaadinDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
+import type { OrVaadinCheckboxGroup } from "@openremote/or-vaadin-components/or-vaadin-checkbox-group";
+import type { OrVaadinButton } from "@openremote/or-vaadin-components/or-vaadin-button";
 import "./or-add-attribute-panel";
 import { getField, getPanel, getPropertyTemplate } from "./index";
 import type { OrAddAttributePanelAttributeChangedEvent } from "./or-add-attribute-panel";
@@ -591,6 +592,7 @@ export class OrEditAssetPanel extends OrElement {
   protected _addAttribute() {
     const asset = this.asset!;
     let attr: Attribute<any>;
+    const addBtnRef: Ref<OrVaadinButton> = createRef();
 
     const isDisabled = (attribute: Attribute<any>) => {
       return !(
@@ -602,53 +604,42 @@ export class OrEditAssetPanel extends OrElement {
       );
     };
 
-    const onAttributeChanged = (attribute: Attribute<any>) => {
-      const addDisabled = isDisabled(attribute);
-      const addBtn = dialog!.shadowRoot!.getElementById("add-btn") as OrMwcInput;
-      addBtn!.disabled = addDisabled;
+    const onAttributeChanged = (ev: OrAddAttributePanelAttributeChangedEvent) => {
+      const attribute = ev.detail;
+      addBtnRef.value!.disabled = isDisabled(attribute);
       attr = attribute;
     };
 
+    const onOk = () => {
+      if (!isDisabled(attr)) {
+        this.asset.attributes![attr.name!] = attr;
+        this._onModified();
+        this.requestUpdate();
+        dialog?.close();
+      }
+    };
+
     const dialog = showDialog(
-      new OrMwcDialog()
-        .setContent(html`
+      this.shadowRoot!,
+      html`
+        <or-vaadin-dialog width="384px">
+          <h2 slot="header-content">
+            <or-translate value="addAttribute"></or-translate>
+          </h2>
           <or-add-attribute-panel
             .asset="${asset}"
-            @or-add-attribute-panel-attribute-changed="${(ev: OrAddAttributePanelAttributeChangedEvent) => onAttributeChanged(ev.detail)}"
+            @or-add-attribute-panel-attribute-changed="${onAttributeChanged}"
           ></or-add-attribute-panel>
-        `)
-        .setStyles(html`
-          <style>
-            .mdc-dialog__surface {
-              overflow-x: visible !important;
-              overflow-y: visible !important;
-            }
-            #dialog-content {
-              padding: 0;
-              overflow: visible;
-            }
-          </style>
-        `)
-        .setHeading(i18next.t("addAttribute"))
-        .setActions([
-          {
-            actionName: "cancel",
-            content: "cancel",
-          },
-          {
-            default: true,
-            actionName: "add",
-            action: () => {
-              if (!isDisabled(attr)) {
-                this.asset.attributes![attr.name!] = attr;
-                this._onModified();
-                this.requestUpdate();
-              }
-            },
-            content: html`<or-mwc-input id="add-btn" .type="${InputType.BUTTON}" disabled label="add"></or-mwc-input>`,
-          },
-        ])
-        .setDismissAction(null)
+          <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
+            <or-vaadin-button theme="tertiary" @click=${() => dialog?.close()}>
+              <or-translate value="cancel"></or-translate>
+            </or-vaadin-button>
+            <or-vaadin-button theme="primary" ${ref(addBtnRef)} disabled @click=${onOk}>
+              <or-translate value="add"></or-translate>
+            </or-vaadin-button>
+          </div>
+        </or-vaadin-dialog>
+      `
     );
   }
 
@@ -660,85 +651,66 @@ export class OrEditAssetPanel extends OrElement {
 
     const meta = attribute.meta || {};
 
-    const metaItemList: (ListItem | null)[] = assetTypeInfo.metaItemDescriptors
-      .map((metaName) => AssetModelUtil.getMetaItemDescriptor(metaName)!)
-      .filter((descriptor) => !meta.hasOwnProperty(descriptor.name!))
-      .map((descriptor) => {
-        return {
-          text: Util.getMetaLabel(undefined, descriptor, this.asset!.type!, true),
-          value: descriptor.name!,
-          translate: false,
-        };
-      })
-      .sort(Util.sortByString((item) => item.text));
+    const listRef: Ref<OrVaadinCheckboxGroup> = createRef();
+    const onOk = () => {
+      const selectedItems = listRef.value?.value;
+      if (selectedItems) {
+        if (!attribute.meta) {
+          attribute.meta = {};
+        }
+        selectedItems.forEach((item) => {
+          const descriptor = AssetModelUtil.getMetaItemDescriptors().find((descriptor) => descriptor.name === item);
+          if (descriptor) {
+            attribute.meta![descriptor.name!] = descriptor.type === "boolean" ? true : null;
+            this._onModified();
+            this.requestUpdate();
+          }
+        });
+      }
+      dialog?.close();
+    };
 
     const dialog = showDialog(
-      new OrMwcDialog()
-        .setContent(html`
-          <div id="meta-creator">
-            <or-mwc-list
-              id="meta-creator-list"
-              .type="${ListType.MULTI_CHECKBOX}"
-              .listItems="${metaItemList}"
-            ></or-mwc-list>
+      this.shadowRoot!,
+      html`
+        <or-vaadin-dialog width="384px">
+          <h2 slot="header-content">
+            <or-translate value="addMetaItems"></or-translate>
+          </h2>
+          <or-vaadin-checkbox-group theme="vertical" ${ref(listRef)}>
+            ${assetTypeInfo.metaItemDescriptors
+              .map((metaName) => AssetModelUtil.getMetaItemDescriptor(metaName)!)
+              .filter((descriptor) => !meta.hasOwnProperty(descriptor.name!))
+              .map((descriptor) => ({
+                descriptor,
+                label: Util.getMetaLabel(undefined, descriptor, this.asset!.type!, true),
+              }))
+              .sort(Util.sortByString((item) => item.label))
+              .map(
+                (item) => html`
+                  <or-vaadin-checkbox value=${item.descriptor.name!} label=${item.label}></or-vaadin-checkbox>
+                `
+              )}
+          </or-vaadin-checkbox-group>
+          <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
+            <or-vaadin-button theme="tertiary" @click=${() => dialog?.close()}>
+              <or-translate value="cancel"></or-translate>
+            </or-vaadin-button>
+            <or-vaadin-button theme="primary" @click=${onOk}>
+              <or-translate value="add"></or-translate>
+            </or-vaadin-button>
           </div>
-        `)
-        .setStyles(html`
-          <style>
-            #meta-creator {
-              height: 600px;
-              max-height: 100%;
-            }
-
-            #meta-creator > or-mwc-list {
-              height: 100%;
-            }
-
-            .mdc-dialog .mdc-dialog__content {
-              padding: 0 !important;
-            }
-          </style>
-        `)
-        .setHeading(i18next.t("addMetaItems"))
-        .setActions([
-          {
-            actionName: "cancel",
-            content: "cancel",
-          },
-          {
-            default: true,
-            actionName: "add",
-            action: () => {
-              const list = dialog!.shadowRoot!.getElementById("meta-creator-list") as OrMwcList;
-              const selectedItems = list ? list.selectedItems : undefined;
-              if (selectedItems) {
-                if (!attribute.meta) {
-                  attribute.meta = {};
-                }
-                selectedItems.forEach((item) => {
-                  const descriptor = AssetModelUtil.getMetaItemDescriptors().find(
-                    (descriptor) => descriptor.name === item.value
-                  );
-                  if (descriptor) {
-                    attribute.meta![descriptor.name!] = descriptor.type === "boolean" ? true : null;
-                    this._onModified();
-                    this.requestUpdate();
-                  }
-                });
-              }
-            },
-            content: "add",
-          },
-        ])
-        .setDismissAction(null)
+        </or-vaadin-dialog>
+      `
     );
   }
 
   protected _getParentTemplate() {
-    let dialog: OrMwcDialog;
+    let dialog: OrVaadinDialog | undefined;
+    const assetTreeRef: Ref<OrAssetTree> = createRef();
 
     const setParent = () => {
-      const assetTree = dialog.shadowRoot!.getElementById("parent-asset-tree") as OrAssetTree;
+      const assetTree = assetTreeRef.value!;
       this.asset.parentId = assetTree.selectedIds!.length === 1 ? assetTree.selectedIds![0] : undefined;
       // Need to update the assets path as well
       const path = [this.asset.id!];
@@ -755,74 +727,51 @@ export class OrEditAssetPanel extends OrElement {
       this.asset.parentId = undefined;
       this.asset.path = [this.asset.id!];
       this._onModified();
+      dialog?.close();
     };
 
-    const blockEvent = (ev: Event) => {
-      ev.stopPropagation();
-    };
+    const blockEvent = (ev: Event) => ev.stopPropagation();
 
     const parentSelector = (node: UiAssetTreeNode) => node.asset!.id !== this.asset.id;
 
-    // Prevent change event from bubbling up as it will affect any ancestor listeners that are interested in a different asset tree
-    const dialogContent = html`<or-asset-tree
-      id="parent-asset-tree"
-      disableSubscribe
-      readonly
-      .selectedIds="${this.asset!.parentId ? [this.asset.parentId] : []}"
-      @or-asset-tree-request-select="${blockEvent}"
-      @or-asset-tree-selection-changed="${blockEvent}"
-      .selector="${parentSelector}"
-    ></or-asset-tree>`;
-
-    const dialogActions: DialogAction[] = [
-      {
-        actionName: "clear",
-        content: "none",
-        action: clearParent,
-      },
-      {
-        actionName: "ok",
-        content: "ok",
-        action: setParent,
-      },
-      {
-        default: true,
-        actionName: "cancel",
-        content: "cancel",
-      },
-    ];
+    const onOk = () => {
+      setParent();
+      dialog?.close();
+    };
 
     const openDialog = () => {
       dialog = showDialog(
-        new OrMwcDialog()
-          .setContent(dialogContent)
-          .setActions(dialogActions)
-          .setStyles(html`
-            <style>
-              .mdc-dialog__surface {
-                width: 400px;
-                height: 800px;
-                display: flex;
-                overflow: visible;
-                overflow-x: visible !important;
-                overflow-y: visible !important;
-              }
-              #dialog-content {
-                flex: 1;
-                overflow: visible;
-                min-height: 0;
-                padding: 0;
-              }
-              footer.mdc-dialog__actions {
-                border-top: 1px solid ${unsafeCSS(DefaultColor5)};
-              }
-              or-asset-tree {
-                height: 100%;
-              }
-            </style>
-          `)
-          .setHeading(i18next.t("setParent"))
-          .setDismissAction(null)
+        this.shadowRoot!,
+        html`
+          <or-vaadin-dialog width="384px">
+            <h2 slot="header-content">
+              <or-translate value="setParent"></or-translate>
+            </h2>
+            <or-asset-tree
+              ${ref(assetTreeRef)}
+              disableSubscribe
+              readonly
+              .selectedIds="${this.asset!.parentId ? [this.asset.parentId] : []}"
+              style="width: 100%; aspect-ratio: 1/1.75;"
+              @or-asset-tree-request-selection="${blockEvent}"
+              @or-asset-tree-selection="${blockEvent}"
+              .selector="${parentSelector}"
+            ></or-asset-tree>
+            <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
+              <or-vaadin-button theme="tertiary" @click=${() => dialog?.close()}>
+                <or-translate value="cancel"></or-translate>
+              </or-vaadin-button>
+              <div>
+                <or-vaadin-button @click=${clearParent}>
+                  <or-translate value="clear"></or-translate>
+                </or-vaadin-button>
+                <or-vaadin-button theme="primary" @click=${onOk}>
+                  <or-translate value="ok"></or-translate>
+                </or-vaadin-button>
+              </div>
+            </div>
+          </or-vaadin-dialog>
+        `
       );
     };
 

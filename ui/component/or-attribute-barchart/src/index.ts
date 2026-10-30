@@ -48,7 +48,7 @@ import { UniversalTransition } from "echarts/features";
 import moment from "moment";
 import { getAssetDescriptorIconTemplate } from "@openremote/or-icon";
 import { isAxiosError } from "@openremote/rest";
-import { OrMwcDialog, showDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
+import { type OrVaadinDialog, showDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
 import { showSnackbar } from "@openremote/or-mwc-components/or-mwc-snackbar";
 import { cache } from "lit/directives/cache.js";
 import { createMenuBarItem, type MenuBarItem } from "@openremote/or-vaadin-components/or-vaadin-menu-bar";
@@ -648,7 +648,6 @@ export class OrAttributeBarChart extends OrElement {
   }
 
   protected _getTimeControlsTemplate(disabled: boolean): TemplateResult {
-    console.debug("Disabled?", disabled);
     const menuItems: MenuBarItem[] = [
       {
         component: createMenuBarItem(
@@ -855,47 +854,53 @@ export class OrAttributeBarChart extends OrElement {
   protected _openTimeDialog(startTimestamp?: number, endTimestamp?: number) {
     const startRef: Ref<OrVaadinDateTimePicker> = createRef();
     const endRef: Ref<OrVaadinDateTimePicker> = createRef();
-    showDialog(
-      new OrMwcDialog()
-        .setHeading(i18next.t("timeframe"))
-        .setContent(
-          () => html`
-            <div style="max-width: 480px; display: flex; flex-direction: column; gap: 8px;">
-              <or-vaadin-date-time-picker
-                ${ref(startRef)}
-                required
-                value=${startTimestamp ? OrVaadinDateTimePicker.getLocalizedISOString(new Date(startTimestamp)) : undefined}
-              >
-                <or-translate slot="label" value="start"></or-translate>
-              </or-vaadin-date-time-picker>
-              <or-vaadin-date-time-picker
-                ${ref(endRef)}
-                required
-                value=${endTimestamp ? OrVaadinDateTimePicker.getLocalizedISOString(new Date(endTimestamp)) : undefined}
-              >
-                <or-translate slot="label" value="ending"></or-translate>
-              </or-vaadin-date-time-picker>
-            </div>
-          `
-        )
-        .setActions([
-          {
-            actionName: "cancel",
-            content: "cancel",
-          },
-          {
-            actionName: "ok",
-            content: "ok",
-            action: () => {
-              if (startRef.value?.value && endRef.value?.value && startRef.value.value < endRef.value.value) {
-                this._isCustomWindow = true;
-                this.timeframe = [new Date(startRef.value.value), new Date(endRef.value.value)];
-              } else {
-                showSnackbar(undefined, i18next.t("errorOccurred"));
-              }
-            },
-          },
-        ])
+    let dialog: OrVaadinDialog | undefined;
+
+    const onCancel = () => {
+      dialog?.close();
+    };
+    const onOk = () => {
+      if (startRef.value?.value && endRef.value?.value && startRef.value.value < endRef.value.value) {
+        this._isCustomWindow = true;
+        this.timeframe = [new Date(startRef.value.value), new Date(endRef.value.value)];
+        dialog?.close();
+      } else {
+        showSnackbar(undefined, i18next.t("errorOccurred"));
+      }
+    };
+    dialog = showDialog(
+      this.shadowRoot!,
+      html`
+        <or-vaadin-dialog width="384px">
+          <h2 slot="header-content">
+            <or-translate value="timeframe"></or-translate>
+          </h2>
+          <div style="padding: 4px 0; max-width: 480px; display: flex; flex-direction: column; gap: 8px;">
+            <or-vaadin-date-time-picker
+              ${ref(startRef)}
+              required
+              value=${startTimestamp ? OrVaadinDateTimePicker.getLocalizedISOString(new Date(startTimestamp)) : undefined}
+            >
+              <or-translate slot="label" value="beginning"></or-translate>
+            </or-vaadin-date-time-picker>
+            <or-vaadin-date-time-picker
+              ${ref(endRef)}
+              required
+              value=${endTimestamp ? OrVaadinDateTimePicker.getLocalizedISOString(new Date(endTimestamp)) : undefined}
+            >
+              <or-translate slot="label" value="ending"></or-translate>
+            </or-vaadin-date-time-picker>
+          </div>
+          <div slot="footer" style="width: 100%; display: flex; justify-content: space-between;">
+            <or-vaadin-button theme="tertiary" @click=${onCancel}>
+              <or-translate value="cancel"></or-translate>
+            </or-vaadin-button>
+            <or-vaadin-button theme="primary" @click=${onOk}>
+              <or-translate value="ok"></or-translate>
+            </or-vaadin-button>
+          </div>
+        </or-vaadin-dialog>
+      `
     );
   }
 

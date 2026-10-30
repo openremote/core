@@ -18,18 +18,18 @@
  */
 import { html, type TemplateResult } from "lit";
 import { OrElement } from "@openremote/or-element";
-import { InputType, OrInputChangedEvent } from "@openremote/or-mwc-components/or-mwc-input";
 import { customElement, property } from "lit/decorators.js";
 import { when } from "lit/directives/when.js";
 import type { ManagerAppConfig, MapConfig } from "@openremote/model";
-import { type DialogAction, OrMwcDialog, showDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
-import { i18next } from "@openremote/or-translate";
+import { type OrVaadinDialog, showDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
+import type { OrVaadinButton } from "@openremote/or-vaadin-components/or-vaadin-button";
 import "@openremote/or-components/or-loading-indicator";
 import "./or-conf-map/or-conf-map-card";
 import "./or-conf-realm/or-conf-realm-card";
 import type { OrConfRealmCard } from "./or-conf-realm/or-conf-realm-card";
 import type { OrConfMapCard } from "./or-conf-map/or-conf-map-card";
 import type { OrVaadinSelect } from "@openremote/or-vaadin-components/or-vaadin-select";
+import { createRef, ref, type Ref } from "lit/directives/ref.js";
 
 @customElement("or-conf-panel")
 export class OrConfPanel extends OrElement {
@@ -184,39 +184,30 @@ export class OrConfPanel extends OrElement {
   // Show the dialog to "add realm", that allows users to override realm options.
   protected _showAddingRealmDialog() {
     this._addedRealm = null;
-    const dialogActions: DialogAction[] = [
-      {
-        actionName: "cancel",
-        content: "cancel",
-      },
-      {
-        default: true,
-        actionName: "ok",
-        content: "ok",
-        action: () => {
-          if (this._addedRealm) {
-            let realms = this.getRealmsProperty(this.config);
-            if (!realms) {
-              realms = {};
-            }
-            if (this.isManagerConfig(this.config)) {
-              realms[this._addedRealm] = {}; // empty object since no fields are required
-            } else if (this.isMapConfig(this.config)) {
-              realms[this._addedRealm] = {
-                bounds: [4.42, 51.88, 4.55, 51.94],
-                center: [4.485222, 51.911712],
-                zoom: 14,
-                minZoom: 14,
-                maxZoom: 19,
-                boxZoom: false,
-              };
-            }
-            this.requestUpdate("config");
-            this.notifyConfigChange(this.config);
-          }
-        },
-      },
-    ];
+    let dialog: OrVaadinDialog | undefined;
+    const onOk = () => {
+      if (this._addedRealm) {
+        let realms = this.getRealmsProperty(this.config);
+        if (!realms) {
+          realms = {};
+        }
+        if (this.isManagerConfig(this.config)) {
+          realms[this._addedRealm] = {}; // empty object since no fields are required
+        } else if (this.isMapConfig(this.config)) {
+          realms[this._addedRealm] = {
+            bounds: [4.42, 51.88, 4.55, 51.94],
+            center: [4.485222, 51.911712],
+            zoom: 14,
+            minZoom: 14,
+            maxZoom: 19,
+            boxZoom: false,
+          };
+        }
+        this.requestUpdate("config");
+        this.notifyConfigChange(this.config);
+        dialog?.close();
+      }
+    };
     const headingKey = this.isMapConfig(this.config)
       ? "configuration.addMapCustomization"
       : "configuration.addRealmCustomization";
@@ -224,42 +215,38 @@ export class OrConfPanel extends OrElement {
       value: item.name,
       label: item.displayName,
     }));
-    showDialog(
-      new OrMwcDialog()
-        .setHeading(i18next.t(headingKey))
-        .setActions(dialogActions)
-        .setContent(html`
-          <div style="width: 280px; padding: 10px 20px;">
-            <or-vaadin-select
-              class="selector"
-              .items=${realmItems}
-              @change=${(ev: Event) => (this._addedRealm = (ev.currentTarget as OrVaadinSelect).value)}
-            >
-              <or-translate slot="label" value="realm"></or-translate>
-            </or-vaadin-select>
+
+    const selectRef: Ref<OrVaadinSelect> = createRef();
+    const buttonRef: Ref<OrVaadinButton> = createRef();
+    dialog = showDialog(
+      this.shadowRoot!,
+      html`
+        <or-vaadin-dialog width="384px">
+          <h2 slot="header-content">
+            <or-translate value=${headingKey}></or-translate>
+          </h2>
+          <or-vaadin-select
+            ${ref(selectRef)}
+            required
+            class="selector"
+            .items=${realmItems}
+            @change=${(ev: Event) => {
+              this._addedRealm = (ev.currentTarget as OrVaadinSelect).value;
+              buttonRef.value!.disabled = !selectRef.value?.checkValidity();
+            }}
+          >
+            <or-translate slot="label" value="realm"></or-translate>
+          </or-vaadin-select>
+          <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
+            <or-vaadin-button theme="tertiary" @click=${() => dialog?.close()}>
+              <or-translate value="cancel"></or-translate>
+            </or-vaadin-button>
+            <or-vaadin-button theme="primary" ${ref(buttonRef)} disabled @click=${onOk}>
+              <or-translate value="ok"></or-translate>
+            </or-vaadin-button>
           </div>
-        `)
-        .setStyles(html`
-          <style>
-            .mdc-dialog__surface {
-              padding: 4px 8px;
-            }
-
-            #dialog-content {
-              flex: 1;
-              overflow: visible;
-              min-height: 0;
-              padding: 0;
-            }
-
-            or-mwc-input.selector {
-              width: 300px;
-              display: block;
-              padding: 10px 20px;
-            }
-          </style>
-        `)
-        .setDismissAction(null)
+        </or-vaadin-dialog>
+      `
     );
   }
 }

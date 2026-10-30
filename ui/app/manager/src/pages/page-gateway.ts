@@ -23,7 +23,8 @@ import { when } from "lit/directives/when.js";
 import { until } from "lit/directives/until.js";
 import { createRef, type Ref, ref } from "lit/directives/ref.js";
 import "@openremote/or-components/or-panel";
-import { OrMwcDialog, showDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
+import { showDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
+import { type OrVaadinDialog, showDialog as showVaadinDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
 import {
   type AttributeDescriptor,
   type AttributePredicate,
@@ -35,7 +36,7 @@ import {
   LogicGroupOperator,
   type GatewayAssetSyncRule,
 } from "@openremote/model";
-import manager, { DefaultColor1, DefaultColor3 } from "@openremote/core";
+import manager, { DefaultColor1 } from "@openremote/core";
 import { InputType, type OrInputChangedEvent } from "@openremote/or-mwc-components/or-mwc-input";
 import type { OrVaadinToggle } from "@openremote/or-vaadin-components/or-vaadin-toggle";
 import { type AppStateKeyed, Page, type PageProvider } from "@openremote/or-app";
@@ -774,49 +775,57 @@ export class PageGateway extends Page<AppStateKeyed> {
    * The changed are only applied once the save button is pressed.
    */
   protected _openConnectionJSONEditor(connection?: GatewayConnection) {
+    let dialog: OrVaadinDialog | undefined;
     const editorRef: Ref<OrAceEditor> = createRef();
-    showDialog(
-      new OrMwcDialog()
-        .setHeading("JSON Editor")
-        .setContent(html`
+    const onCancel = () => dialog?.close();
+    const onOk = () => {
+      const editor = editorRef.value;
+      if (!editor.validate()) {
+        console.warn("JSON was not valid");
+        showSnackbar(undefined, i18next.t("errorOccurred"));
+        return;
+      }
+      try {
+        let parsed: GatewayAttributeFilter[] | undefined;
+        if (editor.getValue().length > 0) {
+          parsed = JSON.parse(editor.getValue());
+
+          // Verify if the JSON is an array. If so; simply accept the format.
+          if (!Array.isArray(parsed)) {
+            console.warn("Could not parse JSON to GatewayAttributeFilter[], as it was not an array.");
+            showSnackbar(undefined, i18next.t("errorOccurred"));
+            return;
+          }
+        }
+        this._updateAttributeFilters(parsed);
+        dialog?.close();
+      } catch (e) {
+        console.error(e);
+        showSnackbar(undefined, i18next.t("errorOccurred"));
+      }
+    };
+    dialog = showVaadinDialog(
+      this.shadowRoot!,
+      html`
+        <or-vaadin-dialog width="768px">
+          <h2 slot="header-content">
+            <span>JSON Editor</span>
+          </h2>
           <or-ace-editor
             ${ref(editorRef)}
             .value="${connection?.attributeFilters}"
-            style="height: 60vh; width: 1024px;"
+            style="width: 100%; aspect-ratio: 1/1;"
           ></or-ace-editor>
-        `)
-        .setActions([
-          { actionName: "cancel", content: "cancel" },
-          {
-            actionName: "save",
-            content: "save",
-            action: () => {
-              const editor = editorRef.value;
-              if (!editor.validate()) {
-                console.warn("JSON was not valid");
-                showSnackbar(undefined, i18next.t("errorOccurred"));
-                return;
-              }
-              try {
-                let parsed: GatewayAttributeFilter[] | undefined;
-                if (editor.getValue().length > 0) {
-                  parsed = JSON.parse(editor.getValue());
-
-                  // Verify if the JSON is an array. If so; simply accept the format.
-                  if (!Array.isArray(parsed)) {
-                    console.warn("Could not parse JSON to GatewayAttributeFilter[], as it was not an array.");
-                    showSnackbar(undefined, i18next.t("errorOccurred"));
-                    return;
-                  }
-                }
-                this._updateAttributeFilters(parsed);
-              } catch (e) {
-                console.error(e);
-                showSnackbar(undefined, i18next.t("errorOccurred"));
-              }
-            },
-          },
-        ])
+          <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
+            <or-vaadin-button theme="tertiary" @click=${onCancel}>
+              <or-translate value="cancel"></or-translate>
+            </or-vaadin-button>
+            <or-vaadin-button theme="primary" @click=${onOk}>
+              <or-translate value="save"></or-translate>
+            </or-vaadin-button>
+          </div>
+        </or-vaadin-dialog>
+      `
     );
   }
 }

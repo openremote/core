@@ -53,7 +53,7 @@ export class AssetsPage implements BasePage {
     await this.shared.interceptResponse<Asset>("**/asset", (asset) => {
       if (asset) this.manager.assets.push(asset);
     });
-    await this.page.click("#add-btn");
+    await this.page.getByRole("button", { name: "Add" }).click();
   }
 
   /**

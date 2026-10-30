@@ -17,12 +17,14 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 import type { GeoJsonConfig } from "@openremote/model";
-import { OrMwcDialog, showDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
+import { type OrVaadinDialog, showDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
 import { html } from "lit";
 import { OrElement } from "@openremote/or-element";
 import { customElement, property, state } from "lit/decorators.js";
 import "@openremote/or-components/or-ace-editor";
-import type { OrAceEditorChangedEvent } from "@openremote/or-components/or-ace-editor";
+import type { OrAceEditor, OrAceEditorChangedEvent } from "@openremote/or-components/or-ace-editor";
+import type { OrVaadinButton } from "@openremote/or-vaadin-components/or-vaadin-button";
+import { createRef, type Ref, ref } from "lit/directives/ref.js";
 
 @customElement("or-conf-map-geojson")
 export class OrConfMapGeoJson extends OrElement {
@@ -32,7 +34,7 @@ export class OrConfMapGeoJson extends OrElement {
   @state()
   protected _jsonValid: boolean = true;
 
-  protected _dialog: OrMwcDialog;
+  protected _dialog: OrVaadinDialog;
   // Value of or-ace-editor without state to prevent UI update
   protected _aceEditorValue: string;
 
@@ -40,63 +42,50 @@ export class OrConfMapGeoJson extends OrElement {
 
   protected render() {
     return html`
-      <or-vaadin-button @click=${() => this.showDialog()}>
+      <or-vaadin-button @click=${() => this._showDialog()}>
         <or-icon slot="prefix" icon="pencil"></or-icon>
         <or-translate value="configuration.geoJson"></or-translate>
       </or-vaadin-button>
     `;
   }
 
-  protected showDialog() {
+  protected _showDialog() {
+    const buttonRef: Ref<OrVaadinButton> = createRef();
+    const editorRef: Ref<OrAceEditor> = createRef();
+    const onOk = () => {
+      this.geoJson = this.parseGeoJson(this._aceEditorValue); // update with new value
+      this.dispatchEvent(new CustomEvent("update", { detail: { value: this.geoJson } }));
+      this._dialog?.close();
+    };
     this._dialog = showDialog(
-      new OrMwcDialog()
-        .setHeading("GeoJSON editor")
-        .setStyles(
-          html` <style>
-            .mdc-dialog__surface {
-              width: 1024px;
-              overflow-x: visible !important;
-              overflow-y: visible !important;
-            }
-            #dialog-content {
-              border-top-width: 1px;
-              border-top-style: solid;
-              border-bottom-width: 1px;
-              border-bottom-style: solid;
-              padding: 0;
-              overflow: visible;
-              height: 60vh;
-            }
-          </style>`
-        )
-        .setActions([
-          {
-            actionName: "close",
-            content: "close",
-          },
-          {
-            actionName: "ok",
-            content: "update",
-            disabled: !this._jsonValid,
-            action: () => {
-              this.geoJson = this.parseGeoJson(this._aceEditorValue); // update with new value
-              this.dispatchEvent(new CustomEvent("update", { detail: { value: this.geoJson } }));
-            },
-          },
-        ])
-        .setContent(
-          () =>
-            html` <or-ace-editor
-              .value="${this.geoJson?.source}"
-              @or-ace-editor-changed="${(ev: OrAceEditorChangedEvent) => {
-                this._jsonValid = ev.detail.valid;
-                if (this._jsonValid) {
-                  this._aceEditorValue = ev.detail.value;
-                }
-              }}"
-            ></or-ace-editor>`
-        )
-        .setDismissAction(null)
+      this.shadowRoot!,
+      html`
+        <or-vaadin-dialog width="768px" no-close-on-esc no-close-on-outside-click>
+          <h2 slot="header-content">
+            <span>GeoJSON editor</span>
+          </h2>
+          <or-ace-editor
+            ${ref(editorRef)}
+            .value="${this.geoJson?.source}"
+            style="width: 100%; aspect-ratio: 1/1;"
+            @or-ace-editor-changed="${(ev: OrAceEditorChangedEvent) => {
+              this._jsonValid = ev.detail.valid;
+              buttonRef.value!.disabled = !this._jsonValid;
+              if (this._jsonValid) {
+                this._aceEditorValue = ev.detail.value;
+              }
+            }}"
+          ></or-ace-editor>
+          <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
+            <or-vaadin-button theme="tertiary" @click=${() => this._dialog?.close()}>
+              <or-translate value="close"></or-translate>
+            </or-vaadin-button>
+            <or-vaadin-button theme="primary" ${ref(buttonRef)} disabled @click=${onOk}>
+              <or-translate value="update"></or-translate>
+            </or-vaadin-button>
+          </div>
+        </or-vaadin-dialog>
+      `
     );
   }
 

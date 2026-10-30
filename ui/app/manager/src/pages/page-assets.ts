@@ -43,16 +43,16 @@ import {
   OrAssetTreeRequestSelectionEvent,
   OrAssetTreeSelectionEvent,
 } from "@openremote/or-asset-tree";
-import manager, { DefaultBoxShadow, DefaultColor5, Util } from "@openremote/core";
+import manager, { DefaultBoxShadow, Util } from "@openremote/core";
 import { type AppStateKeyed, Page, type PageProvider, router } from "@openremote/or-app";
 import { createSlice, type Store, createSelector } from "@reduxjs/toolkit";
-import { type DialogAction, OrMwcDialog, showDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
-import { i18next } from "@openremote/or-translate";
+import { type OrVaadinDialog, showDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
 import { type Asset, AssetEventCause, WellknownAssets } from "@openremote/model";
 import "@openremote/or-json-forms";
 import { getAlarmsRoute, getAssetsRoute, getUsersRoute } from "../routes";
 import { showSnackbar } from "@openremote/or-mwc-components/or-mwc-snackbar";
 import { getConfirmDialogContent, showConfirmDialog } from "@openremote/or-vaadin-components/or-vaadin-confirm-dialog";
+import { createRef, ref, type Ref } from "lit/directives/ref.js";
 
 export interface PageAssetsConfig {
   viewer?: ViewerConfig;
@@ -274,82 +274,59 @@ export class PageAssets extends Page<AssetsStateKeyed> {
   }
 
   protected _onParentChangeClick() {
-    let dialog: OrMwcDialog;
+    let dialog: OrVaadinDialog | undefined;
+    const assetTreeRef: Ref<OrAssetTree> = createRef();
 
-    const blockEvent = (ev: Event) => {
-      ev.stopPropagation();
-    };
-
-    const dialogContent = html` <or-asset-tree
-      id="parent-asset-tree"
-      disableSubscribe
-      readonly
-      .selectedIds="${[]}"
-      @or-asset-tree-request-select="${blockEvent}"
-      @or-asset-tree-selection-changed="${blockEvent}"
-    ></or-asset-tree>`;
+    const blockEvent = (ev: Event) => ev.stopPropagation();
 
     const setParent = () => {
-      const assetTree = dialog.shadowRoot!.getElementById("parent-asset-tree") as OrAssetTree;
+      const assetTree = assetTreeRef.value!;
       const idd = assetTree.selectedIds!.length === 1 ? assetTree.selectedIds![0] : undefined;
       this._onAssetParentChange({ parentId: idd, assetIds: this._assetIds });
     };
 
     const clearParent = () => {
       this._onAssetParentChange({ parentId: undefined, assetIds: this._assetIds });
+      dialog?.close();
     };
 
-    const dialogActions: DialogAction[] = [
-      {
-        actionName: "clear",
-        content: "none",
-        action: clearParent,
-      },
-      {
-        actionName: "ok",
-        content: "ok",
-        action: setParent,
-      },
-      {
-        default: true,
-        actionName: "cancel",
-        content: "cancel",
-      },
-    ];
+    const onCancel = () => dialog?.close();
+    const onOk = () => {
+      setParent();
+      dialog?.close();
+    };
 
     dialog = showDialog(
-      new OrMwcDialog()
-        .setContent(dialogContent)
-        .setActions(dialogActions)
-        .setStyles(html`
-          <style>
-            .mdc-dialog__surface {
-              width: 400px;
-              height: 800px;
-              display: flex;
-              overflow: visible;
-              overflow-x: visible !important;
-              overflow-y: visible !important;
-            }
-
-            #dialog-content {
-              flex: 1;
-              overflow: visible;
-              min-height: 0;
-              padding: 0;
-            }
-
-            footer.mdc-dialog__actions {
-              border-top: 1px solid ${unsafeCSS(DefaultColor5)};
-            }
-
-            or-asset-tree {
-              height: 100%;
-            }
-          </style>
-        `)
-        .setHeading(i18next.t("setParent"))
-        .setDismissAction(null)
+      this.shadowRoot!,
+      html`
+        <or-vaadin-dialog width="384px">
+          <h2 slot="header-content">
+            <or-translate value="setParent"></or-translate>
+          </h2>
+          <or-asset-tree
+            ${ref(assetTreeRef)}
+            disableSubscribe
+            readonly
+            .selectedIds="${[]}"
+            style="width: 100%; aspect-ratio: 1/1.75;"
+            @or-asset-tree-request-selection="${blockEvent}"
+            @or-asset-tree-selection="${blockEvent}"
+          ></or-asset-tree>
+          <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
+            <or-vaadin-button theme="tertiary" @click=${onCancel}>
+              <or-translate value="cancel"></or-translate>
+            </or-vaadin-button>
+            <div>
+              <or-vaadin-button @click=${clearParent}>
+                <or-translate value="clear"></or-translate>
+              </or-vaadin-button>
+              <or-vaadin-button theme="primary" @click=${onOk}>
+                <or-translate value="ok"></or-translate>
+              </or-vaadin-button>
+            </div>
+          </div>
+        </or-vaadin-dialog>
+      `
     );
   }
 

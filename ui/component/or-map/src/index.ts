@@ -31,9 +31,8 @@ import type {
   ValueInputProviderGenerator,
   ValueInputTemplateFunction,
 } from "@openremote/or-vaadin-components/value-input-provider";
-import { OrMwcDialog, showDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
+import { type OrVaadinDialog, showDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
 import { getMarkerIconAndColorFromAssetType } from "./util";
-import { i18next } from "@openremote/or-translate";
 import debounce from "lodash.debounce";
 import type { AttributeEvent, GeoJsonConfig } from "@openremote/model";
 import {
@@ -46,6 +45,7 @@ import { AssetMap } from "./asset-map";
 import { OrMapCenterControl } from "./controls/center";
 import { OrMapGeolocateControl } from "./controls/geolocate";
 import { ifDefined } from "lit-html/directives/if-defined.js";
+import { createRef, ref, type Ref } from "lit/directives/ref.js";
 import type { AssetWithLocation, ClusterConfig, ControlPosition, MapEventDetail, MapFilter } from "./types";
 
 // Re-exports
@@ -179,18 +179,19 @@ export const geoJsonPointInputTemplateProvider: ValueInputProviderGenerator = (
 
     const iconAndColor = getMarkerIconAndColorFromAssetType(assetDescriptor);
 
-    let dialog: OrMwcDialog | undefined;
+    let dialog: OrVaadinDialog | undefined;
+    const orMap: Ref<OrMap> = createRef();
 
-    _setPos = (lngLat: LngLatLike | null) => {
+    const setPos = (lngLat: LngLatLike | null) => {
       if (readonly || disabled) {
         return;
       }
 
       pos = lngLat ? Util.getLngLat(lngLat) : null;
 
-      if (dialog) {
+      if (orMap.value) {
         // We're in compact mode modal
-        const marker = dialog.shadowRoot!.getElementById("geo-json-point-marker") as OrMapMarker;
+        const marker = orMap.value.firstElementChild as OrMapMarker;
         marker.lng = pos ? pos.lng : undefined;
         marker.lat = pos ? pos.lat : undefined;
         center = pos ? Object.values(pos) : undefined;
@@ -200,12 +201,12 @@ export const geoJsonPointInputTemplateProvider: ValueInputProviderGenerator = (
         valueChangeHandler(pos as LngLatLike);
       }
     };
-    const setPos = _setPos;
 
     let content = html`
       <or-map
         id="geo-json-point-map"
-        class="or-map"
+        ${ref(orMap)}
+        style="aspect-ratio: 1/1;"
         @or-map-long-press="${(ev: OrMapLongPressEvent) => {
           setPos(ev.detail.lngLat);
         }}"
@@ -223,7 +224,9 @@ export const geoJsonPointInputTemplateProvider: ValueInputProviderGenerator = (
           .colour="${iconAndColor ? "#" + iconAndColor.color : undefined}"
         ></or-map-marker>
       </or-map>
-      <span class="long-press-msg">${i18next.t("longPressSetLoc")}</span>
+      <span class="long-press-msg" style="display: block; text-align: center;">
+        <or-translate value="longPressSetLoc"></or-translate>
+      </span>
     `;
 
     if (compact) {
@@ -231,45 +234,39 @@ export const geoJsonPointInputTemplateProvider: ValueInputProviderGenerator = (
 
       const onClick = () => {
         dialog = showDialog(
-          new OrMwcDialog()
-            .setContent(mapContent)
-            .setStyles(html`
-              <style>
-                .dialog-container {
-                  flex-direction: column !important;
-                }
-                .dialog-container .long-press-msg {
-                  display: block;
-                  text-align: center;
-                }
-                or-map {
-                  width: 600px !important;
-                  min-height: 600px !important;
-                }
-              </style>
-            `)
-            .setActions([
-              {
-                actionName: "none",
-                content: "none",
-                action: () => {
-                  setPos(null);
-                  valueChangeHandler(pos as LngLatLike);
-                },
-              },
-              {
-                actionName: "ok",
-                content: "ok",
-                action: () => {
-                  valueChangeHandler(pos as LngLatLike);
-                },
-              },
-              {
-                default: true,
-                actionName: "cancel",
-                content: "cancel",
-              },
-            ])
+          document.body,
+          html`
+            <or-vaadin-dialog width="768px">
+              <div slot="header-content"></div>
+              ${mapContent}
+              <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
+                <or-vaadin-button theme="tertiary" @click=${() => dialog?.close()}>
+                  <or-translate value="cancel"></or-translate>
+                </or-vaadin-button>
+                <div>
+                  <or-vaadin-button
+                    theme="tertiary"
+                    @click=${() => {
+                      setPos(null);
+                      valueChangeHandler(pos as LngLatLike);
+                      dialog?.close();
+                    }}
+                  >
+                    <or-translate value="none"></or-translate>
+                  </or-vaadin-button>
+                  <or-vaadin-button
+                    theme="primary"
+                    @click=${() => {
+                      valueChangeHandler(pos as LngLatLike);
+                      dialog?.close();
+                    }}
+                  >
+                    <or-translate value="ok"></or-translate>
+                  </or-vaadin-button>
+                </div>
+              </div>
+            </or-vaadin-dialog>
+          `
         );
       };
 

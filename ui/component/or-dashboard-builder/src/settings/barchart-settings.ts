@@ -33,9 +33,8 @@ import type { BarChartWidgetConfig } from "../widgets/barchart-widget";
 import type { OrVaadinToggle } from "@openremote/or-vaadin-components/or-vaadin-toggle";
 import { when } from "lit/directives/when.js";
 import type moment from "moment/moment";
-import { type ListItem, ListType, type OrMwcList } from "@openremote/or-mwc-components/or-mwc-list";
 import type { OrVaadinSelect, SelectItem } from "@openremote/or-vaadin-components/or-vaadin-select";
-import { showDialog, OrMwcDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
+import { type OrVaadinDialog, showDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
 import {
   type BarChartAttributeConfig,
   type BarChartInterval,
@@ -48,6 +47,7 @@ import { createRef, type Ref, ref } from "lit/directives/ref.js";
 import type { AttributesChartPanel } from "../panels/attributes-chart-panel";
 import debounce from "lodash.debounce";
 import type { OrVaadinNumberField } from "@openremote/or-vaadin-components/or-vaadin-number-field";
+import type { OrVaadinCheckboxGroup } from "@openremote/or-vaadin-components/or-vaadin-checkbox-group";
 
 const styling = css`
   .switch-container {
@@ -640,66 +640,60 @@ export class BarChartSettings extends WidgetSettings {
       "methodModeAttributes",
       "methodSumAttributes",
     ];
-    const methodList: ListItem[] = methodKeys.map((key) => {
-      const attributeRefs = this.widgetConfig.attributeSettings[key];
-      const isActive = attributeRefs?.some(
-        (attrRef) => attrRef.id === attributeRef.id && attrRef.name === attributeRef.name
-      );
-      return {
-        text: key,
-        value: key,
-        data: isActive ? key : undefined,
-        translate: true,
-      };
-    });
+    const activeKeys = methodKeys.filter((key) =>
+      this.widgetConfig?.attributeSettings?.[key]?.find(
+        (ref) => ref.id === attributeRef.id && ref.name === attributeRef.name
+      )
+    );
 
-    const listRef: Ref<OrMwcList> = createRef();
+    const groupRef: Ref<OrVaadinCheckboxGroup> = createRef();
+    let dialog: OrVaadinDialog | undefined;
 
-    showDialog(
-      new OrMwcDialog()
-        .setContent(html`
-          <div id="method-creator">
-            <or-mwc-list
-              ${ref(listRef)}
-              id="method-creator-list"
-              .type="${ListType.MULTI_CHECKBOX}"
-              .listItems="${methodList}"
-              .values="${methodList.map((item) => item.data)}"
-            ></or-mwc-list>
+    const onCancel = () => {
+      dialog?.close();
+    };
+    const onOk = () => {
+      const groupElem = groupRef.value;
+      if (groupElem) {
+        // Find all "active" methods for this AttributeRef, and remove them all. (so they become empty arrays)
+        activeKeys.forEach((key) => {
+          this.toggleAttributeSetting(key, attributeRef, false);
+        });
+        // Add the methods that were checked in the checkbox list
+        groupElem.value.forEach((key) => {
+          this.toggleAttributeSetting(key as keyof BarChartAttributeConfig, attributeRef, false);
+        });
+        this.notifyConfigUpdate();
+        dialog?.close();
+      }
+    };
+
+    dialog = showDialog(
+      this.shadowRoot!,
+      html`
+        <or-vaadin-dialog width="384px">
+          <h2 slot="header-content">
+            <or-translate value="algorithmMethod"></or-translate>
+          </h2>
+          <or-vaadin-checkbox-group ${ref(groupRef)} theme="vertical" .value="${activeKeys}">
+            ${methodKeys.map(
+              (method) => html`
+                <vaadin-checkbox value=${method}>
+                  <or-translate slot="label" value=${method}></or-translate>
+                </vaadin-checkbox>
+              `
+            )}
+          </or-vaadin-checkbox-group>
+          <div slot="footer" style="width: 100%; display: flex; justify-content: space-between;">
+            <or-vaadin-button theme="tertiary" @click=${onCancel}>
+              <or-translate value="cancel"></or-translate>
+            </or-vaadin-button>
+            <or-vaadin-button theme="primary" @click=${onOk}>
+              <or-translate value="ok"></or-translate>
+            </or-vaadin-button>
           </div>
-        `)
-        .setHeading(i18next.t("algorithmMethod"))
-        .setActions([
-          {
-            actionName: "cancel",
-            content: "cancel",
-          },
-          {
-            default: true,
-            actionName: "ok",
-            action: () => {
-              if (listRef.value) {
-                // Find all "active" methods for this AttributeRef, and remove them all. (so they become empty arrays)
-                methodKeys
-                  .filter(
-                    (oldKey) =>
-                      !!this.widgetConfig.attributeSettings[oldKey]?.find(
-                        (attrRef) => attrRef.id === attributeRef.id && attrRef.name === attributeRef.name
-                      )
-                  )
-                  .forEach((oldKey) => this.toggleAttributeSetting(oldKey, attributeRef, false));
-
-                // Add the methods that were checked in the checkbox list
-                (listRef.value.values as (keyof BarChartAttributeConfig)[] | undefined)?.forEach((s) => {
-                  this.toggleAttributeSetting(s, attributeRef, false);
-                });
-                this.notifyConfigUpdate();
-              }
-            },
-            content: "ok",
-          },
-        ])
-        .setDismissAction(null)
+        </or-vaadin-dialog>
+      `
     );
   }
 

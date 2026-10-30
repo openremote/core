@@ -28,12 +28,14 @@ import { DefaultColor3, manager } from "@openremote/core";
 import { type Asset, type AssetQuery, type GatewayTunnelInfo, GatewayTunnelInfoType } from "@openremote/model";
 import type { TableColumn, TableRow } from "@openremote/or-mwc-components/or-mwc-table";
 import { getAssetsRoute } from "../routes";
-import { OrMwcDialog, showDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
+import { type OrVaadinDialog, showDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
 import { showSnackbar } from "@openremote/or-mwc-components/or-mwc-snackbar";
 import moment from "moment";
 import type { OrVaadinComboBox } from "@openremote/or-vaadin-components/or-vaadin-combo-box";
 import type { OrVaadinSelect } from "@openremote/or-vaadin-components/or-vaadin-select";
 import { getConfirmDialogContent, showConfirmDialog } from "@openremote/or-vaadin-components/or-vaadin-confirm-dialog";
+import type { OrVaadinButton } from "@openremote/or-vaadin-components/or-vaadin-button";
+import { createRef, ref, type Ref } from "lit/directives/ref.js";
 
 export function pageGatewayTunnelProvider(store: Store<AppStateKeyed>): PageProvider<AppStateKeyed> {
   return {
@@ -313,25 +315,21 @@ export class PageGatewayTunnel extends Page<AppStateKeyed> {
    */
   protected _onAddTunnelClick() {
     const tunnel = {} as GatewayTunnelInfo;
-    let dialog: OrMwcDialog | undefined;
+    let dialog: OrVaadinDialog | undefined;
+    const buttonRef: Ref<OrVaadinButton> = createRef();
 
     const onAddClick = () => {
       this._tryStartTunnel(tunnel);
+      dialog?.close();
     };
-    const updateActions = () => {
-      dialog.setActions([
-        { actionName: "cancel", content: "cancel" },
-        {
-          actionName: "add",
-          disabled:
-            !tunnel.gatewayId ||
-            (tunnel.hostname && tunnel.hostname.trim().length === 0) ||
-            (tunnel.targetPort !== undefined && (tunnel.targetPort <= 0 || tunnel.targetPort > 65535)),
-          content: "add",
-          action: () => onAddClick(),
-        },
-      ]);
+
+    const checkValidity = () => {
+      buttonRef.value!.disabled =
+        !tunnel.gatewayId ||
+        (tunnel.hostname && tunnel.hostname.trim().length === 0) ||
+        (tunnel.targetPort !== undefined && (tunnel.targetPort <= 0 || tunnel.targetPort > 65535));
     };
+
     const gatewayListTemplate = async (): Promise<TemplateResult> => {
       const gatewayAssets = await this._fetchGatewayAssets();
       const items: { value: any; label: string }[] = gatewayAssets.map((g) => ({ value: g.id, label: g.name }));
@@ -340,13 +338,13 @@ export class PageGatewayTunnel extends Page<AppStateKeyed> {
         label: String(g),
       }));
       return html`
-        <div style="display: flex; flex-direction: column; gap: 20px; width: 360px;">
+        <div style="display: flex; flex-direction: column; gap: 20px; width: 100%;">
           <or-vaadin-combo-box
             .items=${items}
             value="${tunnel.gatewayId}"
             @change=${(ev: Event) => {
               tunnel.gatewayId = (ev.currentTarget as OrVaadinComboBox).value;
-              updateActions();
+              checkValidity();
             }}
           >
             <or-translate slot="label" value="gatewayTunnels.selectAsset"></or-translate>
@@ -357,7 +355,7 @@ export class PageGatewayTunnel extends Page<AppStateKeyed> {
             placeholder=${this.GATEWAY_TUNNEL_PROTOCOL_TYPES?.[0]}
             @change=${(ev: Event) => {
               tunnel.type = (ev.currentTarget as OrVaadinSelect).value as GatewayTunnelInfoType;
-              updateActions();
+              checkValidity();
             }}
           >
             <or-translate slot="label" value="gatewayTunnels.protocol"></or-translate>
@@ -367,7 +365,7 @@ export class PageGatewayTunnel extends Page<AppStateKeyed> {
             placeholder="localhost"
             @change=${(ev: Event) => {
               tunnel.target = (ev.currentTarget as HTMLInputElement).value;
-              updateActions();
+              checkValidity();
             }}
           >
             <or-translate slot="label" value="host"></or-translate>
@@ -380,7 +378,7 @@ export class PageGatewayTunnel extends Page<AppStateKeyed> {
             @change=${(ev: Event) => {
               const value = (ev.currentTarget as HTMLInputElement).value;
               tunnel.targetPort = value ? Number(value) : undefined;
-              updateActions();
+              checkValidity();
             }}
           >
             <or-translate slot="label" value="port"></or-translate>
@@ -388,12 +386,26 @@ export class PageGatewayTunnel extends Page<AppStateKeyed> {
         </div>
       `;
     };
-    dialog = new OrMwcDialog()
-      .setHeading(`${i18next.t("add")} ${i18next.t("tunnel")}`)
-      .setContent(html` ${until(gatewayListTemplate(), html`${i18next.t("loading")}`)} `);
-
-    updateActions();
-    showDialog(dialog);
+    dialog = showDialog(
+      this.shadowRoot!,
+      html`
+        <or-vaadin-dialog width="384px">
+          <h2 slot="header-content">
+            <or-translate value="add"></or-translate>
+            <or-translate value="tunnel"></or-translate>
+          </h2>
+          ${until(gatewayListTemplate(), html`<or-translate value="loading"></or-translate>`)}
+          <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
+            <or-vaadin-button theme="tertiary" @click=${() => dialog?.close()}>
+              <or-translate value="cancel"></or-translate>
+            </or-vaadin-button>
+            <or-vaadin-button theme="primary" ${ref(buttonRef)} disabled @click=${() => onAddClick()}>
+              <or-translate value="add"></or-translate>
+            </or-vaadin-button>
+          </div>
+        </or-vaadin-dialog>
+      `
+    );
   }
 
   /**

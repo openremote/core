@@ -28,12 +28,10 @@ import "@openremote/or-attribute-history";
 import "@openremote/or-chart";
 import "@openremote/or-mwc-components/or-mwc-table";
 import "@openremote/or-components/or-panel";
-import "@openremote/or-mwc-components/or-mwc-dialog";
-import { showOkCancelDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
-import "@openremote/or-mwc-components/or-mwc-list";
+import { type OrVaadinDialog, showDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
 import { type OrTranslate, translate } from "@openremote/or-translate";
-import { InputType, OrInputChangedEvent, OrMwcInput } from "@openremote/or-mwc-components/or-mwc-input";
-import manager, { OPENREMOTE_CLIENT_ID, RESTRICTED_USER_REALM_ROLE, subscribe, Util } from "@openremote/core";
+import { InputType } from "@openremote/or-mwc-components/or-mwc-input";
+import manager, { RESTRICTED_USER_REALM_ROLE, subscribe, Util } from "@openremote/core";
 import type { OrMwcTable, OrMwcTableRowClickEvent } from "@openremote/or-mwc-components/or-mwc-table";
 import type { OrChartConfig } from "@openremote/or-chart";
 import type { HistoryConfig, OrAttributeHistory } from "@openremote/or-attribute-history";
@@ -67,10 +65,11 @@ import { showSnackbar } from "@openremote/or-mwc-components/or-mwc-snackbar";
 import { progressCircular } from "@openremote/or-mwc-components/style";
 import { when } from "lit/directives/when.js";
 import { ifDefined } from "lit/directives/if-defined.js";
-import type { OrVaadinCheckbox } from "@openremote/or-vaadin-components/or-vaadin-checkbox";
 import type { OrVaadinInput } from "@openremote/or-vaadin-components/or-vaadin-input";
 import { OrVaadinDateTimePicker } from "@openremote/or-vaadin-components/or-vaadin-date-time-picker";
 import { getConfirmDialogContent, showConfirmDialog } from "@openremote/or-vaadin-components/or-vaadin-confirm-dialog";
+import type { OrVaadinCheckboxGroup } from "@openremote/or-vaadin-components/or-vaadin-checkbox-group";
+import { createRef, type Ref, ref } from "lit/directives/ref.js";
 
 declare function require(name: string): any;
 
@@ -841,36 +840,46 @@ function getPanelContent(
     };
 
     const attributePickerModalOpen = () => {
-      const newlySelectedAttributes = [...selectedAttributes];
-
-      // TODO: Replace with or-vaadin-dialog, see https://github.com/openremote/core/issues/2594
-      showOkCancelDialog(
-        i18next.t("addRemoveAttributes"),
-        html`
-          <div style="display: flex; flex-direction: column;">
-            ${availableAttributes.sort().map(
-              (attribute) => html`
-                <or-vaadin-checkbox
-                  label=${i18next.t(Util.camelCaseToSentenceCase(attribute))}
-                  style="display: inline-flex;"
-                  .checked=${!!selectedAttributes.find((selected) => selected === attribute)}
-                  @change=${(ev: Event) => {
-                    if ((ev.currentTarget as OrVaadinCheckbox).checked) {
-                      newlySelectedAttributes.push(attribute);
-                    } else {
-                      newlySelectedAttributes.splice(newlySelectedAttributes.indexOf(attribute), 1);
-                    }
-                  }}
-                ></or-vaadin-checkbox>
-              `
-            )}
-          </div>
-        `
-      ).then((ok) => {
-        if (ok) {
-          updateSelectedAttributes(newlySelectedAttributes);
+      let dialog: OrVaadinDialog | undefined;
+      const groupRef: Ref<OrVaadinCheckboxGroup> = createRef();
+      const onCancel = () => {
+        dialog?.close();
+      };
+      const onOk = () => {
+        const groupElem = groupRef.value;
+        if (groupElem) {
+          updateSelectedAttributes(groupElem.value);
+          dialog?.close();
         }
-      });
+      };
+
+      dialog = showDialog(
+        hostElement.shadowRoot!,
+        html`
+          <or-vaadin-dialog width="384px">
+            <h2 slot="header-content">
+              <or-translate value="addRemoveAttributes"></or-translate>
+            </h2>
+            <or-vaadin-checkbox-group ${ref(groupRef)} theme="vertical" .value="${selectedAttributes}">
+              ${availableAttributes.sort().map(
+                (attr) => html`
+                  <vaadin-checkbox value=${attr}>
+                    <or-translate slot="label" value=${Util.camelCaseToSentenceCase(attr)}></or-translate>
+                  </vaadin-checkbox>
+                `
+              )}
+            </or-vaadin-checkbox-group>
+            <div slot="footer" style="width: 100%; display: flex; justify-content: space-between;">
+              <or-vaadin-button theme="tertiary" @click=${onCancel}>
+                <or-translate value="cancel"></or-translate>
+              </or-vaadin-button>
+              <or-vaadin-button theme="primary" @click=${onOk}>
+                <or-translate value="ok"></or-translate>
+              </or-vaadin-button>
+            </div>
+          </or-vaadin-dialog>
+        `
+      );
     };
 
     const headersAndRows = getHeadersAndRows();

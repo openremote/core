@@ -26,7 +26,7 @@ import { Util } from "@openremote/core";
 import { when } from "lit/directives/when.js";
 import { createRef, type Ref, ref } from "lit/directives/ref.js";
 import type { AssetTreeConfig, OrAssetTree } from "@openremote/or-asset-tree";
-import { OrMwcDialog, showDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
+import { type OrVaadinDialog, showDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
 import {
   type ComboBoxLitRenderer,
   comboBoxRenderer,
@@ -314,56 +314,49 @@ export class AssettypesPanel extends OrElement {
         multiSelect: multi,
       },
     } as AssetTreeConfig;
-    const dialog = showDialog(
-      new OrMwcDialog()
-        .setHeading(i18next.t("linkedAssets"))
-        .setStyles(
-          html`<style>
-            or-asset-tree {
-              min-height: 400px;
-              max-height: 50vh;
-            }
-          </style>`
-        )
-        .setContent(html`
-          <div style="width: 400px;">
-            <or-asset-tree
-              ${ref(assetTreeRef)}
-              id="chart-asset-tree"
-              readonly
-              disableSubscribe
-              .config="${config}"
-              .selectedIds="${assetIds}"
-              .showSortBtn="${false}"
-              .showFilterIcon="${false}"
-              .checkboxes="${multi}"
-            ></or-asset-tree>
+
+    let dialog: OrVaadinDialog | undefined;
+    const onCancel = () => dialog?.close();
+    const onOk = () => {
+      const tree = assetTreeRef.value;
+      if (tree?.selectedIds) {
+        if (multi) {
+          this.assetIds = tree.selectedIds;
+        } else {
+          this.assetIds = tree.selectedIds[0];
+        }
+      }
+      dialog?.close();
+    };
+
+    dialog = showDialog(
+      this.shadowRoot!,
+      html`
+        <or-vaadin-dialog width="384px">
+          <h2 slot="header-content">
+            <or-translate value="linkedAssets"></or-translate>
+          </h2>
+          <or-asset-tree
+            ${ref(assetTreeRef)}
+            readonly
+            disableSubscribe
+            .config="${config}"
+            .selectedIds="${assetIds}"
+            .showSortBtn="${false}"
+            .showFilterIcon="${false}"
+            .checkboxes="${multi}"
+            style="width: 100%; aspect-ratio: 1/1.75;"
+          ></or-asset-tree>
+          <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
+            <or-vaadin-button theme="tertiary" @click=${onCancel}>
+              <or-translate value="cancel"></or-translate>
+            </or-vaadin-button>
+            <or-vaadin-button theme="primary" @click=${onOk}>
+              <or-translate value="ok"></or-translate>
+            </or-vaadin-button>
           </div>
-        `)
-        .setActions([
-          {
-            default: true,
-            actionName: "cancel",
-            content: "cancel",
-          },
-          {
-            actionName: "ok",
-            content: "ok",
-            action: () => {
-              const tree = assetTreeRef.value;
-              if (tree?.selectedIds) {
-                if (multi) {
-                  this.assetIds = tree.selectedIds;
-                } else {
-                  this.assetIds = tree.selectedIds[0];
-                }
-              }
-            },
-          },
-        ])
-        .setDismissAction({
-          actionName: "cancel",
-        })
+        </or-vaadin-dialog>
+      `
     );
   }
 }

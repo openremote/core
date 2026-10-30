@@ -108,119 +108,136 @@ export class OrAddAssetDialog extends OrElement {
   public static get styles() {
     // language=CSS
     return css`
-            :host{
-                border-style: solid;
-                border-color: var(--or-app-color5, ${unsafeCSS(DefaultColor5)});
-                border-width: 1px 0;
-            }
-            
-            #name-wrapper {
-                display: flex;
-                flex-direction: column;
-                margin-top: 12px;
-            }
+      :host {
+        border-style: solid;
+        border-color: var(--or-app-color5, ${unsafeCSS(DefaultColor5)});
+        border-width: 1px 0;
+      }
 
-            #toggle-parent-selector,
-            #remove-parent {
-                margin: 4px 0 0 5px;
-            }
+      #name-wrapper {
+        display: flex;
+        flex-direction: column;
+        margin-top: 12px;
+      }
 
-            #name-input,
-            #parent-wrapper {
-                margin: 10px 0;
-            }
+      #toggle-parent-selector,
+      #remove-parent {
+        margin: 4px 0 0 5px;
+      }
 
-            #parent-wrapper {
-                display: flex;
-                align-items: end;
-            }
+      #name-input,
+      #parent-wrapper {
+        margin: 10px 0;
+      }
 
-            #parent {
-                flex: 1 1 auto;
-            }
-            
-            #parent-selector {
-                max-width: 250px;
-                border-left: 1px solid var(--or-app-color5, ${unsafeCSS(DefaultColor5)});
-            }
-            
-            #mdc-dialog-form-add {
-                display: flex;
-                height: 600px;
-                max-height: 600px;
-                width: 1000px;
-            }
+      #parent-wrapper {
+        display: flex;
+        align-items: end;
+      }
 
-            .msg {
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                text-align: center;
-                height: 100%;
-                font-family: "Segoe UI", Helvetica,Arial,sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol";
-                font-size: 14px;
-            }
+      #parent {
+        flex: 1 1 auto;
+      }
 
-            #asset-type-option-container {
-                padding: 15px;
-                flex: 1 1 auto;
-                overflow: auto;
-                max-width: 100%;
-                font-size: 16px;
-            }
+      #parent-selector {
+        max-width: 250px;
+        border-left: 1px solid var(--or-app-color5, ${unsafeCSS(DefaultColor5)});
+      }
 
-            #type-list-filter {
-                padding: 7px;
-                background-color: var(--or-app-color2, ${unsafeCSS(DefaultColor2)}))
-            }
-            
-            #filterInput{
-                width: 100%;
-            }
+      #mdc-dialog-form-add {
+        display: flex;
+        height: 600px;
+        max-height: 600px;
+        width: 1000px;
+      }
 
-            #type-list {
-                overflow: auto;
-                text-transform: capitalize;
-            }
+      .msg {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+        height: 100%;
+        font-family: "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+        font-size: 14px;
+      }
 
-            #type-list-container {
-                display: flex;
-                flex-direction: column;
-                width: 300px;
-                border-right: 1px solid var(--or-app-color5, ${unsafeCSS(DefaultColor5)});
-            }
+      #asset-type-option-container {
+        padding: 7px;
+        flex: 1 1 auto;
+        overflow: auto;
+        max-width: 100%;
+        font-size: 16px;
+      }
 
-            #type-title {
-                display: flex;
-                align-items: center;
-                margin: 9px 4px;
-            }
+      #asset-type-option-content {
+        padding: 7px 14px;
+        box-sizing: border-box;
+        height: 100%;
+        overflow: auto;
+        background: white;
+        border-radius: 7px;
+      }
 
-            #type-description {
-                text-transform: capitalize;
-                color: var(--or-app-color3, ${unsafeCSS(DefaultColor3)});
-                margin-left: 10px;
-                font-size: 18px;
-                font-weight: bold;
-                font-family: "Segoe UI", Helvetica,Arial,sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol";
-            }
+      #type-list-filter {
+        padding: 7px;
+      }
 
-            .heading,
-            .mdc-list-group__subheader {
-                text-transform: uppercase;
-                font-family: "Segoe UI", Helvetica,Arial,sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol";
-                font-weight: bolder;
-                line-height: 1em;
-                color: var(--or-app-color3, ${unsafeCSS(DefaultColor3)});
-                letter-spacing: 0.025em;
-                font-size: 14px;
-                margin: 20px 0 10px;
-            }
+      #filterInput {
+        width: 100%;
+      }
 
-            .mdc-list-group__subheader {
-                margin: 20px 0 0 16px;
-            }
-        `;
+      #type-list-content {
+        padding: 0 7px;
+        overflow: hidden;
+      }
+
+      #type-list {
+        padding: 0 7px;
+        background: white;
+        border-radius: 7px;
+        height: 100%;
+        overflow: auto;
+        text-transform: capitalize;
+      }
+
+      #type-list-container {
+        display: flex;
+        flex-direction: column;
+        width: 320px;
+        gap: 4px;
+      }
+
+      #type-title {
+        display: flex;
+        align-items: center;
+        margin: 9px 4px;
+      }
+
+      #type-description {
+        text-transform: capitalize;
+        color: var(--or-app-color3, ${unsafeCSS(DefaultColor3)});
+        margin-left: 10px;
+        font-size: 18px;
+        font-weight: bold;
+        font-family: "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+      }
+
+      .heading,
+      .mdc-list-group__subheader {
+        text-transform: uppercase;
+        font-family: "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+        font-weight: bolder;
+        line-height: 1em;
+        color: var(--or-app-color3, ${unsafeCSS(DefaultColor3)});
+        letter-spacing: 0.025em;
+        font-size: 14px;
+        margin: 20px 0 10px;
+      }
+
+      .mdc-list-group__subheader {
+        margin: 20px 0 0 16px;
+      }
+    `;
   }
 
   constructor() {
@@ -291,19 +308,23 @@ export class OrAddAssetDialog extends OrElement {
                 <or-icon slot="suffix" icon="magnify"></or-icon>
               </or-vaadin-text-field>
             </div>
-            <div id="type-list">
-              ${when(agentItems.length > 0, () => getListTemplate(filteredAgentItems, true))}
-              <hr style="color: white;" />
-              ${when(assetItems.length > 0, () => getListTemplate(filteredAssetItems, false))}
+            <div id="type-list-content">
+              <div id="type-list">
+                ${when(agentItems.length > 0, () => getListTemplate(filteredAgentItems, true))}
+                <hr style="color: white;" />
+                ${when(assetItems.length > 0, () => getListTemplate(filteredAssetItems, false))}
+              </div>
             </div>
           </div>
 
           <div id="asset-type-option-container" class="col">
-            ${
-              !this.selectedType
-                ? html`<div class="msg"><or-translate value="noAssetTypeSelected"></or-translate></div>`
-                : this.getTypeTemplate(this.selectedType, parentStr)
-            }
+            <div id="asset-type-option-content">
+              ${
+                !this.selectedType
+                  ? html`<div class="msg"><or-translate value="noAssetTypeSelected"></or-translate></div>`
+                  : this.getTypeTemplate(this.selectedType, parentStr)
+              }
+            </div>
           </div>
           ${
             !this.showParentAssetSelector

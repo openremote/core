@@ -56,7 +56,8 @@ import { OrAssetTreeSelectionEvent } from "@openremote/or-asset-tree";
 import { getAssetDescriptorIconTemplate } from "@openremote/or-icon";
 import { type GenericAxiosResponse, isAxiosError } from "@openremote/rest";
 import { OrAssetAttributePicker, OrAssetAttributePickerPickedEvent } from "@openremote/or-attribute-picker";
-import { OrMwcDialog, showDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
+import { showDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
+import { type OrVaadinDialog, showDialog as showVaadinDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
 import { cache } from "lit/directives/cache.js";
 import debounce from "lodash.debounce";
 import { OrVaadinDateTimePicker } from "@openremote/or-vaadin-components/or-vaadin-date-time-picker";
@@ -64,6 +65,7 @@ import { when } from "lit/directives/when.js";
 import { map } from "lit/directives/map.js";
 import { createRef, type Ref, ref } from "lit/directives/ref.js";
 import { createMenuBarItem, type MenuBarItem } from "@openremote/or-vaadin-components/or-vaadin-menu-bar";
+import { showSnackbar } from "@openremote/or-mwc-components/or-mwc-snackbar";
 
 echarts.use([
   GridComponent,
@@ -161,27 +163,27 @@ const tableStyle = require("@material/data-table/dist/mdc.data-table.css");
 // language=CSS
 const style = css`
     :host {
-        
+
         --internal-or-chart-background-color: var(--or-chart-background-color, var(--or-app-color2, ${unsafeCSS(DefaultColor2)}));
         --internal-or-chart-border-color: var(--or-chart-border-color, rgba(76, 76, 76, 0.6));
         --internal-or-chart-text-color: var(--or-chart-text-color, var(--or-app-color3, ${unsafeCSS(DefaultColor3)}));
-        --internal-or-chart-controls-margin: var(--or-chart-controls-margin, 0 0 20px 0);       
-        --internal-or-chart-controls-margin-children: var(--or-chart-controls-margin-children, 0 auto 20px auto);            
-        --internal-or-chart-graph-fill-color: var(--or-chart-graph-fill-color, var(--or-app-color4, ${unsafeCSS(DefaultColor4)}));       
-        --internal-or-chart-graph-fill-opacity: var(--or-chart-graph-fill-opacity, 0.25);       
-        --internal-or-chart-graph-line-color: var(--or-chart-graph-line-color, var(--or-app-color4, ${unsafeCSS(DefaultColor4)}));       
+        --internal-or-chart-controls-margin: var(--or-chart-controls-margin, 0 0 20px 0);
+        --internal-or-chart-controls-margin-children: var(--or-chart-controls-margin-children, 0 auto 20px auto);
+        --internal-or-chart-graph-fill-color: var(--or-chart-graph-fill-color, var(--or-app-color4, ${unsafeCSS(DefaultColor4)}));
+        --internal-or-chart-graph-fill-opacity: var(--or-chart-graph-fill-opacity, 0.25);
+        --internal-or-chart-graph-line-color: var(--or-chart-graph-line-color, var(--or-app-color4, ${unsafeCSS(DefaultColor4)}));
         --internal-or-chart-graph-point-color: var(--or-chart-graph-point-color, var(--or-app-color3, ${unsafeCSS(DefaultColor3)}));
         --internal-or-chart-graph-point-border-color: var(--or-chart-graph-point-border-color, var(--or-app-color5, ${unsafeCSS(DefaultColor5)}));
         --internal-or-chart-graph-point-radius: var(--or-chart-graph-point-radius, 4);
-        --internal-or-chart-graph-point-hit-radius: var(--or-chart-graph-point-hit-radius, 20);       
+        --internal-or-chart-graph-point-hit-radius: var(--or-chart-graph-point-hit-radius, 20);
         --internal-or-chart-graph-point-border-width: var(--or-chart-graph-point-border-width, 2);
-        --internal-or-chart-graph-point-hover-color: var(--or-chart-graph-point-hover-color, var(--or-app-color5, ${unsafeCSS(DefaultColor5)}));       
+        --internal-or-chart-graph-point-hover-color: var(--or-chart-graph-point-hover-color, var(--or-app-color5, ${unsafeCSS(DefaultColor5)}));
         --internal-or-chart-graph-point-hover-border-color: var(--or-chart-graph-point-hover-border-color, var(--or-app-color3, ${unsafeCSS(DefaultColor3)}));
-        --internal-or-chart-graph-point-hover-radius: var(--or-chart-graph-point-hover-radius, 4);      
+        --internal-or-chart-graph-point-hover-radius: var(--or-chart-graph-point-hover-radius, 4);
         --internal-or-chart-graph-point-hover-border-width: var(--or-chart-graph-point-hover-border-width, 2);
-        
+
         width: 100%;
-        display: block; 
+        display: block;
     }
 
     .line-label {
@@ -201,7 +203,7 @@ const style = css`
         background-size: 10px 16px;
         background-repeat: repeat-y;
     }
-    
+
     .button-icon {
         align-self: center;
         padding: 11px 6px;
@@ -221,11 +223,11 @@ const style = css`
         min-width: 600px;
         height: calc(100vh - 50%);
     }
-    
+
     :host([hidden]) {
         display: none;
     }
-    
+
     #container {
         display: flex;
         min-width: 0;
@@ -233,7 +235,7 @@ const style = css`
         height: 100%;
         gap: 8px;
     }
-       
+
     #msg {
         height: 100%;
         width: 100%;
@@ -241,11 +243,11 @@ const style = css`
         align-items: center;
         text-align: center;
     }
-    
+
     #msg:not([hidden]) {
-        display: flex;    
+        display: flex;
     }
-    
+
     #period-controls {
         display: flex;
         flex-direction: column;
@@ -264,7 +266,7 @@ const style = css`
     #period-dropdown-controls > *:last-child {
         margin-left: -2px;
     }
-    
+
 
     #controls {
         display: flex;
@@ -284,7 +286,7 @@ const style = css`
     .attribute-list-dense {
         flex-wrap: wrap;
     }
-    
+
     .attribute-list-item {
         cursor: pointer;
         display: flex;
@@ -315,7 +317,7 @@ const style = css`
     .button-clear:hover {
         --or-icon-fill: var(--or-app-color4);
     }
-    
+
     .attribute-list-item-label {
         display: flex;
         flex: 1 1 0;
@@ -1233,45 +1235,53 @@ export class OrChart extends translate(i18next)(OrElement) {
   protected _openTimeDialog(startTimestamp?: number, endTimestamp?: number) {
     const startRef: Ref<OrVaadinDateTimePicker> = createRef();
     const endRef: Ref<OrVaadinDateTimePicker> = createRef();
-    showDialog(
-      new OrMwcDialog()
-        .setHeading(i18next.t("timeframe"))
-        .setContent(
-          () => html`
-            <div style="max-width: 480px; display: flex; flex-direction: column; gap: 8px;">
-              <or-vaadin-date-time-picker
-                ${ref(startRef)}
-                required
-                value=${startTimestamp ? OrVaadinDateTimePicker.getLocalizedISOString(new Date(startTimestamp)) : undefined}
-              >
-                <or-translate slot="label" value="beginning"></or-translate>
-              </or-vaadin-date-time-picker>
-              <or-vaadin-date-time-picker
-                ${ref(endRef)}
-                required
-                value=${endTimestamp ? OrVaadinDateTimePicker.getLocalizedISOString(new Date(endTimestamp)) : undefined}
-              >
-                <or-translate slot="label" value="ending"></or-translate>
-              </or-vaadin-date-time-picker>
-            </div>
-          `
-        )
-        .setActions([
-          {
-            actionName: "cancel",
-            content: "cancel",
-          },
-          {
-            actionName: "ok",
-            content: "ok",
-            action: () => {
-              if (startRef.value?.value && endRef.value?.value) {
-                this._isCustomWindow = true;
-                this.timeframe = [new Date(startRef.value.value), new Date(endRef.value.value)];
-              }
-            },
-          },
-        ])
+    let dialog: OrVaadinDialog | undefined;
+
+    const onCancel = () => {
+      dialog?.close();
+    };
+    const onOk = () => {
+      if (startRef.value?.value && endRef.value?.value && startRef.value.value < endRef.value.value) {
+        this._isCustomWindow = true;
+        this.timeframe = [new Date(startRef.value.value), new Date(endRef.value.value)];
+        dialog?.close();
+      } else {
+        showSnackbar(undefined, i18next.t("errorOccurred"));
+      }
+    };
+    dialog = showVaadinDialog(
+      this.shadowRoot!,
+      html`
+        <or-vaadin-dialog width="384px">
+          <h2 slot="header-content">
+            <or-translate value="timeframe"></or-translate>
+          </h2>
+          <div style="padding: 4px 0; max-width: 480px; display: flex; flex-direction: column; gap: 8px;">
+            <or-vaadin-date-time-picker
+              ${ref(startRef)}
+              required
+              value=${startTimestamp ? OrVaadinDateTimePicker.getLocalizedISOString(new Date(startTimestamp)) : undefined}
+            >
+              <or-translate slot="label" value="beginning"></or-translate>
+            </or-vaadin-date-time-picker>
+            <or-vaadin-date-time-picker
+              ${ref(endRef)}
+              required
+              value=${endTimestamp ? OrVaadinDateTimePicker.getLocalizedISOString(new Date(endTimestamp)) : undefined}
+            >
+              <or-translate slot="label" value="ending"></or-translate>
+            </or-vaadin-date-time-picker>
+          </div>
+          <div slot="footer" style="width: 100%; display: flex; justify-content: space-between;">
+            <or-vaadin-button theme="tertiary" @click=${onCancel}>
+              <or-translate value="cancel"></or-translate>
+            </or-vaadin-button>
+            <or-vaadin-button theme="primary" @click=${onOk}>
+              <or-translate value="ok"></or-translate>
+            </or-vaadin-button>
+          </div>
+        </or-vaadin-dialog>
+      `
     );
   }
 
