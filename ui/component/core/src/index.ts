@@ -412,6 +412,7 @@ export class Manager implements EventProviderFactory {
     }
 
     if (!success) {
+      // Either loadManagerInfo() or doAuthInit() failed, aborting manager initialization
       return false;
     }
 
@@ -444,6 +445,10 @@ export class Manager implements EventProviderFactory {
     } else {
       (this._config as any) = undefined;
       console.warn("Failed to initialise the manager");
+      if (!this.isError) {
+        // If no specific error got set during initialization, fall back to MANAGER_FAILED_TO_LOAD
+        this._setError(ORError.MANAGER_FAILED_TO_LOAD);
+      }
     }
 
     this.displayRealm = config.realm || "master";
