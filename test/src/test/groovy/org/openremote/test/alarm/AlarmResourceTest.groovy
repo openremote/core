@@ -190,7 +190,9 @@ class AlarmResourceTest extends Specification implements ManagerContainerTrait {
     "Medium Unassigned Alarm" | "Another Description" | Severity.MEDIUM | null | 0
     "Medium Assigned 1 Alarm" | "Assigned Description" | Severity.MEDIUM | keycloakTestSetup.testuser1Id | 0
     "Medium Assigned 2 Alarm" | "Assigned Description" | Severity.MEDIUM | alarmsReadWriteUserId | 0
-    "High Unassigned Alarm" | "Critical Description" | Severity.HIGH | null | 1
+    // This alarm has no linked assets. The building realm's unrestricted writer has no email;
+    // its restricted writers must not receive automatic notifications for an unlinked alarm.
+    "High Unassigned Alarm" | "Critical Description" | Severity.HIGH | null | 0
     "High Assigned 1 Alarm" | "Critical Description" | Severity.HIGH | keycloakTestSetup.testuser1Id | 0
     "High Assigned 2 Alarm" | "Critical Description" | Severity.HIGH | alarmsReadWriteUserId | 1
   }
