@@ -77,7 +77,7 @@ export class OrConfMapGeoJson extends OrElement {
             }}"
           ></or-ace-editor>
           <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
-            <or-vaadin-button theme="tertiary" @click=${() => this._dialog?.close()}>
+            <or-vaadin-button theme="tertiary contrast" @click=${() => this._dialog?.close()}>
               <or-translate value="close"></or-translate>
             </or-vaadin-button>
             <or-vaadin-button theme="primary" ${ref(buttonRef)} disabled @click=${onOk}>

@@ -1567,6 +1567,7 @@ export class OrAssetTree extends subscribe(manager)(OrElement) {
     let dialog: OrVaadinDialog | undefined;
     const addAssetDialogRef: Ref<OrAddAssetDialog> = createRef();
     const addBtnRef: Ref<OrVaadinButton> = createRef();
+    const blockEvent = (ev: Event) => ev.stopPropagation();
 
     const onAddChanged = (ev: OrAddChangedEvent) => {
       const nameValid = !!ev.detail.name && ev.detail.name.trim().length > 0 && ev.detail.name.trim().length < 1024;
@@ -1638,12 +1639,14 @@ export class OrAssetTree extends subscribe(manager)(OrElement) {
     dialog = showDialog(
       this.shadowRoot!,
       html`
-        <or-vaadin-dialog width="1024px" no-close-on-esc no-close-on-outside-click>
+        <or-vaadin-dialog width="958px" no-close-on-esc no-close-on-outside-click>
           <h2 slot="header-content">
-            <or-translate value="addAsset"></or-translate>
+            <or-translate value="createNewAsset"></or-translate>
           </h2>
           <or-add-asset-dialog
             ${ref(addAssetDialogRef)}
+            @or-asset-tree-request-selection="${blockEvent}"
+            @or-asset-tree-selection="${blockEvent}"
             .config="${this.config}"
             .agentTypes="${agentTypes}"
             .assetTypes="${assetTypes}"
@@ -1651,11 +1654,11 @@ export class OrAssetTree extends subscribe(manager)(OrElement) {
             @or-add-asset-changed="${onAddChanged}"
           ></or-add-asset-dialog>
           <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
-            <or-vaadin-button theme="tertiary" @click=${onCancel}>
+            <or-vaadin-button theme="tertiary contrast" @click=${onCancel}>
               <or-translate value="cancel"></or-translate>
             </or-vaadin-button>
             <or-vaadin-button theme="primary" ${ref(addBtnRef)} disabled @click=${onOk}>
-              <or-translate value="add"></or-translate>
+              <or-translate value="createAsset"></or-translate>
             </or-vaadin-button>
           </div>
         </or-vaadin-dialog>

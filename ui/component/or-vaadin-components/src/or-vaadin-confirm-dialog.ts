@@ -97,7 +97,7 @@ export function getConfirmDialogContent(
     ${when(
       typeof cancel === "string",
       () => html`
-        <or-vaadin-button theme=${theme ? `tertiary ${theme}` : "tertiary"} slot="cancel-button">
+        <or-vaadin-button theme="tertiary contrast" slot="cancel-button">
           <or-translate value=${cancel}></or-translate>
         </or-vaadin-button>
       `,
@@ -154,10 +154,10 @@ export class OrVaadinConfirmDialog
         }
         ::part(header),
         ::part(footer) {
-          padding: var(--lumo-space-l);
+          padding: var(--lumo-space-m);
         }
         ::part(content) {
-          padding: 0 var(--lumo-space-l);
+          padding: var(--lumo-space-s) var(--lumo-space-m);
         }
       `,
     ];

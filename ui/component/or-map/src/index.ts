@@ -46,6 +46,7 @@ import { OrMapCenterControl } from "./controls/center";
 import { OrMapGeolocateControl } from "./controls/geolocate";
 import { ifDefined } from "lit-html/directives/if-defined.js";
 import { createRef, ref, type Ref } from "lit/directives/ref.js";
+import type { OrVaadinTextField } from "@openremote/or-vaadin-components/or-vaadin-text-field";
 import type { AssetWithLocation, ClusterConfig, ControlPosition, MapEventDetail, MapFilter } from "./types";
 
 // Re-exports
@@ -153,10 +154,11 @@ export const geoJsonPointInputTemplateProvider: ValueInputProviderGenerator = (
 
   // Indirection so the stable geolocate instance can call the per-render setPos.
   let _setPos: ((lngLat: LngLatLike | null) => void) | undefined;
-  const controls: (IControl | [IControl, ControlPosition?])[] = [
-    [centerControl, "bottom-right"],
-    [coordinatesControl, "top-left"],
-  ];
+  const controls: (IControl | [IControl, ControlPosition?])[] = [[centerControl, "bottom-right"]];
+  // The compact dialog has its own coordinates field below the map
+  if (!compact) {
+    controls.push([coordinatesControl, "top-left"]);
+  }
   if (!readonly) {
     const userLocationControl = new OrMapGeolocateControl((currentLocation: GeolocationPosition) => {
       _setPos?.(new LngLat(currentLocation.coords.longitude, currentLocation.coords.latitude));
@@ -181,6 +183,7 @@ export const geoJsonPointInputTemplateProvider: ValueInputProviderGenerator = (
 
     let dialog: OrVaadinDialog | undefined;
     const orMap: Ref<OrMap> = createRef();
+    const coordinatesField: Ref<OrVaadinTextField> = createRef();
 
     const setPos = (lngLat: LngLatLike | null) => {
       if (readonly || disabled) {
@@ -189,24 +192,27 @@ export const geoJsonPointInputTemplateProvider: ValueInputProviderGenerator = (
 
       pos = lngLat ? Util.getLngLat(lngLat) : null;
 
-      if (orMap.value) {
+      if (dialog && orMap.value) {
         // We're in compact mode modal
         const marker = orMap.value.firstElementChild as OrMapMarker;
         marker.lng = pos ? pos.lng : undefined;
         marker.lat = pos ? pos.lat : undefined;
-        center = pos ? Object.values(pos) : undefined;
-        const centerStr = center ? center.join(", ") : undefined;
+        const centerStr = pos ? Object.values(pos).join(", ") : undefined;
         coordinatesControl.value = centerStr;
+        if (coordinatesField.value) {
+          coordinatesField.value.value = centerStr ?? "";
+        }
       } else {
         valueChangeHandler(pos as LngLatLike);
       }
     };
+    _setPos = setPos;
 
-    let content = html`
+    const mapTemplate = (style?: string) => html`
       <or-map
         id="geo-json-point-map"
         ${ref(orMap)}
-        style="aspect-ratio: 1/1;"
+        style=${ifDefined(style)}
         @or-map-long-press="${(ev: OrMapLongPressEvent) => {
           setPos(ev.detail.lngLat);
         }}"
@@ -224,46 +230,65 @@ export const geoJsonPointInputTemplateProvider: ValueInputProviderGenerator = (
           .colour="${iconAndColor ? "#" + iconAndColor.color : undefined}"
         ></or-map-marker>
       </or-map>
-      <span class="long-press-msg" style="display: block; text-align: center;">
+    `;
+
+    let content = html`
+      ${mapTemplate()}
+      <span class="long-press-msg">
         <or-translate value="longPressSetLoc"></or-translate>
       </span>
     `;
 
     if (compact) {
-      const mapContent = content;
-
       const onClick = () => {
+        // Edits in the dialog are a draft that only Ok keeps
+        const committedPos = pos;
+        let confirmed = false;
         dialog = showDialog(
           document.body,
           html`
-            <or-vaadin-dialog width="768px">
-              <div slot="header-content"></div>
-              ${mapContent}
+            <or-vaadin-dialog
+              width="960px"
+              @closed=${() => {
+                if (!confirmed) {
+                  pos = committedPos;
+                }
+              }}
+            >
+              <h2 slot="header-content">
+                <or-translate value="pickLocation"></or-translate>
+              </h2>
+              <div style="display: flex; flex-direction: column; gap: var(--lumo-space-s);">
+                <or-translate value="longPressSetLoc"></or-translate>
+                ${mapTemplate("height: 445px; border-radius: var(--lumo-border-radius-m); overflow: hidden;")}
+                <or-vaadin-text-field
+                  ${ref(coordinatesField)}
+                  style="width: 100%;"
+                  clear-button-visible
+                  value=${ifDefined(centerStr)}
+                  pattern=${CoordinatesRegexPattern}
+                  ?readonly=${readonly}
+                  ?disabled=${disabled}
+                  @change="${(e: Event) => commitCoordinatesInputValue(e, setPos)}"
+                  @keyup="${(e: KeyboardEvent) => getCoordinatesInputKeyHandler(setPos)(e)}"
+                >
+                  <or-translate slot="label" value="gpsCoordinates"></or-translate>
+                </or-vaadin-text-field>
+              </div>
               <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
-                <or-vaadin-button theme="tertiary" @click=${() => dialog?.close()}>
+                <or-vaadin-button theme="tertiary contrast" @click=${() => dialog?.close()}>
                   <or-translate value="cancel"></or-translate>
                 </or-vaadin-button>
-                <div>
-                  <or-vaadin-button
-                    theme="tertiary"
-                    @click=${() => {
-                      setPos(null);
-                      valueChangeHandler(pos as LngLatLike);
-                      dialog?.close();
-                    }}
-                  >
-                    <or-translate value="none"></or-translate>
-                  </or-vaadin-button>
-                  <or-vaadin-button
-                    theme="primary"
-                    @click=${() => {
-                      valueChangeHandler(pos as LngLatLike);
-                      dialog?.close();
-                    }}
-                  >
-                    <or-translate value="ok"></or-translate>
-                  </or-vaadin-button>
-                </div>
+                <or-vaadin-button
+                  theme="primary"
+                  @click=${() => {
+                    confirmed = true;
+                    valueChangeHandler(pos as LngLatLike);
+                    dialog?.close();
+                  }}
+                >
+                  <or-translate value="ok"></or-translate>
+                </or-vaadin-button>
               </div>
             </or-vaadin-dialog>
           `

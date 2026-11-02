@@ -866,7 +866,7 @@ export class PageUsers extends Page<AppStateKeyed> {
             }}"
           ></or-asset-tree>
           <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
-            <or-vaadin-button theme="tertiary" @click=${onCancel}>
+            <or-vaadin-button theme="tertiary contrast" @click=${onCancel}>
               <or-translate value="cancel"></or-translate>
             </or-vaadin-button>
             <or-vaadin-button theme="primary" @click=${onOk}>

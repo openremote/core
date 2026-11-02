@@ -396,7 +396,7 @@ export class PageGatewayTunnel extends Page<AppStateKeyed> {
           </h2>
           ${until(gatewayListTemplate(), html`<or-translate value="loading"></or-translate>`)}
           <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
-            <or-vaadin-button theme="tertiary" @click=${() => dialog?.close()}>
+            <or-vaadin-button theme="tertiary contrast" @click=${() => dialog?.close()}>
               <or-translate value="cancel"></or-translate>
             </or-vaadin-button>
             <or-vaadin-button theme="primary" ${ref(buttonRef)} disabled @click=${() => onAddClick()}>

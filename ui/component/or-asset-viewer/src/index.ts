@@ -860,7 +860,7 @@ function getPanelContent(
             <h2 slot="header-content">
               <or-translate value="addRemoveAttributes"></or-translate>
             </h2>
-            <or-vaadin-checkbox-group ${ref(groupRef)} theme="vertical" .value="${selectedAttributes}">
+            <or-vaadin-checkbox-group ${ref(groupRef)} theme="vertical" .value="${[...selectedAttributes]}">
               ${availableAttributes.sort().map(
                 (attr) => html`
                   <vaadin-checkbox value=${attr}>
@@ -870,7 +870,7 @@ function getPanelContent(
               )}
             </or-vaadin-checkbox-group>
             <div slot="footer" style="width: 100%; display: flex; justify-content: space-between;">
-              <or-vaadin-button theme="tertiary" @click=${onCancel}>
+              <or-vaadin-button theme="tertiary contrast" @click=${onCancel}>
                 <or-translate value="cancel"></or-translate>
               </or-vaadin-button>
               <or-vaadin-button theme="primary" @click=${onOk}>

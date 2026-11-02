@@ -36,7 +36,7 @@ import type { OrVaadinTextField } from "@openremote/or-vaadin-components/or-vaad
 import type { OrVaadinCheckbox } from "@openremote/or-vaadin-components/or-vaadin-checkbox";
 import type { OrVaadinListBox, ListItem } from "@openremote/or-vaadin-components/or-vaadin-list-box";
 import { when } from "lit/directives/when.js";
-import { DefaultColor2, DefaultColor3, DefaultColor5, Util } from "@openremote/core";
+import { DefaultColor5, Util } from "@openremote/core";
 import debounce from "lodash.debounce";
 
 export type OrAddAssetDetail = {
@@ -109,9 +109,7 @@ export class OrAddAssetDialog extends OrElement {
     // language=CSS
     return css`
       :host {
-        border-style: solid;
-        border-color: var(--or-app-color5, ${unsafeCSS(DefaultColor5)});
-        border-width: 1px 0;
+        display: block;
       }
 
       #name-wrapper {
@@ -146,9 +144,8 @@ export class OrAddAssetDialog extends OrElement {
 
       #mdc-dialog-form-add {
         display: flex;
+        gap: var(--lumo-space-s);
         height: 600px;
-        max-height: 600px;
-        width: 1000px;
       }
 
       .msg {
@@ -157,85 +154,77 @@ export class OrAddAssetDialog extends OrElement {
         align-items: center;
         text-align: center;
         height: 100%;
-        font-family: "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
-        font-size: 14px;
+        font-size: var(--lumo-font-size-s);
       }
 
       #asset-type-option-container {
-        padding: 7px;
+        display: flex;
         flex: 1 1 auto;
-        overflow: auto;
-        max-width: 100%;
+        min-width: 0;
         font-size: 16px;
       }
 
       #asset-type-option-content {
-        padding: 7px 14px;
+        flex: 1 1 auto;
         box-sizing: border-box;
-        height: 100%;
+        padding: var(--lumo-space-m);
         overflow: auto;
-        background: white;
-        border-radius: 7px;
+        background: var(--lumo-base-color);
+        border-radius: var(--lumo-border-radius-m);
       }
 
-      #type-list-filter {
-        padding: 7px;
+      #asset-type-option-content.empty {
+        background: none;
       }
 
       #filterInput {
         width: 100%;
       }
 
-      #type-list-content {
-        padding: 0 7px;
-        overflow: hidden;
-      }
-
       #type-list {
-        padding: 0 7px;
-        background: white;
-        border-radius: 7px;
-        height: 100%;
+        flex: 1 1 auto;
+        min-height: 0;
+        padding: 0 var(--lumo-space-s);
+        background: var(--lumo-base-color);
+        border-radius: var(--lumo-border-radius-m);
         overflow: auto;
         text-transform: capitalize;
       }
 
       #type-list-container {
         display: flex;
+        flex: 0 0 305px;
         flex-direction: column;
-        width: 320px;
-        gap: 4px;
+        gap: var(--lumo-space-s);
+        min-width: 0;
+      }
+
+      #type-list or-vaadin-item::part(content) {
+        min-width: 0;
       }
 
       #type-title {
         display: flex;
         align-items: center;
-        margin: 9px 4px;
+        gap: var(--lumo-space-s);
+        --or-icon-width: 20px;
+        --or-icon-height: 20px;
       }
 
       #type-description {
         text-transform: capitalize;
-        color: var(--or-app-color3, ${unsafeCSS(DefaultColor3)});
-        margin-left: 10px;
-        font-size: 18px;
-        font-weight: bold;
-        font-family: "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+        color: var(--lumo-header-text-color);
+        font-size: var(--lumo-font-size-xl);
+        font-weight: 600;
+        line-height: var(--lumo-line-height-xs);
       }
 
-      .heading,
-      .mdc-list-group__subheader {
-        text-transform: uppercase;
-        font-family: "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
-        font-weight: bolder;
-        line-height: 1em;
-        color: var(--or-app-color3, ${unsafeCSS(DefaultColor3)});
-        letter-spacing: 0.025em;
-        font-size: 14px;
-        margin: 20px 0 10px;
-      }
-
-      .mdc-list-group__subheader {
-        margin: 20px 0 0 16px;
+      .heading {
+        color: var(--vaadin-input-field-label-color, var(--lumo-secondary-text-color));
+        font-size: var(--vaadin-input-field-label-font-size, var(--lumo-font-size-s));
+        font-weight: var(--vaadin-input-field-label-font-weight, 500);
+        line-height: var(--lumo-line-height-xs);
+        margin: var(--lumo-space-m) 0 6px;
       }
     `;
   }
@@ -281,7 +270,7 @@ export class OrAddAssetDialog extends OrElement {
         ${items.map(
           (item) => html`
             <or-vaadin-item style=${styleMap(item.styleMap ?? {})}>
-              <div style="display: flex; align-items: center; gap: 8px;">
+              <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
                 <or-icon icon=${ifDefined(item.icon)}></or-icon>
                 <span style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">
                   ${item.text ?? item.value ?? html`<or-translate value="unknown"></or-translate>`}
@@ -308,17 +297,14 @@ export class OrAddAssetDialog extends OrElement {
                 <or-icon slot="suffix" icon="magnify"></or-icon>
               </or-vaadin-text-field>
             </div>
-            <div id="type-list-content">
-              <div id="type-list">
-                ${when(agentItems.length > 0, () => getListTemplate(filteredAgentItems, true))}
-                <hr style="color: white;" />
-                ${when(assetItems.length > 0, () => getListTemplate(filteredAssetItems, false))}
-              </div>
+            <div id="type-list">
+              ${when(agentItems.length > 0, () => getListTemplate(filteredAgentItems, true))}
+              ${when(assetItems.length > 0, () => getListTemplate(filteredAssetItems, false))}
             </div>
           </div>
 
           <div id="asset-type-option-container" class="col">
-            <div id="asset-type-option-content">
+            <div id="asset-type-option-content" class=${this.selectedType ? "" : "empty"}>
               ${
                 !this.selectedType
                   ? html`<div class="msg"><or-translate value="noAssetTypeSelected"></or-translate></div>`

@@ -219,11 +219,6 @@ const style = css`
         --or-icon-width: 12px;
     }
 
-    .mdc-dialog .mdc-dialog__surface {
-        min-width: 600px;
-        height: calc(100vh - 50%);
-    }
-
     :host([hidden]) {
         display: none;
     }
@@ -359,13 +354,6 @@ const style = css`
     }
 
     @media screen and (max-width: 769px) {
-        .mdc-dialog .mdc-dialog__surface {
-            min-width: auto;
-
-            max-width: calc(100vw - 32px);
-            max-height: calc(100% - 32px);
-        }
-
         #container {
             flex-direction: column;
         }
@@ -1273,7 +1261,7 @@ export class OrChart extends translate(i18next)(OrElement) {
             </or-vaadin-date-time-picker>
           </div>
           <div slot="footer" style="width: 100%; display: flex; justify-content: space-between;">
-            <or-vaadin-button theme="tertiary" @click=${onCancel}>
+            <or-vaadin-button theme="tertiary contrast" @click=${onCancel}>
               <or-translate value="cancel"></or-translate>
             </or-vaadin-button>
             <or-vaadin-button theme="primary" @click=${onOk}>

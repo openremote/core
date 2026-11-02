@@ -238,7 +238,7 @@ export class OrConfPanel extends OrElement {
             <or-translate slot="label" value="realm"></or-translate>
           </or-vaadin-select>
           <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
-            <or-vaadin-button theme="tertiary" @click=${() => dialog?.close()}>
+            <or-vaadin-button theme="tertiary contrast" @click=${() => dialog?.close()}>
               <or-translate value="cancel"></or-translate>
             </or-vaadin-button>
             <or-vaadin-button theme="primary" ${ref(buttonRef)} disabled @click=${onOk}>

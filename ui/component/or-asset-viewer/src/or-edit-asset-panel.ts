@@ -631,7 +631,7 @@ export class OrEditAssetPanel extends OrElement {
             @or-add-attribute-panel-attribute-changed="${onAttributeChanged}"
           ></or-add-attribute-panel>
           <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
-            <or-vaadin-button theme="tertiary" @click=${() => dialog?.close()}>
+            <or-vaadin-button theme="tertiary contrast" @click=${() => dialog?.close()}>
               <or-translate value="cancel"></or-translate>
             </or-vaadin-button>
             <or-vaadin-button theme="primary" ${ref(addBtnRef)} disabled @click=${onOk}>
@@ -693,7 +693,7 @@ export class OrEditAssetPanel extends OrElement {
               )}
           </or-vaadin-checkbox-group>
           <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
-            <or-vaadin-button theme="tertiary" @click=${() => dialog?.close()}>
+            <or-vaadin-button theme="tertiary contrast" @click=${() => dialog?.close()}>
               <or-translate value="cancel"></or-translate>
             </or-vaadin-button>
             <or-vaadin-button theme="primary" @click=${onOk}>
@@ -758,7 +758,7 @@ export class OrEditAssetPanel extends OrElement {
               .selector="${parentSelector}"
             ></or-asset-tree>
             <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
-              <or-vaadin-button theme="tertiary" @click=${() => dialog?.close()}>
+              <or-vaadin-button theme="tertiary contrast" @click=${() => dialog?.close()}>
                 <or-translate value="cancel"></or-translate>
               </or-vaadin-button>
               <div>

@@ -817,7 +817,7 @@ export class PageGateway extends Page<AppStateKeyed> {
             style="width: 100%; aspect-ratio: 1/1;"
           ></or-ace-editor>
           <div slot="footer" style="width: 100%; display: flex; justify-content: space-between">
-            <or-vaadin-button theme="tertiary" @click=${onCancel}>
+            <or-vaadin-button theme="tertiary contrast" @click=${onCancel}>
               <or-translate value="cancel"></or-translate>
             </or-vaadin-button>
             <or-vaadin-button theme="primary" @click=${onOk}>
