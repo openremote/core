@@ -24,6 +24,13 @@
   :host([theme~="primary"]) {
     min-width: var(--vaadin-button-min-width, 0);
   }
+  /* Lumo keeps the focus ring in the primary color for every color variant */
+  :host([theme~="error"]) {
+    --_focus-ring-color: var(--vaadin-focus-ring-color, var(--lumo-error-color-50pct));
+  }
+  :host([theme~="contrast"]) {
+    --_focus-ring-color: var(--vaadin-focus-ring-color, var(--lumo-contrast-50pct));
+  }
 }
 
 :root::before,
