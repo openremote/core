@@ -195,8 +195,8 @@ test.describe("Parent asset", () => {
     await assetViewer.switchMode("modify");
 
     await page.getByText("Parent Edit").getByRole("button").click();
-    await page.getByLabel("Select parent asset").getByText("Parent").click();
-    await page.getByLabel("Select parent asset").getByRole("button", { name: "OK" }).click();
+    await page.getByRole("dialog").getByText("Parent").click();
+    await page.getByRole("dialog").getByRole("button", { name: "OK" }).click();
     await page.getByRole("button", { name: "Save" }).click();
 
     await expect(page.getByRole("textbox", { name: "Parent" })).toHaveValue("Parent");
@@ -217,7 +217,7 @@ test.describe("Parent asset", () => {
     await assetViewer.switchMode("modify");
 
     await page.getByText("Parent Edit").getByRole("button").click();
-    await page.getByLabel("Select parent asset").getByRole("button", { name: "NONE" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Clear" }).click();
     await page.getByRole("button", { name: "Save" }).click();
 
     await expect(page.getByRole("textbox", { name: "Parent" })).toBeEmpty();
@@ -243,7 +243,7 @@ test.describe("Attributes", () => {
 
     await page.getByRole("button", { name: "Add attribute" }).click();
 
-    const dialog = page.getByLabel("Add attribute");
+    const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Name").fill("test");
     await dialog.getByRole("combobox", { name: "Value type", exact: true }).fill("Int");
     await dialog.getByRole("option", { name: "Integer", exact: true }).click();

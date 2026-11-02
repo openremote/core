@@ -23,7 +23,7 @@ import { when } from "lit/directives/when.js";
 import "@openremote/or-components/or-file-uploader";
 import { i18next } from "@openremote/or-translate";
 import type { MapRealmConfig } from "@openremote/model";
-import { type DialogAction, OrMwcDialog, showDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
+import { getConfirmDialogContent, showConfirmDialog } from "@openremote/or-vaadin-components/or-vaadin-confirm-dialog";
 import type { OrVaadinToggle } from "@openremote/or-vaadin-components/or-vaadin-toggle";
 import type { OrMapLongPressEvent } from "@openremote/or-map";
 import type { LngLat } from "maplibre-gl";
@@ -57,37 +57,13 @@ export class OrConfMapCard extends OrElement {
   }
 
   protected _showRemoveMapDialog() {
-    const dialogActions: DialogAction[] = [
-      {
-        actionName: "cancel",
-        content: "cancel",
-      },
-      {
-        default: true,
-        actionName: "ok",
-        content: "yes",
-        action: () => {
-          this.dispatchEvent(new CustomEvent("remove"));
-        },
-      },
-    ];
-    showDialog(
-      new OrMwcDialog()
-        .setHeading(i18next.t("delete"))
-        .setActions(dialogActions)
-        .setContent(html` ${i18next.t("configuration.deleteMapCustomizationConfirm")} `)
-        .setStyles(html`
-          <style>
-            .mdc-dialog__surface {
-              padding: 4px 8px;
-            }
-
-            #dialog-content {
-              padding: 24px;
-            }
-          </style>
-        `)
-        .setDismissAction(null)
+    showConfirmDialog(
+      this.shadowRoot!,
+      html`
+        <or-vaadin-confirm-dialog @confirm=${() => this.dispatchEvent(new CustomEvent("remove"))}>
+          ${getConfirmDialogContent("error", "delete", "configuration.deleteMapCustomizationConfirm", "delete", "cancel")}
+        </or-vaadin-confirm-dialog>
+      `
     );
   }
 
