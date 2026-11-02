@@ -558,10 +558,10 @@ export class PageRealms extends Page<AppStateKeyed> {
     const dialog = showConfirmDialog(
       this.shadowRoot!,
       html`
-        <or-vaadin-confirm-dialog @confirm=${() => doDelete(dialog)}>
+        <or-vaadin-confirm-dialog theme="no-header" @confirm=${() => doDelete(dialog)}>
           ${getConfirmDialogContent(
             "error",
-            "deleteRealmConfirm",
+            undefined,
             dialogContent,
             html`
               <or-vaadin-button theme="primary error" ${ref(okBtnRef)} disabled slot="confirm-button">

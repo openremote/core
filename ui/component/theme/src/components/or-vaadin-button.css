@@ -18,8 +18,16 @@
  */
 @import "@vaadin/vaadin-lumo-styles/components/button.css";
 
+/* Buttons size to their label, Lumo sets a minimum width that primary buttons raise further */
+@media lumo_components_button-internal {
+  :host,
+  :host([theme~="primary"]) {
+    min-width: var(--vaadin-button-min-width, 0);
+  }
+}
+
 :root::before,
 :host::before {
   --_lumo-vaadin-button-inject: 1;
-  --_lumo-vaadin-button-inject-modules: lumo_components_button;
+  --_lumo-vaadin-button-inject-modules: lumo_components_button, lumo_components_button-internal;
 }

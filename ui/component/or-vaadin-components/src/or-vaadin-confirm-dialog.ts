@@ -64,7 +64,7 @@ export function showConfirmDialog(host: Node, dialog: TemplateResult) {
  * Example: `getConfirmDialogContent("areYouSure", "deleteWarning", "remove", "cancel")`
  *
  * @param theme - Optional theme to use for the dialog and its buttons (for example 'error').
- * @param header - Dialog header that is either a translation key, or a {@link TemplateResult}
+ * @param header - Dialog header that is either a translation key, or a {@link TemplateResult}. If `undefined` no header is added; set `theme="no-header"` on the dialog to hide the empty header.
  * @param content - Dialog content that is either a translation key, or a {@link TemplateResult}
  * @param confirm - {@link TemplateResult} or translation key to display inside the "confirm" button. If `undefined` the button will not be visible.
  * @param cancel - {@link TemplateResult} or translation key to display inside the "cancel" button. If `undefined` the button will not be visible.
@@ -72,7 +72,7 @@ export function showConfirmDialog(host: Node, dialog: TemplateResult) {
  */
 export function getConfirmDialogContent(
   theme: string | undefined,
-  header: TemplateResult | string,
+  header: TemplateResult | string | undefined,
   content: TemplateResult | string,
   confirm?: TemplateResult | string,
   cancel?: TemplateResult | string,
@@ -82,7 +82,7 @@ export function getConfirmDialogContent(
     ${
       typeof header === "string"
         ? html`<or-translate slot="header" value=${header}></or-translate>`
-        : html`<div slot="header">${header}</div>`
+        : header && html`<div slot="header">${header}</div>`
     }
     ${typeof content === "string" ? html`<or-translate value=${content}></or-translate>` : content}
     ${when(
