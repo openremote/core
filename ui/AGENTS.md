@@ -26,6 +26,10 @@ Own Lit components extend `OrElement` from `@openremote/or-element` instead of `
 
 A state change should re-render only the part it affects. Re-rendering a whole page, or a large component such as a table, flickers and discards the state that component holds: sort order, pagination, selection, scroll position. Keep those children mounted and update their properties.
 
+## Spacing
+
+Avoid negative margins that cancel a container's padding. They repeat a value the container owns, so they break silently when it changes. Keep the content inside the padding, or add a theme variant to the container that turns it off.
+
 ## Adding a new component package
 
 New packages under `ui/component/` are picked up automatically by the yarn workspace and by Gradle (any dir with a `build.gradle`). The rsbuild apps are not automatic: add the package to the `@openremote/*` alias maps in `ui/app/manager/rsbuild.config.ts` and `ui/app/storybook/rsbuild.config.ts`, which resolve workspace packages to their `src` dirs. A missing entry fails the build with "Module not found" for any file importing the package.
