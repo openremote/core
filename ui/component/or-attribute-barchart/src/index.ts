@@ -1009,28 +1009,33 @@ export class OrAttributeBarChart extends OrElement {
     }
 
     const [unit, value]: [moment.unitOfTime.DurationConstructor, number] = timeWindow;
+    // Bounds sit on whole units in the user's timezone, or on whole 5 minute bars for minutes, so the bars fit them.
+    const step = unit === "minutes" ? 5 : 1;
+    const current = moment().startOf(unit);
+    current.subtract(current.get(unit) % step, unit);
 
     switch (timePrefixSelected) {
       case "this": {
         if (value === 1) {
           // For singulars like this hour
-          startDate = moment().startOf(unit);
+          startDate = current;
           endDate = moment().endOf(unit);
         } else {
-          // For multiples like this 5 min, put now in the middle
-          startDate = moment().subtract(value * 0.5, unit);
-          endDate = moment().add(value * 0.5, unit);
+          // For multiples like this 6 hours, put the current unit in the middle
+          startDate = current.clone().subtract(Math.floor(value / 2), unit);
+          endDate = startDate.clone().add(value, unit);
         }
         break;
       }
       case "last": {
-        startDate = moment().subtract(value, unit).startOf(unit);
         if (value === 1) {
           // For singulars like last hour
-          endDate = moment().startOf(unit);
+          startDate = current.clone().subtract(value, unit);
+          endDate = current;
         } else {
-          // For multiples like last 5 min
-          endDate = moment();
+          // For multiples like last 6 hours, up to and including the current unit
+          endDate = current.clone().add(step, unit);
+          startDate = endDate.clone().subtract(value, unit);
         }
         break;
       }
@@ -1095,8 +1100,8 @@ export class OrAttributeBarChart extends OrElement {
           momentFormat: "minutes",
           millis: 1800000,
         };
-      } else if (diffInHours <= 24) {
-        // hour if up to one day
+      } else if (diffInHours <= 25) {
+        // hour if up to one day, which lasts 25 hours when the clocks go back
         return {
           displayName: "hour-auto",
           steps: 1,
@@ -1104,8 +1109,8 @@ export class OrAttributeBarChart extends OrElement {
           momentFormat: "hours",
           millis: 3600000,
         };
-      } else if (diffInHours <= 744) {
-        // one day if up to one month
+      } else if (diffInHours <= 745) {
+        // one day if up to one month, which lasts 745 hours when the clocks go back in a 31 day month
         return {
           displayName: "day-auto",
           steps: 1,
@@ -1113,8 +1118,8 @@ export class OrAttributeBarChart extends OrElement {
           momentFormat: "days",
           millis: 86400000,
         };
-      } else if (diffInHours <= 8760) {
-        // one week if up to 1 year
+      } else if (diffInHours <= 8784) {
+        // one week if up to 1 year, which lasts 8784 hours in a leap year
         return {
           displayName: "week-auto",
           steps: 1,
@@ -1386,20 +1391,14 @@ export class OrAttributeBarChart extends OrElement {
     const maxTicks = Math.floor(recommendedTicks * 1.5);
     const splitNumber = Math.max(1, Math.min(xAxisTicks, maxTicks));
 
-    // Buckets do not have to align with the period, so extend the axis to keep the outer bars in view.
-    const buckets = this._data![0].data as [number, number][];
-    const halfBucket = this._intervalConfig!.millis / 2;
-    const axisMin = Math.min(this._startOfPeriod!, buckets[0][0] - halfBucket);
-    const axisMax = Math.max(this._endOfPeriod!, buckets[buckets.length - 1][0] + halfBucket);
-
     // Update chart
     this._chart.setOption({
       xAxis: {
         show: splitNumber > 1,
         splitNumber,
         minInterval: this._intervalConfig!.millis,
-        min: axisMin,
-        max: axisMax,
+        min: this._startOfPeriod,
+        max: this._endOfPeriod,
         axisLabel: {
           interval: this._intervalConfig?.millis,
           rotate: splitNumber > recommendedTicks ? 45 : 0,

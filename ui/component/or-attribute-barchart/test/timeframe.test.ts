@@ -52,40 +52,93 @@ ct("should keep the requested period when bars are centered in their buckets", a
   await page.clock.setFixedTime("2026-01-15T10:20:00+01:00");
   const component = await mount(OrAttributeBarChartTest, { props: { timePrefixKey: "this", timeWindowKey: "Day" } });
 
-  expect(await getChart(component)).toEqual(chart("2026-01-15T00:00:00+01:00", "2026-01-16T00:00:00+01:00", 24));
+  expect(await getChart(component)).toEqual(chart("2026-01-15T00:00:00+01:00", "2026-01-15T23:59:59.999+01:00", 24));
 
   await component.locator(NEXT).click();
-  // Navigating used to start from the first and last bar, which shrank the window by one interval
+  // The window moves as a whole, not from the centers of its first and last bar
   expect(await getTimeframe(component)).toEqual(range("2026-01-16T00:00:00+01:00", "2026-01-16T23:59:59.999+01:00"));
-  expect(await getChart(component)).toEqual(chart("2026-01-16T00:00:00+01:00", "2026-01-17T00:00:00+01:00", 24));
+  expect(await getChart(component)).toEqual(chart("2026-01-16T00:00:00+01:00", "2026-01-16T23:59:59.999+01:00", 24));
 });
 
-ct("should keep the newest bar in view when its bucket extends past the requested end", async ({ mount, page }) => {
-  await page.clock.setFixedTime("2026-01-15T13:27:00+01:00");
+ct("should end a last window of hours with the current hour", async ({ mount, page }) => {
+  await page.clock.setFixedTime("2026-01-15T13:40:00+01:00");
   const component = await mount(OrAttributeBarChartTest, {
     props: { timePrefixKey: "last", timeWindowKey: "24Hours" },
   });
 
-  // The bar of the current hour is centered past the requested end, where the axis would filter it out
-  expect(await getChart(component)).toEqual(chart("2026-01-14T13:00:00+01:00", "2026-01-15T14:00:00+01:00", 25));
+  expect(await getChart(component)).toEqual(chart("2026-01-14T14:00:00+01:00", "2026-01-15T14:00:00+01:00", 24));
 
   await component.locator(NEXT).click();
-  expect(await getTimeframe(component)).toEqual(range("2026-01-15T13:00:00+01:00", "2026-01-16T13:27:00+01:00"));
-  expect(await getChart(component)).toEqual(chart("2026-01-15T13:00:00+01:00", "2026-01-16T14:00:00+01:00", 25));
+  expect(await getTimeframe(component)).toEqual(range("2026-01-15T14:00:00+01:00", "2026-01-16T14:00:00+01:00"));
+  expect(await getChart(component)).toEqual(chart("2026-01-15T14:00:00+01:00", "2026-01-16T14:00:00+01:00", 24));
 });
 
-ct("should keep the oldest bar in view when its bucket starts before the requested start", async ({ mount, page }) => {
-  await page.clock.setFixedTime("2026-01-15T13:40:00+01:00");
+ct("should center a this window of hours on the current hour", async ({ mount, page }) => {
+  await page.clock.setFixedTime("2026-01-15T13:27:00+01:00");
   const component = await mount(OrAttributeBarChartTest, {
     props: { timePrefixKey: "this", timeWindowKey: "24Hours" },
   });
 
-  // The first bar is centered before the requested start, where the axis would filter it out
-  expect(await getChart(component)).toEqual(chart("2026-01-15T01:00:00+01:00", "2026-01-16T02:00:00+01:00", 25));
+  expect(await getChart(component)).toEqual(chart("2026-01-15T01:00:00+01:00", "2026-01-16T01:00:00+01:00", 24));
 
   await component.locator(NEXT).click();
-  expect(await getTimeframe(component)).toEqual(range("2026-01-16T01:40:00+01:00", "2026-01-17T01:40:00+01:00"));
-  expect(await getChart(component)).toEqual(chart("2026-01-16T01:00:00+01:00", "2026-01-17T02:00:00+01:00", 25));
+  expect(await getTimeframe(component)).toEqual(range("2026-01-16T01:00:00+01:00", "2026-01-17T01:00:00+01:00"));
+  expect(await getChart(component)).toEqual(chart("2026-01-16T01:00:00+01:00", "2026-01-17T01:00:00+01:00", 24));
+});
+
+ct("should anchor a window of minutes to its 5 minute bars", async ({ mount, page }) => {
+  await page.clock.setFixedTime("2026-01-15T13:27:00+01:00");
+  const component = await mount(OrAttributeBarChartTest, {
+    props: { timePrefixKey: "last", timeWindowKey: "60Minutes" },
+  });
+
+  expect(await getChart(component)).toEqual(chart("2026-01-15T12:30:00+01:00", "2026-01-15T13:30:00+01:00", 12));
+});
+
+ct("should anchor a window of days to the start of the day", async ({ mount, page }) => {
+  await page.clock.setFixedTime("2026-01-15T13:40:00+01:00");
+  const component = await mount(OrAttributeBarChartTest, { props: { timePrefixKey: "this", timeWindowKey: "7Days" } });
+
+  // Daily bars are aligned to UTC, so the one overlapping the first hour of the window is centered before it
+  expect(await getChart(component)).toEqual(chart("2026-01-12T00:00:00+01:00", "2026-01-19T00:00:00+01:00", 7));
+
+  await component.locator(NEXT).click();
+  expect(await getChart(component)).toEqual(chart("2026-01-19T00:00:00+01:00", "2026-01-26T00:00:00+01:00", 7));
+});
+
+ct("should keep hourly bars on a calendar day of 25 hours", async ({ mount, page }) => {
+  await page.clock.setFixedTime("2026-10-24T12:00:00+02:00");
+  const component = await mount(OrAttributeBarChartTest, { props: { timePrefixKey: "this", timeWindowKey: "Day" } });
+
+  expect(await getChart(component)).toEqual(chart("2026-10-24T00:00:00+02:00", "2026-10-24T23:59:59.999+02:00", 24));
+
+  await component.locator(NEXT).click();
+  expect(await getChart(component)).toEqual(chart("2026-10-25T00:00:00+02:00", "2026-10-25T23:59:59.999+01:00", 25));
+
+  await component.locator(NEXT).click();
+  expect(await getChart(component)).toEqual(chart("2026-10-26T00:00:00+01:00", "2026-10-26T23:59:59.999+01:00", 24));
+});
+
+ct("should keep daily bars on a month of 745 hours", async ({ mount, page }) => {
+  await page.clock.setFixedTime("2026-09-15T12:00:00+02:00");
+  const component = await mount(OrAttributeBarChartTest, { props: { timePrefixKey: "this", timeWindowKey: "Month" } });
+
+  expect(await getChart(component)).toEqual(chart("2026-09-01T00:00:00+02:00", "2026-09-30T23:59:59.999+02:00", 30));
+
+  await component.locator(NEXT).click();
+
+  expect(await getChart(component)).toEqual(chart("2026-10-01T00:00:00+02:00", "2026-10-31T23:59:59.999+01:00", 31));
+});
+
+ct("should keep weekly bars on a leap year", async ({ mount, page }) => {
+  await page.clock.setFixedTime("2027-06-15T12:00:00+02:00");
+  const component = await mount(OrAttributeBarChartTest, { props: { timePrefixKey: "this", timeWindowKey: "Year" } });
+
+  expect(await getChart(component)).toEqual(chart("2027-01-01T00:00:00+01:00", "2027-12-31T23:59:59.999+01:00", 52));
+
+  await component.locator(NEXT).click();
+
+  expect(await getChart(component)).toEqual(chart("2028-01-01T00:00:00+01:00", "2028-12-31T23:59:59.999+01:00", 52));
 });
 
 ct("should keep a preset window across repeated navigation", async ({ mount, page }) => {
@@ -94,7 +147,7 @@ ct("should keep a preset window across repeated navigation", async ({ mount, pag
 
   await component.locator(NEXT).click();
   await component.locator(NEXT).click();
-  // Deriving the step from the inclusive end of the window used to lose a millisecond on every step
+  // The step is the selected window, as its inclusive end is a millisecond short of it
   expect(await getTimeframe(component)).toEqual(range("2026-01-15T12:00:00+01:00", "2026-01-15T12:59:59.999+01:00"));
 
   await component.locator(PREVIOUS).click();
@@ -130,7 +183,7 @@ ct("should keep calendar months whole across months of different lengths", async
   expect(await getTimeframe(component)).toEqual(range("2026-02-01T00:00:00+01:00", "2026-02-28T23:59:59.999+01:00"));
 
   await component.locator(NEXT).click();
-  // Adding months clamps the day, which used to leave every later month ending on the 28th
+  // Adding months clamps the end to the 28th, so it has to be extended to the end of March again
   expect(await getTimeframe(component)).toEqual(range("2026-03-01T00:00:00+01:00", "2026-03-31T23:59:59.999+02:00"));
 
   await component.locator(PREVIOUS).click();
@@ -146,7 +199,7 @@ ct("should move a window of several months by whole months", async ({ mount, pag
 
   await component.locator(NEXT).click();
 
-  expect(await getTimeframe(component)).toEqual(range("2026-04-15T12:00:00+02:00", "2026-10-15T12:00:00+02:00"));
+  expect(await getTimeframe(component)).toEqual(range("2026-04-01T00:00:00+02:00", "2026-10-01T00:00:00+02:00"));
 });
 
 ct("should shift a custom timeframe by its own length after a calendar preset", async ({ mount }) => {
@@ -160,7 +213,7 @@ ct("should shift a custom timeframe by its own length after a calendar preset", 
   );
 
   await component.locator(NEXT).click();
-  // A custom timeframe used to move by the selected preset, which is a whole day here
+  // A custom timeframe moves by its own length, not by the selected window of a whole day
   expect(await getTimeframe(component)).toEqual(range("2026-01-15T03:00:00+01:00", "2026-01-15T06:00:00+01:00"));
 
   await component.locator(PREVIOUS).click();
