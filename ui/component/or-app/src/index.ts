@@ -534,14 +534,14 @@ export class OrApp<S extends AppStateKeyed> extends OrElement {
       }
     };
     const header = () => html`
-      <h2 style="padding-left: 7px; margin: 0;">
+      <h2 style="padding-left: 26px; margin: 0;">
         <or-translate value="language"></or-translate>
       </h2>
     `;
     const content = () => html`
       <or-vaadin-list-box
         selected=${ifDefined(selected)}
-        style="margin: 0 -18px 6px -18px;"
+        style="margin-bottom: 6px;"
         @selected-changed=${(ev: CustomEvent) => onchange(ev)}
       >
         ${languages.map(
