@@ -54,6 +54,14 @@ Base styles and registered styles ship with the component code. Our Lumo module 
 
 **Public API.** Projects may rely on what the custom-elements manifest documents: tags, attributes, properties, events, slots, `--or-*` properties and theme variants, plus the documented Vaadin API of thin wrappers. Do not rename or remove those in one step; keep the old name working with a warning for a release. Shadow structure, internal classes, Lumo module names, `--_*` properties and the parts of our own components are internal, and code that depends on Vaadin internals stays in this repo.
 
+**Following Vaadin.** Compare any Vaadin override, variant, property or wrapper against the Vaadin source at the pinned version, when writing it and in review. The styling documentation in each component's source in [vaadin/web-components](https://github.com/vaadin/web-components) lists its public parts, state attributes and custom properties, and the Lumo styles show its `theme~=` variants and which properties Lumo reads.
+
+- Use what Vaadin offers rather than reimplementing a component, variant or property.
+- Do not stop it from working, e.g. with an `!important` rule that beats `theme="no-padding"`.
+- Do not depend on what that documentation leaves out, such as `--_*` properties. Lumo module lists are the exception.
+
+Document anything that goes against this and why, in a code comment or wherever the next reader will find it.
+
 **Choosing the approach.** Use the first that fits:
 
 1. A documented custom property, for a value such as a color, size or spacing.
