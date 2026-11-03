@@ -66,6 +66,8 @@ import { agentIdRendererRegistryEntry } from "./renderers/agent-link";
 import { schedulerRendererRegistryEntry } from "./renderers/scheduler";
 import { replayDataRendererRegistryEntry } from "./renderers/replay-data";
 
+export { getAgentOptions, loadAgents } from "./renderers/agent-link";
+
 export class OrAttributeInputChangedEvent extends CustomEvent<OrAttributeInputChangedEventDetail> {
   public static readonly NAME = "or-attribute-input-changed";
 

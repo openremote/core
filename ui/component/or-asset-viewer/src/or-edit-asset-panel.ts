@@ -40,6 +40,11 @@ import { showDialog, type OrVaadinDialog } from "@openremote/or-vaadin-component
 import type { OrVaadinCheckboxGroup } from "@openremote/or-vaadin-components/or-vaadin-checkbox-group";
 import type { OrVaadinButton } from "@openremote/or-vaadin-components/or-vaadin-button";
 import "./or-add-attribute-panel";
+import {
+  type AssetAttributes,
+  showExportAttributeConfigurationDialog,
+  showImportAttributeConfigurationDialog,
+} from "./attribute-configuration";
 import { getField, getPanel, getPropertyTemplate } from "./index";
 import type { OrAddAttributePanelAttributeChangedEvent } from "./or-add-attribute-panel";
 import { panelStyles } from "./style";
@@ -211,6 +216,10 @@ export class OrEditAssetPanel extends OrElement {
   @property({ attribute: false })
   protected asset!: Asset;
 
+  /** Whether the draft holds unsaved changes, which blocks exporting the attribute configuration. */
+  @property({ type: Boolean })
+  public modified = false;
+
   protected attributeTemplatesAndValidators: TemplateAndValidator[] = [];
   protected changedAttributes: string[] = [];
 
@@ -380,7 +389,14 @@ export class OrEditAssetPanel extends OrElement {
 
     return html` <div id="edit-wrapper">
       ${getPanel("0", { type: "info", title: "properties" }, html`${properties}`) || ``}
-      ${getPanel("1", { type: "info", title: "attribute_plural" }, html`${attributes}`) || ``}
+      ${
+        getPanel(
+          "1",
+          { type: "info", title: "attribute_plural" },
+          html`${attributes}`,
+          this._getConfigurationActionsTemplate()
+        ) || ``
+      }
     </div>`;
   }
 
@@ -477,6 +493,38 @@ export class OrEditAssetPanel extends OrElement {
       template,
       validator,
     };
+  }
+
+  protected _getConfigurationActionsTemplate(): TemplateResult {
+    return html`
+      <or-vaadin-button @click=${() => this._importConfiguration()}>
+        <or-icon slot="prefix" icon="download"></or-icon>
+        <or-translate value="attributeConfiguration.import"></or-translate>
+      </or-vaadin-button>
+      <or-vaadin-button
+        ?disabled=${this.modified}
+        title=${this.modified ? i18next.t("attributeConfiguration.saveBeforeExport") : ""}
+        @click=${() => showExportAttributeConfigurationDialog(this.shadowRoot!, this.asset)}
+      >
+        <or-icon slot="prefix" icon="upload"></or-icon>
+        <or-translate value="attributeConfiguration.export"></or-translate>
+      </or-vaadin-button>
+    `;
+  }
+
+  protected _importConfiguration() {
+    showImportAttributeConfigurationDialog(this.shadowRoot!, this.asset, (attributes) =>
+      this._onConfigurationImported(attributes)
+    );
+  }
+
+  protected async _onConfigurationImported(attributes: AssetAttributes) {
+    this.asset.attributes = attributes;
+
+    // Render the imported metadata before validating it
+    this.requestUpdate();
+    await this.updateComplete;
+    this._onModified();
   }
 
   protected _onModified() {

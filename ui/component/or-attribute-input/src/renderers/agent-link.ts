@@ -46,7 +46,7 @@ let loadingPromise: Promise<Agent[]> | undefined;
 let subscribed = false;
 const timeout = 2000;
 
-function loadAgents(): PromiseLike<Agent[]> {
+export function loadAgents(): PromiseLike<Agent[]> {
   if (agents) {
     return Promise.resolve(agents);
   }
@@ -93,6 +93,11 @@ function loadAgents(): PromiseLike<Agent[]> {
   return loadingPromise;
 }
 
+/** The agents to pick from for an agent link, as value and label pairs. */
+export function getAgentOptions(agents: Agent[]): [string, string][] {
+  return agents.map((agent) => [agent.id!, agent.name + " (" + agent.id + ")"]);
+}
+
 const agentIdTester: RankedTester = rankWith(6, and(uiTypeIs("Control"), formatIs("or-agent-id")));
 const agentIdRenderer = (state: JsonFormsStateContext, props: ControlProps) => {
   props = {
@@ -118,7 +123,7 @@ const agentIdRenderer = (state: JsonFormsStateContext, props: ControlProps) => {
   };
 
   const loadedTemplatePromise = loadAgents().then((agents) => {
-    const options: [string, string][] = agents.map((agent) => [agent.id!, agent.name + " (" + agent.id + ")"]);
+    const options = getAgentOptions(agents);
 
     return html`
       <or-mwc-input
