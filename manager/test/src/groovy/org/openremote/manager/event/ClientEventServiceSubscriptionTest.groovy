@@ -208,6 +208,75 @@ class ClientEventServiceSubscriptionTest extends Specification {
     eventClass << [RulesetChangedEvent, RulesEngineStatusEvent]
   }
 
+  def "rejects #eventClass.simpleName subscription from a restricted user with the read rules role"() {
+    given: "a client event service guarded by the rules service subscription authorizer that treats the user as restricted"
+    def service = new RecordingClientEventService()
+    new RulesService().init(containerFor(service, true))
+    def channel = dummyChannel()
+    String sessionKey = "session-7"
+    service.sessionChannels.put(sessionKey, channel)
+
+    when: "a restricted user of the building realm with the read rules role subscribes"
+    def exchange = exchangeFor(sessionKey, channel, new EventSubscription<>(eventClass), regularUser("building", ClientRole.READ_RULES), "building")
+    service.procesInboundEvent(exchange)
+
+    then: "the subscription should be rejected"
+    exchange.routeStop
+    service.eventSubscriptions.findAll { it.key.eventType == Event.getEventType(eventClass) }.empty
+    service.sentPayloads.size() == 1
+    service.sentPayloads[0] instanceof UnauthorizedEventSubscription
+
+    when: "events are published for the global engine and the building realm"
+    service.sendToSubscribers(rulesEvent(eventClass, null))
+    service.sendToSubscribers(rulesEvent(eventClass, "building"))
+
+    then: "the user should not receive any events"
+    service.triggeredEvents.empty
+
+    where:
+    eventClass << [RulesetChangedEvent, RulesEngineStatusEvent]
+  }
+
+  def "delivers #eventClass.simpleName events to a superuser for #description"() {
+    given: "a client event service guarded by the rules service subscription authorizer"
+    def service = new RecordingClientEventService()
+    new RulesService().init(containerFor(service))
+    def channel = dummyChannel()
+    String sessionKey = "session-8"
+    service.sessionChannels.put(sessionKey, channel)
+
+    when: "a superuser of the master realm subscribes"
+    def subscription = new EventSubscription<>(eventClass, requestedFilter)
+    service.procesInboundEvent(exchangeFor(sessionKey, channel, subscription, superUser(), "master"))
+
+    then: "the subscription should be accepted with the requested filter left untouched"
+    service.sentPayloads.last().is(subscription)
+    subscription.subscribed
+    subscription.filter.is(requestedFilter)
+
+    when: "events are published for the global engine and the smartcity and building realms"
+    service.sendToSubscribers(rulesEvent(eventClass, null))
+    service.sendToSubscribers(rulesEvent(eventClass, "smartcity"))
+    service.sendToSubscribers(rulesEvent(eventClass, "building"))
+
+    then: "the superuser should receive the expected events"
+    service.triggeredEvents*.realm == expectedRealms
+
+    where:
+    eventClass             | description           | requestedFilter                | expectedRealms
+    RulesetChangedEvent    | "all engines"         | null                           | [null, "smartcity", "building"]
+    RulesetChangedEvent    | "the requested realm" | new RealmFilter<>("smartcity") | ["smartcity"]
+    RulesEngineStatusEvent | "all engines"         | null                           | [null, "smartcity", "building"]
+    RulesEngineStatusEvent | "the requested realm" | new RealmFilter<>("smartcity") | ["smartcity"]
+  }
+
+  private AuthContext superUser() {
+    Stub(AuthContext) {
+      getAuthenticatedRealmName() >> "master"
+      isSuperUser() >> true
+    }
+  }
+
   private AuthContext regularUser(String realm, ClientRole role) {
     Stub(AuthContext) {
       getAuthenticatedRealmName() >> realm
@@ -237,10 +306,10 @@ class ClientEventServiceSubscriptionTest extends Specification {
     exchange
   }
 
-  private Container containerFor(ClientEventService clientEventService) {
+  private Container containerFor(ClientEventService clientEventService, boolean restrictedUser = false) {
     def identityService = Stub(ManagerIdentityService) {
       getIdentityProvider() >> Stub(ManagerIdentityProvider) {
-        isRestrictedUser(_) >> false
+        isRestrictedUser(_) >> restrictedUser
       }
     }
     Map<Class<?>, Object> services = [
