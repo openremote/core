@@ -16,6 +16,7 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
+import { normalizeTimePresetKey } from "@openremote/core";
 import type { AssetDatapointLTTBQuery, AssetDatapointQueryUnion, Attribute, AttributeRef } from "@openremote/model";
 import { html, type PropertyValues, type TemplateResult } from "lit";
 import { when } from "lit/directives/when.js";
@@ -60,7 +61,7 @@ function getDefaultTimeWindowOptions(): Map<string, [moment.unitOfTime.DurationC
 }
 
 function getDefaultTimePrefixOptions(): string[] {
-  return ["this", "last", "next"];
+  return ["current", "last", "next"];
 }
 
 function getDefaultSamplingOptions(): Map<string, string> {
@@ -222,11 +223,10 @@ export class ChartWidget extends OrAssetWidget {
             `,
             () => {
               const timePrefixList = getDefaultTimePrefixOptions();
-              const timePrefix =
-                timePrefixList.find((prefix) => this.widgetConfig?.defaultTimePresetKey?.startsWith(prefix)) ??
-                timePrefixList[0];
+              const timePresetKey = normalizeTimePresetKey(this.widgetConfig?.defaultTimePresetKey);
+              const timePrefix = timePrefixList.find((prefix) => timePresetKey.startsWith(prefix)) ?? timePrefixList[0];
               const timeWindowList = getDefaultTimeWindowOptions();
-              let [_, timeWindow] = this.widgetConfig?.defaultTimePresetKey?.split(timePrefix);
+              let [_, timeWindow] = timePresetKey.split(timePrefix);
               if (!timeWindow || !timeWindowList.has(timeWindow)) timeWindow = Array.from(timeWindowList.keys())[0];
               return html`
                 <or-chart

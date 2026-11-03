@@ -31,7 +31,14 @@ import {
   DatapointInterval,
   type ValueDatapoint,
 } from "@openremote/model";
-import manager, { DefaultColor3, DefaultColor4, Util } from "@openremote/core";
+import manager, {
+  DefaultColor3,
+  DefaultColor4,
+  getTimeWindowDates,
+  normalizeTimePrefix,
+  shiftTimeWindowDates,
+  Util,
+} from "@openremote/core";
 import * as echarts from "echarts/core";
 import {
   type DatasetComponentOption,
@@ -639,9 +646,11 @@ export class OrAttributeBarChart extends OrElement {
     const menuItems: MenuBarItem[] = [
       {
         component: createMenuBarItem(
-          html`<or-translate value=${this.timeframe ? "dashboard.customTimeSpan" : this.timePrefixKey}></or-translate>`
+          html`<or-translate
+            value=${this.timeframe ? "dashboard.customTimeSpan" : normalizeTimePrefix(this.timePrefixKey ?? "")}
+          ></or-translate>`
         ),
-        children: this.timePrefixOptions.map((o) => ({
+        children: this.timePrefixOptions.map(normalizeTimePrefix).map((o) => ({
           type: "prefix",
           value: o,
           component: createMenuBarItem(html`<or-translate value=${o}></or-translate>`),
@@ -998,53 +1007,14 @@ export class OrAttributeBarChart extends OrElement {
   }
 
   protected _getTimeSelectionDates(timePrefixSelected: string, timeWindowSelected: string): [Date, Date] {
-    let startDate: moment.Moment = moment();
-    let endDate: moment.Moment = moment();
-
-    const timeWindow: [moment.unitOfTime.DurationConstructor, number] | undefined =
-      this.timeWindowOptions?.get(timeWindowSelected);
+    const timeWindow = this.timeWindowOptions?.get(timeWindowSelected);
 
     if (!timeWindow) {
       throw new Error(`Unsupported time window selected: ${timeWindowSelected}`);
     }
 
-    const [unit, value]: [moment.unitOfTime.DurationConstructor, number] = timeWindow;
-    // Bounds sit on whole units in the user's timezone, or on whole 5 minute bars for minutes, so the bars fit them.
-    const step = unit === "minutes" ? 5 : 1;
-    const current = moment().startOf(unit);
-    current.subtract(current.get(unit) % step, unit);
-
-    switch (timePrefixSelected) {
-      case "this": {
-        if (value === 1) {
-          // For singulars like this hour
-          startDate = current;
-          endDate = moment().endOf(unit);
-        } else {
-          // For multiples like this 6 hours, put the current unit in the middle
-          startDate = current.clone().subtract(Math.floor(value / 2), unit);
-          endDate = startDate.clone().add(value, unit);
-        }
-        break;
-      }
-      case "last": {
-        if (value === 1) {
-          // For singulars like last hour
-          startDate = current.clone().subtract(value, unit);
-          endDate = current;
-        } else {
-          // For multiples like last 6 hours, up to and including the current unit
-          endDate = current.clone().add(step, unit);
-          startDate = endDate.clone().subtract(value, unit);
-        }
-        break;
-      }
-      default: {
-        console.error("Could not get time selection dates. The time prefix was not set correctly.");
-        break;
-      }
-    }
-    return [startDate.toDate(), endDate.toDate()];
+    // A chart of bars keeps its window on whole units, so that the bars fit it
+    return getTimeWindowDates(timePrefixSelected, timeWindow, true);
   }
 
   protected _shiftTimeframe(
@@ -1059,19 +1029,12 @@ export class OrAttributeBarChart extends OrElement {
       throw new Error(`Unsupported time window selected: ${timeWindowSelected}`);
     }
 
-    // A custom timeframe moves by its own length, as the selected window does not describe it.
-    const [unit, value]: [moment.unitOfTime.DurationConstructor, number] = this._isCustomWindow
-      ? ["milliseconds", currentEnd.getTime() - currentStart.getTime()]
-      : timeWindow;
-    const amount = direction === "previous" ? -value : value;
-    const newEnd = moment(currentEnd);
-    const endsWithUnit = newEnd.isSame(newEnd.clone().endOf(unit));
-    newEnd.add(amount, unit);
-    // Adding months clamps the day, so a window that ends with its unit has to be extended again.
-    if (endsWithUnit) {
-      newEnd.endOf(unit);
-    }
-    this.timeframe = [moment(currentStart).add(amount, unit).toDate(), newEnd.toDate()];
+    this.timeframe = shiftTimeWindowDates(
+      currentStart,
+      currentEnd,
+      this._isCustomWindow ? undefined : timeWindow,
+      direction
+    );
   }
 
   protected _getInterval(
@@ -1583,7 +1546,7 @@ export class OrAttributeBarChart extends OrElement {
   }
 
   public static getDefaultTimePrefixOptions(): string[] {
-    return ["this", "last"];
+    return ["current", "last"];
   }
 
   public static getDefaultTimeWindowOptions(): Map<string, [moment.unitOfTime.DurationConstructor, number]> {

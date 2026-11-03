@@ -62,7 +62,7 @@ for (const { name, now, timePrefixKey, timeWindowKey, steps } of timeframes) {
 }
 
 ct("should shift a custom timeframe by its own length after a calendar preset", async ({ mount }) => {
-  const component = await mount(OrAttributeBarChartTest, { props: { timePrefixKey: "this", timeWindowKey: "Day" } });
+  const component = await mount(OrAttributeBarChartTest, { props: { timePrefixKey: "current", timeWindowKey: "Day" } });
   await getChart(component);
   await component.evaluate(
     (el: any, { start, end }) => {

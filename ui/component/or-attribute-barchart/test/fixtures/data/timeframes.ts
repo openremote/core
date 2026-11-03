@@ -39,6 +39,13 @@ export interface Timeframe {
  */
 export const timeframes: Timeframe[] = [
   {
+    name: "should still accept this as the former name of current",
+    now: "2026-01-15T10:20:00+01:00",
+    timePrefixKey: "this",
+    timeWindowKey: "Day",
+    steps: [{ start: "2026-01-15T00:00:00+01:00", end: "2026-01-15T23:59:59.999+01:00", bars: 24 }],
+  },
+  {
     name: "should end a last window of hours with the current hour",
     now: "2026-01-15T13:40:00+01:00",
     timePrefixKey: "last",
@@ -51,9 +58,9 @@ export const timeframes: Timeframe[] = [
     ],
   },
   {
-    name: "should center a this window of hours on the current hour",
+    name: "should center a current window of hours on the current hour",
     now: "2026-01-15T13:27:00+01:00",
-    timePrefixKey: "this",
+    timePrefixKey: "current",
     timeWindowKey: "24Hours",
     steps: [
       // The window used to follow the current minute, so its bounds differed from the bars it showed
@@ -73,9 +80,9 @@ export const timeframes: Timeframe[] = [
     ],
   },
   {
-    name: "should anchor a this window of days to the start of the day",
+    name: "should anchor a current window of days to the start of the day",
     now: "2026-01-15T13:40:00+01:00",
-    timePrefixKey: "this",
+    timePrefixKey: "current",
     timeWindowKey: "7Days",
     steps: [
       // Half of the 7 days used to round up on both sides, so the window spanned 8 days
@@ -117,7 +124,7 @@ export const timeframes: Timeframe[] = [
   {
     name: "should keep hourly bars on a calendar day of 25 hours",
     now: "2026-10-24T12:00:00+02:00",
-    timePrefixKey: "this",
+    timePrefixKey: "current",
     timeWindowKey: "Day",
     steps: [
       { start: "2026-10-24T00:00:00+02:00", end: "2026-10-24T23:59:59.999+02:00", bars: 24 },
@@ -129,7 +136,7 @@ export const timeframes: Timeframe[] = [
   {
     name: "should keep daily bars on a month of 745 hours",
     now: "2026-09-15T12:00:00+02:00",
-    timePrefixKey: "this",
+    timePrefixKey: "current",
     timeWindowKey: "Month",
     steps: [
       { start: "2026-09-01T00:00:00+02:00", end: "2026-09-30T23:59:59.999+02:00", bars: 30 },
@@ -140,7 +147,7 @@ export const timeframes: Timeframe[] = [
   {
     name: "should keep weekly bars on a leap year",
     now: "2027-06-15T12:00:00+02:00",
-    timePrefixKey: "this",
+    timePrefixKey: "current",
     timeWindowKey: "Year",
     steps: [
       { start: "2027-01-01T00:00:00+01:00", end: "2027-12-31T23:59:59.999+01:00", bars: 52 },
@@ -151,7 +158,7 @@ export const timeframes: Timeframe[] = [
   {
     name: "should keep a preset window across repeated navigation",
     now: "2026-01-15T10:20:00+01:00",
-    timePrefixKey: "this",
+    timePrefixKey: "current",
     timeWindowKey: "Hour",
     steps: [
       { start: "2026-01-15T10:00:00+01:00", end: "2026-01-15T10:59:59.999+01:00", bars: 12 },
@@ -163,7 +170,7 @@ export const timeframes: Timeframe[] = [
   {
     name: "should keep a fixed window at its elapsed duration across DST",
     now: "2026-03-28T12:00:00+01:00",
-    timePrefixKey: "this",
+    timePrefixKey: "current",
     timeWindowKey: "24Hours",
     steps: [
       { start: "2026-03-28T00:00:00+01:00", end: "2026-03-29T00:00:00+01:00", bars: 24 },
@@ -173,7 +180,7 @@ export const timeframes: Timeframe[] = [
   {
     name: "should keep a calendar day whole across DST",
     now: "2026-03-28T12:00:00+01:00",
-    timePrefixKey: "this",
+    timePrefixKey: "current",
     timeWindowKey: "Day",
     steps: [
       { start: "2026-03-28T00:00:00+01:00", end: "2026-03-28T23:59:59.999+01:00", bars: 24 },
@@ -184,7 +191,7 @@ export const timeframes: Timeframe[] = [
   {
     name: "should keep calendar months whole across months of different lengths",
     now: "2026-01-15T12:00:00+01:00",
-    timePrefixKey: "this",
+    timePrefixKey: "current",
     timeWindowKey: "Month",
     steps: [
       { start: "2026-01-01T00:00:00+01:00", end: "2026-01-31T23:59:59.999+01:00", bars: 31 },
@@ -196,9 +203,9 @@ export const timeframes: Timeframe[] = [
     ],
   },
   {
-    name: "should move a this window of months by whole months",
+    name: "should move a current window of months by whole months",
     now: "2026-01-15T12:00:00+01:00",
-    timePrefixKey: "this",
+    timePrefixKey: "current",
     timeWindowKey: "6Months",
     steps: [
       // The window used to follow the current day and time, so its bounds differed from the bars it showed

@@ -73,7 +73,7 @@ function getDefaultWidgetConfig(): BarChartWidgetConfig {
     },
     showTimestampControls: false,
     defaultTimeWindowKey: preset,
-    defaultTimePrefixKey: "this",
+    defaultTimePrefixKey: "current",
     defaultInterval: BarChartInterval.AUTO,
     showLegend: true,
     stacked: false,
