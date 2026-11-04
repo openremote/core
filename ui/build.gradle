@@ -1,17 +1,33 @@
+plugins {
+  id 'base'
+}
 
-afterEvaluate {
-  // Add dependencies on model and rest typescript generation
-  rootProject.getTasksByName('installDist', true).forEach {
-    it.dependsOn ":ui:component:model:generateTypeScript", ":ui:component:rest:generateTypeScript"
+def generatedUiSources = [':ui:component:model:generateTypeScript', ':ui:component:rest:generateTypeScript']
+
+rootProject.allprojects {
+  tasks.matching {
+    it.name in ['installDist', 'prepareUi', 'publishUi', 'npmBuild']
+  }.configureEach {
+    dependsOn generatedUiSources
   }
-  rootProject.getTasksByName('prepareUi', true).forEach {
-    it.dependsOn ":ui:component:model:generateTypeScript", ":ui:component:rest:generateTypeScript"
+}
+
+subprojects {
+  apply plugin: 'base'
+
+  tasks.named('assemble') {
+    dependsOn tasks.matching { it.name in ['npmBuild', 'npmAnalyze'] }
   }
-  rootProject.getTasksByName('publishUi', true).forEach {
-    it.dependsOn ":ui:component:model:generateTypeScript", ":ui:component:rest:generateTypeScript"
+
+  def npmTestTasks = tasks.matching { it.name == 'npmTest' }
+  npmTestTasks.configureEach {
+    mustRunAfter generatedUiSources
   }
-  rootProject.getTasksByName('npmBuild', true).forEach {
-    it.dependsOn ":ui:component:model:generateTypeScript", ":ui:component:rest:generateTypeScript"
+
+  tasks.named('check') {
+    dependsOn npmTestTasks
+    // Standalone test tasks can reuse CI artifacts; check also prepares generated sources.
+    dependsOn { npmTestTasks.empty ? [] : generatedUiSources }
   }
 }
 
@@ -19,13 +35,22 @@ tasks.register("modelWatch") {
   dependsOn ":ui:component:model:build", ":ui:component:rest:build"
 }
 
-tasks.register("installKnipDeps", Exec) {
-  // Required to load the `rspack.config.js` and `rsbuild.config.ts` files, ref https://knip.dev/reference/known-issues#exceptions-from-config-files
-  commandLine npmCommand("yarn"), "workspaces", "focus", "@openremote/util", "@openremote/manager", "@openremote/storybook"
+tasks.register("knip", Exec) {
+  group = 'verification'
+  description = 'Checks UI dependencies'
+  dependsOn getYarnInstallTask()
+  workingDir project.rootDir
+  commandLine npmCommand("yarn"), "run", "knip"
 }
 
-tasks.register("knip", Exec) {
-  dependsOn installKnipDeps
+tasks.register('testKnip', Exec) {
+  group = 'verification'
+  description = 'Tests Knip configuration with source-only and built workspaces'
+  dependsOn getYarnInstallTask()
   workingDir project.rootDir
-  commandLine npmCommand("npx"), "knip@5.88.0", "-c", "ui/knip.jsonc"
+  commandLine npmCommand("yarn"), "run", "test:knip"
+}
+
+tasks.named('check') {
+  dependsOn tasks.named('knip'), tasks.named('testKnip')
 }

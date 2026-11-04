@@ -39,23 +39,27 @@ subprojects {
     }
 }
 
+// Root lifecycle: build -> assemble + check; check -> test + subproject verification;
+// test -> backend unit tests + integration tests + npmTest; npmTest -> UI component + app tests.
 tasks.register('npmTest') {
   group = 'verification'
-  description = 'Runs all UI tests sequentially (component then app)'
+  description = 'Runs UI component tests followed by UI app tests'
 }
 
 tasks.register('test') {
   group = 'verification'
-  description = 'Executes all backend and UI tests in specific order'
-  // When './gradlew test' is run, ensure the UI tests are also pulled into the task graph
-  dependsOn 'npmTest'
+  description = 'Runs backend unit and integration tests, then npmTest for all UI tests'
 }
 
-// Enforce order in which we run the backend- and frontend tests
-// Order: 1. Unit tests
-//     -> 2. Integration tests
-//     -> 3. UI component tests
-//     -> 4. UI app tests
+tasks.named('assemble') {
+  dependsOn subprojects.collect { it.tasks.matching { t -> t.name == 'assemble' } }
+}
+
+tasks.named('check') {
+  dependsOn tasks.named('test')
+  dependsOn subprojects.collect { it.tasks.matching { t -> t.name == 'check' } }
+}
+
 gradle.projectsEvaluated {
   def unitTests = subprojects.findAll { it.path != ':test' }
   .collect { it.tasks.matching { t -> t.name == 'test' } }
@@ -73,11 +77,11 @@ gradle.projectsEvaluated {
     dependsOn(uiComponentTests, uiAppTests)
   }
 
-  def rootTest = tasks.findByName('test') ?: tasks.register('test').get()
-  rootTest.configure {
-    dependsOn(unitTests, integrationTests, npmTest)
+  tasks.named('test').configure {
+    dependsOn(unitTests, integrationTests, tasks.named('npmTest'))
   }
 
+  // Order test execution without making standalone UI test commands run backend tests.
   integrationTests.forEach { group ->
     group.configureEach { it.mustRunAfter(unitTests) }
   }

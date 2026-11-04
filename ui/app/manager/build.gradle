@@ -83,8 +83,13 @@ tasks.register('npmBuild', Exec) {
 
 tasks.register('npmTest', Exec) {
   dependsOn ":ui:test:installTestDeps", ":ui:test:clean"
+  mustRunAfter ":manager:installDist", ":ui:app:manager:installDist", ":ui:app:shared:installDist"
   commandLine npmCommand("yarn"), "run", "test"
   args((findProperty('args')?.toString()?.tokenize()) ?: [])
+}
+
+tasks.named('check') {
+  dependsOn ":manager:installDist", ":ui:app:manager:installDist", ":ui:app:shared:installDist"
 }
 
 tasks.register('cleanDist') {

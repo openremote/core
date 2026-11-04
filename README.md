@@ -83,6 +83,31 @@ For information and how to set up a development environment, see the [Developer 
 
 We work with Java, Groovy, TypeScript, Gradle, Docker, and a wide range of APIs and protocol implementations.
 
+Use JDK 21 and the repository's Yarn version to build from source:
+
+```sh
+./gradlew assemble       # Build backend and UI artifacts
+./gradlew check          # Run tests, formatting, dependency, and translation checks
+./gradlew build          # Build and verify: the normal pre-PR command
+./gradlew installDist    # Prepare the runnable manager and deployment files
+```
+
+For a clean build, use `./gradlew clean assemble`, or `./gradlew clean build` to include verification.
+The runnable distribution is installed in `manager/build/install/manager/`; `assemble` does not install it or build Docker images.
+
+Before running `check` or `build`, start PostgreSQL and Keycloak with `docker compose -f profile/dev-testing.yml -p openremote up -d --no-build` and install the Playwright browser with `./gradlew :ui:test:installBrowsers`.
+These lifecycle tasks compose individual tasks that remain independently runnable, allowing CI to run checks separately, reuse artifacts, and prepare distributions only where needed.
+
+For targeted test runs:
+
+```sh
+./gradlew test               # Backend tests followed by npmTest (all UI tests)
+./gradlew test -x npmTest    # Backend tests only
+./gradlew npmTest            # UI component tests followed by UI app tests
+```
+
+Both `check` and `build` include the complete test sequence as well as the other verification checks.
+
 We follow the [GitHub Flow](https://docs.github.com/en/get-started/quickstart/github-flow) workflow with tags and releases for published versions of our components; when working on the codebase create descriptive branch names (e.g. `feature/cool_feature_x`, `hotfix/flux_capacitor`, `issue/123`, etc.).
 
 When your changes are complete then create a Pull Request ensuring that your branch is up-to-date with the source branch and that code changes are covered by tests and that the full test suite passes.

@@ -1,7 +1,3 @@
-tasks.register('clean', Delete) {
-  delete layout.buildDirectory
-}
-
 tasks.register('npmBuild', Exec) {
   mustRunAfter npmClean
   dependsOn getYarnInstallTask()
