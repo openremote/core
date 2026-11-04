@@ -39,9 +39,25 @@ subprojects {
     }
 }
 
-// Root lifecycle: build -> assemble + check; check -> test + subproject verification;
-// test -> testBackend + testUi; testBackend -> testBackendUnit + testBackendIntegration;
-// testUi -> testUiComponent + testUiApp. UI groups run module-level npmTest tasks.
+// Simplified Gradle task hierarchy. For the full dependency graph, run
+// ./gradlew build --task-graph or ./gradlew :deployment:installDist --task-graph
+//
+// build
+// ├── assemble (backend JARs, UI bundles, setup JARs)
+// └── check
+//     ├── test
+//     │   ├── testBackend (testBackendUnit, testBackendIntegration)
+//     │   └── testUi (testUiComponent, testUiApp)
+//     ├── spotlessCheck (spotlessJavaCheck, spotlessGroovyCheck, etc.)
+//     └── Subproject checks (knip, testKnip, testUiLocks, checkTranslations, etc.)
+//
+// :deployment:installDist (Docker build context)
+// └── Subproject installDist tasks (manager, setup, UI) and license
+//
+// installDist depends on the artifact-producing tasks it needs (JARs, generated
+// sources, UI bundles), not on the assemble or check lifecycle aggregators.
+// This avoids building unrelated artifacts or running verification tasks.
+
 tasks.register('testBackendUnit') {
   group = 'verification'
   description = 'Runs backend unit tests'
