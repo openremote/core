@@ -5,7 +5,7 @@ set -eo pipefail
 CHUNK_SIZE=$(curl -s http://localhost:8406/metrics | grep '^pg_datapoint_largest_uncompressed_chunk' | awk '{printf "%.0f\n", $NF}')
 if [ -z "$CHUNK_SIZE" ]; then
   echo 'Could not retrieve chunk size from query-exporter service, using defaults from Docker Compose'
-  exit 1
+  exit 0
 fi
 
 # Calculate minimum RAM size and round up to the next whole GB (1.2 GB becomes 2 GB)
