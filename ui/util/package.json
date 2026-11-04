@@ -9,7 +9,8 @@
   },
   "license": "AGPL-3.0-or-later",
   "scripts": {
-    "test": "node --test test/knip.test.mjs"
+    "test:knip": "node --test test/knip.test.mjs",
+    "test:ui-locks": "node --test test/ui-locks.test.mjs"
   },
   "dependencies": {
     "@custom-elements-manifest/analyzer": "^0.11.0",

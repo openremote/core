@@ -14,6 +14,16 @@ Anything a package references relative to its own emitted files must survive the
 
 Three outputs stay outside `build/` on purpose. `ui/app/shared/fonts` is packaged by a `generateSources` task that copies the project dir minus `build/**`. `ui/app/shared/cache` is a checksum-keyed download that `clean` would force to re-download. The generated `model.ts` and `restclient.ts` are sources rather than artifacts, so they stay under `rootDir`.
 
+### Parallel UI tasks
+
+`tsc -b` and `ts-loader` can compile every project in their TypeScript reference graph. Each compiler process orders its own work, but separate Gradle tasks can reach the same outputs. For example, `core:npmBuild` can compile `model` while `model:npmBuild` forces its own rebuild. Component `npmTest` scripts also run `tsc -b`. Concurrent processes can read incomplete declarations or overwrite JavaScript and `.tsbuildinfo` files; generating the TypeScript sources first does not prevent this.
+
+Gradle uses one exclusive build-service resource per referenced `tsconfig.json`, including transitive references to projects without an `npmBuild` task. Tasks with overlapping graphs therefore run separately, while independent graphs and `npmAnalyze` remain parallel. The resources are held for the entire `npmBuild` or `npmTest` task, including the browser phase of tests. Reference files are tracked as configuration inputs so changing a graph updates the locks when using the configuration cache.
+
+Knip 6 also reads published declarations. Its configuration stops ignoring dependencies exposed only by public declaration types once `build/lib` exists, but that directory can exist while compilation is still writing its files. Reading incomplete declarations can then produce false dependency diagnostics. Knip therefore uses `mustRunAfter` for source generation, `npmBuild`, and `npmTest`. This orders tasks that are already scheduled without adding them as dependencies, so standalone Knip checks still work with existing CI artifacts or before a build.
+
+Run `./gradlew :ui:testUiLocks` or `yarn test:ui-locks` for regression tests covering shared-output exclusion, independent parallel builds, Knip ordering, standalone checks, and configuration-cache reuse. They run temporary Gradle projects and require no backend services or browser. Both `check` and `build` include these tests.
+
 ## Generated model
 
 `ui/component/model/src/model.ts` is generated from the Java backend by typescript-generator and holds enums and constants as well as types. Do not edit it by hand. Anything mirroring a backend class or enum comes from `@openremote/model`, so import it rather than redeclaring an interface or hardcoding a member's value, e.g. `manager.hasRole(ClientRole.READ_ASSETS)` over the `"read:assets"` string.

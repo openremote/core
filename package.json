@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "knip": "knip -c ui/knip.ts",
-    "test:knip": "yarn workspace @openremote/util test",
+    "test:knip": "yarn workspace @openremote/util test:knip",
+    "test:ui-locks": "yarn workspace @openremote/util test:ui-locks",
     "lint": "cd ui && eslint . --cache --cache-location ../.eslintcache",
     "lint:fix": "cd ui && eslint . --fix --cache --cache-location ../.eslintcache",
     "format": "cd ui && prettier . --write",

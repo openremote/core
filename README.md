@@ -115,6 +115,8 @@ Backend integration tests and UI app tests require the PostgreSQL and Keycloak s
 UI tests also require the Playwright browser. Before standalone UI tests, prepare the runnable distribution with `./gradlew installDist` if it is not already available.
 Both `check` and `build` include the complete test sequence as well as the other verification checks.
 
+UI compiler tasks coordinate access to shared TypeScript outputs, and Knip waits for scheduled writers to finish. See [Parallel UI tasks](ui/AGENTS.md#parallel-ui-tasks) for the reasons and concurrency limits. Run `./gradlew :ui:testUiLocks` or `yarn test:ui-locks` to verify this coordination without starting backend services or a browser.
+
 We follow the [GitHub Flow](https://docs.github.com/en/get-started/quickstart/github-flow) workflow with tags and releases for published versions of our components; when working on the codebase create descriptive branch names (e.g. `feature/cool_feature_x`, `hotfix/flux_capacitor`, `issue/123`, etc.).
 
 When your changes are complete then create a Pull Request ensuring that your branch is up-to-date with the source branch and that code changes are covered by tests and that the full test suite passes.
