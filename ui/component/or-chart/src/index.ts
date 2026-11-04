@@ -40,6 +40,9 @@ import manager, {
   getTimeWindowDates,
   normalizeTimePrefix,
   shiftTimeWindowDates,
+  TIME_PREFIXES,
+  type TimeDirection,
+  TimePrefix,
   Util,
 } from "@openremote/core";
 import "@openremote/or-asset-tree";
@@ -993,14 +996,14 @@ export class OrChart extends translate(i18next)(OrElement) {
           class="button button-icon"
           ?disabled="${disabled}"
           icon="chevron-left"
-          @click="${() => this._shiftTimeframe(this.timeframe?.[0] ?? new Date(this._startOfPeriod!), this.timeframe?.[1] ?? new Date(this._endOfPeriod!), this.timeWindowKey!, "previous")}"
+          @click="${() => this._shiftTimeframe(this.timeframe?.[0] ?? new Date(this._startOfPeriod!), this.timeframe?.[1] ?? new Date(this._endOfPeriod!), this.timeWindowKey!, TimePrefix.LAST)}"
         ></or-icon>
         <!-- Scroll right button -->
         <or-icon
           class="button button-icon"
           ?disabled="${disabled}"
           icon="chevron-right"
-          @click="${() => this._shiftTimeframe(this.timeframe?.[0] ?? new Date(this._startOfPeriod!), this.timeframe?.[1] ?? new Date(this._endOfPeriod!), this.timeWindowKey!, "next")}"
+          @click="${() => this._shiftTimeframe(this.timeframe?.[0] ?? new Date(this._startOfPeriod!), this.timeframe?.[1] ?? new Date(this._endOfPeriod!), this.timeWindowKey!, TimePrefix.NEXT)}"
         ></or-icon>
         <!-- Button that opens custom time selection or restores to widget setting-->
         <or-icon
@@ -1321,8 +1324,8 @@ export class OrChart extends translate(i18next)(OrElement) {
     }
   }
 
-  protected _getDefaultTimePrefixOptions(): string[] {
-    return ["current", "last", "next"];
+  protected _getDefaultTimePrefixOptions(): TimePrefix[] {
+    return [...TIME_PREFIXES];
   }
 
   protected _getDefaultTimeWindowOptions(): Map<string, [moment.unitOfTime.DurationConstructor, number]> {
@@ -1359,7 +1362,7 @@ export class OrChart extends translate(i18next)(OrElement) {
   /**
    * Internal function for shifting a timeframe in a specific {@link direction}.
    * Based on the given {@link currentStart} and {@link currentEnd} dates, it will move forward/backwards for the {@link selectedTimeWindow}.
-   * For example, when viewing '1 week' of data, and calling this function with the 'previous' direction, it will update {@link timeframe} with dates one week in advance.
+   * For example, when viewing '1 week' of data, and calling this function with the 'last' direction, it will update {@link timeframe} with dates one week in advance.
    *
    * @param currentStart - Start date of the current viewport
    * @param currentEnd - End date of the current viewport
@@ -1371,7 +1374,7 @@ export class OrChart extends translate(i18next)(OrElement) {
     currentStart: Date,
     currentEnd: Date,
     selectedTimeWindow: string,
-    direction: "previous" | "next"
+    direction: TimeDirection
   ) {
     const timeWindow = this.timeWindowOptions!.get(selectedTimeWindow);
     if (!timeWindow) {

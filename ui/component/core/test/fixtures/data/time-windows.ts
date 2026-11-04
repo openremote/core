@@ -16,7 +16,7 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
-import type { TimeWindow } from "../../../src/time-window";
+import type { TimeDirection, TimeWindow } from "../../../src/time-window";
 
 /** A Tuesday, in Europe/Stockholm. */
 export const NOW = "2026-11-03T17:15:00+01:00";
@@ -34,7 +34,7 @@ export interface TimeWindowShift {
   name: string;
   /** Left out for a custom timeframe. */
   timeWindow?: TimeWindow;
-  direction: "previous" | "next";
+  direction: TimeDirection;
   from: [string, string];
   to: [string, string];
 }
@@ -210,14 +210,14 @@ export const timeWindowShifts: TimeWindowShift[] = [
   {
     name: "a current day back by one day",
     timeWindow: DAY,
-    direction: "previous",
+    direction: "last",
     from: ["2026-11-03T00:00:00+01:00", "2026-11-03T23:59:59.999+01:00"],
     to: ["2026-11-02T00:00:00+01:00", "2026-11-02T23:59:59.999+01:00"],
   },
   {
     name: "a last day back by one day",
     timeWindow: DAY,
-    direction: "previous",
+    direction: "last",
     from: ["2026-11-02T00:00:00+01:00", "2026-11-03T00:00:00+01:00"],
     to: ["2026-11-01T00:00:00+01:00", "2026-11-02T00:00:00+01:00"],
   },

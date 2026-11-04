@@ -21,6 +21,21 @@ import moment from "moment";
 /** The unit and the number of units of a time window, such as `["hours", 24]`. */
 export type TimeWindow = [moment.unitOfTime.DurationConstructor, number];
 
+/** Where a time window is relative to now, such as the `last` in `last 6 hours`. */
+export const TimePrefix = {
+  CURRENT: "current",
+  LAST: "last",
+  NEXT: "next",
+} as const;
+
+export type TimePrefix = (typeof TimePrefix)[keyof typeof TimePrefix];
+
+/** All time prefixes, for a chart to offer. */
+export const TIME_PREFIXES: readonly TimePrefix[] = Object.values(TimePrefix);
+
+/** The way a time window moves, towards the `last` or the `next` window. */
+export type TimeDirection = Exclude<TimePrefix, typeof TimePrefix.CURRENT>;
+
 let warnedAboutFormerPrefix = false;
 
 /**
@@ -34,7 +49,7 @@ export function normalizeTimePrefix(prefix: string): string {
     warnedAboutFormerPrefix = true;
     console.warn('The time prefix "this" is deprecated, use "current" instead.');
   }
-  return "current";
+  return TimePrefix.CURRENT;
 }
 
 /**
@@ -62,11 +77,11 @@ export function getTimeWindowDates(prefix: string, [unit, value]: TimeWindow, wh
 
   if (value === 1) {
     switch (timePrefix) {
-      case "current":
+      case TimePrefix.CURRENT:
         return [startOfUnit.toDate(), moment().endOf(unit).toDate()];
-      case "last":
+      case TimePrefix.LAST:
         return [startOfUnit.clone().subtract(1, unit).toDate(), startOfUnit.toDate()];
-      case "next":
+      case TimePrefix.NEXT:
         return [startOfUnit.clone().add(1, unit).toDate(), startOfUnit.clone().add(1, unit).endOf(unit).toDate()];
     }
   } else {
@@ -74,18 +89,18 @@ export function getTimeWindowDates(prefix: string, [unit, value]: TimeWindow, wh
     const anchor = wholeUnits ? startOfUnit.clone().subtract(startOfUnit.get(unit) % step, unit) : moment();
 
     switch (timePrefix) {
-      case "current": {
+      case TimePrefix.CURRENT: {
         const start = anchor.clone().subtract(Math.floor(value / 2), unit);
         return [start.toDate(), start.clone().add(value, unit).toDate()];
       }
-      case "last": {
+      case TimePrefix.LAST: {
         if (wholeUnits) {
           const end = anchor.clone().add(step, unit);
           return [end.clone().subtract(value, unit).toDate(), end.toDate()];
         }
         return [moment().subtract(value, unit).startOf(unit).toDate(), anchor.toDate()];
       }
-      case "next":
+      case TimePrefix.NEXT:
         return [anchor.toDate(), anchor.clone().add(value, unit).toDate()];
     }
   }
@@ -95,17 +110,16 @@ export function getTimeWindowDates(prefix: string, [unit, value]: TimeWindow, wh
 }
 
 /**
- * Returns the start and end of a time window moved back or forward by its own length. Leave out the time window for a
- * custom timeframe, which moves by the time between its start and end.
+ * Returns the start and end of a time window moved back or forward by its own length. Pass no time window for a custom
+ * timeframe, which moves by the time between its start and end.
  */
 export function shiftTimeWindowDates(
   start: Date,
   end: Date,
-  timeWindow: TimeWindow | undefined,
-  direction: "previous" | "next"
+  [unit, value]: TimeWindow | undefined = ["milliseconds", end.getTime() - start.getTime()],
+  direction: TimeDirection
 ): [Date, Date] {
-  const [unit, value]: TimeWindow = timeWindow ?? ["milliseconds", end.getTime() - start.getTime()];
-  const amount = direction === "previous" ? -value : value;
+  const amount = direction === TimePrefix.LAST ? -value : value;
   const newEnd = moment(end);
   const endsWithUnit = newEnd.isSame(newEnd.clone().endOf(unit));
   newEnd.add(amount, unit);

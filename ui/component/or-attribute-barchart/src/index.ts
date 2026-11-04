@@ -37,6 +37,9 @@ import manager, {
   getTimeWindowDates,
   normalizeTimePrefix,
   shiftTimeWindowDates,
+  TIME_PREFIXES,
+  type TimeDirection,
+  TimePrefix,
   Util,
 } from "@openremote/core";
 import * as echarts from "echarts/core";
@@ -703,14 +706,14 @@ export class OrAttributeBarChart extends OrElement {
           class="button button-icon"
           ?disabled="${disabled}"
           icon="chevron-left"
-          @click="${() => this._shiftTimeframe(this.timeframe ? this.timeframe[0] : new Date(this._startOfPeriod!), this.timeframe ? this.timeframe[1] : new Date(this._endOfPeriod!), this.timeWindowKey!, "previous")}"
+          @click="${() => this._shiftTimeframe(this.timeframe ? this.timeframe[0] : new Date(this._startOfPeriod!), this.timeframe ? this.timeframe[1] : new Date(this._endOfPeriod!), this.timeWindowKey!, TimePrefix.LAST)}"
         ></or-icon>
         <!-- Scroll right button -->
         <or-icon
           class="button button-icon"
           ?disabled="${disabled}"
           icon="chevron-right"
-          @click="${() => this._shiftTimeframe(this.timeframe ? this.timeframe[0] : new Date(this._startOfPeriod!), this.timeframe ? this.timeframe[1] : new Date(this._endOfPeriod!), this.timeWindowKey!, "next")}"
+          @click="${() => this._shiftTimeframe(this.timeframe ? this.timeframe[0] : new Date(this._startOfPeriod!), this.timeframe ? this.timeframe[1] : new Date(this._endOfPeriod!), this.timeWindowKey!, TimePrefix.NEXT)}"
         ></or-icon>
         <!-- Button that opens custom time selection or restores to widget setting-->
         <or-icon
@@ -1021,7 +1024,7 @@ export class OrAttributeBarChart extends OrElement {
     currentStart: Date,
     currentEnd: Date,
     timeWindowSelected: string,
-    direction: "previous" | "next"
+    direction: TimeDirection
   ) {
     const timeWindow = this.timeWindowOptions.get(timeWindowSelected);
 
@@ -1545,8 +1548,9 @@ export class OrAttributeBarChart extends OrElement {
     } as BarChartData;
   }
 
-  public static getDefaultTimePrefixOptions(): string[] {
-    return ["current", "last"];
+  public static getDefaultTimePrefixOptions(): TimePrefix[] {
+    // A bar chart only reads stored datapoints, so it has nothing to show for the next window
+    return TIME_PREFIXES.filter((prefix) => prefix !== TimePrefix.NEXT);
   }
 
   public static getDefaultTimeWindowOptions(): Map<string, [moment.unitOfTime.DurationConstructor, number]> {

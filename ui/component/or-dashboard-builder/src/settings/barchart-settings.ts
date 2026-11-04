@@ -16,7 +16,7 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
-import { normalizeTimePrefix } from "@openremote/core";
+import { normalizeTimePrefix, type TimePrefix } from "@openremote/core";
 import { css, html, type TemplateResult } from "lit";
 import { customElement, query } from "lit/decorators.js";
 import { WidgetSettings } from "../util/widget-settings";
@@ -699,7 +699,7 @@ export class BarChartSettings extends WidgetSettings {
   }
 
   protected onTimePrefixSelect(ev: Event) {
-    this.widgetConfig.defaultTimePrefixKey = (ev.currentTarget as OrVaadinSelect).value;
+    this.widgetConfig.defaultTimePrefixKey = (ev.currentTarget as OrVaadinSelect).value as TimePrefix;
     this.notifyConfigUpdate();
   }
 

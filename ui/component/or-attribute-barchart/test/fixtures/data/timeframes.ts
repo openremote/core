@@ -16,9 +16,11 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
+import type { TimeDirection } from "@openremote/core";
+
 export interface TimeframeStep {
   /** The chevron to click first. A step without one is what the chart shows after mounting. */
-  click?: "next" | "previous";
+  click?: TimeDirection;
   start: string;
   end: string;
   bars: number;
@@ -164,7 +166,7 @@ export const timeframes: Timeframe[] = [
       { start: "2026-01-15T10:00:00+01:00", end: "2026-01-15T10:59:59.999+01:00", bars: 12 },
       { click: "next", start: "2026-01-15T11:00:00+01:00", end: "2026-01-15T11:59:59.999+01:00", bars: 12 },
       { click: "next", start: "2026-01-15T12:00:00+01:00", end: "2026-01-15T12:59:59.999+01:00", bars: 12 },
-      { click: "previous", start: "2026-01-15T11:00:00+01:00", end: "2026-01-15T11:59:59.999+01:00", bars: 12 },
+      { click: "last", start: "2026-01-15T11:00:00+01:00", end: "2026-01-15T11:59:59.999+01:00", bars: 12 },
     ],
   },
   {
@@ -198,8 +200,8 @@ export const timeframes: Timeframe[] = [
       { click: "next", start: "2026-02-01T00:00:00+01:00", end: "2026-02-28T23:59:59.999+01:00", bars: 28 },
       // Adding months clamps the day, which used to leave every later month ending on the 28th
       { click: "next", start: "2026-03-01T00:00:00+01:00", end: "2026-03-31T23:59:59.999+02:00", bars: 31 },
-      { click: "previous", start: "2026-02-01T00:00:00+01:00", end: "2026-02-28T23:59:59.999+01:00", bars: 28 },
-      { click: "previous", start: "2026-01-01T00:00:00+01:00", end: "2026-01-31T23:59:59.999+01:00", bars: 31 },
+      { click: "last", start: "2026-02-01T00:00:00+01:00", end: "2026-02-28T23:59:59.999+01:00", bars: 28 },
+      { click: "last", start: "2026-01-01T00:00:00+01:00", end: "2026-01-31T23:59:59.999+01:00", bars: 31 },
     ],
   },
   {

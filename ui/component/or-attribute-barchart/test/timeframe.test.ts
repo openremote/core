@@ -29,8 +29,8 @@ ct.beforeEach(async ({ shared }) => {
 });
 
 const CHEVRONS = {
+  last: 'or-icon[icon="chevron-left"]',
   next: 'or-icon[icon="chevron-right"]',
-  previous: 'or-icon[icon="chevron-left"]',
 };
 
 /**
@@ -77,6 +77,6 @@ ct("should shift a custom timeframe by its own length after a calendar preset", 
   // A custom timeframe used to move by the selected preset, which is a whole day here
   expect(await getChart(component)).toEqual(chart("2026-01-15T03:00:00+01:00", "2026-01-15T06:00:00+01:00", 6));
 
-  await component.locator(CHEVRONS.previous).click();
+  await component.locator(CHEVRONS.last).click();
   expect(await getChart(component)).toEqual(chart("2026-01-15T00:00:00+01:00", "2026-01-15T03:00:00+01:00", 6));
 });
