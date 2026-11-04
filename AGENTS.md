@@ -40,11 +40,20 @@ ex.response.withCloseable { r ->
 
 ### Running tests
 
-`./gradlew test` runs backend unit tests, backend integration tests, and then `npmTest` (UI component tests followed by UI app tests). Use `./gradlew test -x npmTest` for backend tests only, or `./gradlew npmTest` for UI tests only. Both `check` and `build` include the complete test sequence.
+- `./gradlew testBackend` runs backend unit tests followed by backend integration tests.
+- `./gradlew testBackendUnit` runs backend unit tests only.
+- `./gradlew testBackendIntegration` runs backend integration tests only.
+- `./gradlew testUi` runs UI component tests followed by UI app end-to-end tests.
+- `./gradlew testUiComponent` runs UI component tests only.
+- `./gradlew testUiApp` runs UI app end-to-end tests only.
+- `./gradlew test` runs `testBackend` followed by `testUi`.
 
-When running integration tests, part of the stack (PostgreSQL and Keycloak) must be running. Start it with `docker compose -f profile/dev-testing.yml -p openremote up -d --no-build`.
+Both `check` and `build` include the complete test sequence.
+UI module tasks retain the `npmTest` name alongside `npmBuild`; for example, `./gradlew :ui:component:or-element:npmTest` runs one component package's tests.
 
-The same stack is required for `check` and `build`. Install the Playwright browser once with `./gradlew :ui:test:installBrowsers` before running UI tests. The verification lifecycle prepares the manager and UI distribution required by UI app tests; standalone test tasks can reuse an existing distribution.
+Backend integration tests and UI app tests require PostgreSQL and Keycloak. Start them with `docker compose -f profile/dev-testing.yml -p openremote up -d --no-build`.
+
+The same stack is required for `check` and `build`. Install the Playwright browser once with `./gradlew :ui:test:installBrowsers` before running UI tests. The verification lifecycle prepares the manager and UI distribution required by UI app tests; before standalone UI tests, run `./gradlew installDist` if the distribution is not already available.
 
 Spock snapshots are stored under `model/src/test/resources/snapshots`. Rewrite them with `./gradlew :model:test -PupdateSnapshots` and review the resulting diff, since a mismatch is only reported as a test failure otherwise.
 

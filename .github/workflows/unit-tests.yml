@@ -30,7 +30,7 @@ jobs:
         timeout-minutes: 20
         run: |
           if [ "${{ steps.is_core_repo.outputs.value }}" = "true" ]; then
-            ./gradlew test -x :test:test -x npmTest unitTestReport
+            ./gradlew testBackendUnit unitTestReport
           else
             ./gradlew test -x :test:test
           fi

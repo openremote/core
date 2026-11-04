@@ -466,16 +466,21 @@ jobs:
       - name: Define backend test command
         id: test-backend-command
         if: ${{ steps.skip-backend-tests.outputs.value != 'true' }}
-        run: echo "value=./gradlew test -x npmTest" >> $GITHUB_OUTPUT
+        run: |
+          if [ "${{ steps.is_core_repo.outputs.value }}" = "true" ]; then
+            echo "value=./gradlew testBackend" >> $GITHUB_OUTPUT
+          else
+            echo "value=./gradlew test -x npmTest" >> $GITHUB_OUTPUT
+          fi
 
       - name: Define UI component test command
         id: test-ui-components-command
         if: ${{ steps.skip-ui-component-tests.outputs.value != 'true' }}
-        run: echo "value=./gradlew -p ui/component npmTest" >> $GITHUB_OUTPUT
+        run: echo "value=./gradlew testUiComponent" >> $GITHUB_OUTPUT
 
       - name: Define UI app test command
         id: test-ui-apps-command
-        run: echo "value=./gradlew -p ui/app npmTest" >> $GITHUB_OUTPUT
+        run: echo "value=./gradlew testUiApp" >> $GITHUB_OUTPUT
 
       - name: Define manager docker build command
         id: manager-docker-command
