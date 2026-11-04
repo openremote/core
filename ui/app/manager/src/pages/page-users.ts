@@ -145,8 +145,6 @@ export class PageUsers extends Page<AppStateKeyed> {
           vertical-align: middle;
           --or-icon-width: 20px;
           --or-icon-height: 20px;
-          margin-right: 2px;
-          margin-left: -5px;
         }
 
         .row {
