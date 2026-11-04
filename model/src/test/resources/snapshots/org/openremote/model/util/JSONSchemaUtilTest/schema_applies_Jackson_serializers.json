@@ -1,0 +1,73 @@
+{
+  "$schema" : "http://json-schema.org/draft-07/schema#",
+  "type" : "object",
+  "properties" : {
+    "duration" : {
+      "type" : "integer",
+      "format" : "utc-millisec"
+    },
+    "instant" : {
+      "type" : "integer",
+      "format" : "utc-millisec"
+    },
+    "localDate" : {
+      "type" : "string"
+    },
+    "localDateTime" : {
+      "type" : "string"
+    },
+    "localTime" : {
+      "type" : "string"
+    },
+    "monthDay" : {
+      "type" : "object",
+      "properties" : {
+        "month" : {
+          "type" : "integer"
+        }
+      },
+      "required" : [ "month" ],
+      "title" : "Month Day",
+      "additionalProperties" : true
+    },
+    "offsetDateTime" : {
+      "type" : "integer",
+      "format" : "utc-millisec"
+    },
+    "offsetTime" : {
+      "type" : "string"
+    },
+    "period" : {
+      "type" : "string"
+    },
+    "year" : {
+      "type" : "integer"
+    },
+    "yearMonth" : {
+      "type" : "object",
+      "properties" : {
+        "month" : {
+          "type" : "integer"
+        },
+        "year" : {
+          "type" : "integer"
+        }
+      },
+      "required" : [ "month", "year" ],
+      "title" : "Year Month",
+      "additionalProperties" : true
+    },
+    "zoneId" : {
+      "type" : "string"
+    },
+    "zoneOffset" : {
+      "type" : "string"
+    },
+    "zonedDateTime" : {
+      "type" : "integer",
+      "format" : "utc-millisec"
+    }
+  },
+  "title" : "Java Time Jackson Module",
+  "additionalProperties" : true
+}

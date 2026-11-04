@@ -18,12 +18,12 @@
  */
 package org.openremote.model.util
 
-import static org.skyscreamer.jsonassert.JSONAssert.assertEquals
-
 import com.fasterxml.jackson.annotation.*
 import org.openremote.model.util.JSONSchemaUtil.*
 import org.openremote.model.value.ValueType
 import org.reflections.Reflections
+import spock.lang.Snapshot
+import spock.lang.Snapshotter
 import spock.lang.Specification
 
 import java.time.*
@@ -32,31 +32,22 @@ class JSONSchemaUtilTest extends Specification {
 
   private static final Reflections reflections = new Reflections("org.openremote")
 
+  @Snapshot(extension = "json")
+  Snapshotter snapshotter
+
   def setupSpec() {
     ValueUtil.doInitialise()
   }
 
-  private static InputStream loadResourceAsStream(String resourcePath) {
-    JSONSchemaUtilTest.getResourceAsStream(
-            "/org/openremote/model/util/" + resourcePath + ".json")
+  private void schemaMatchesSnapshot(Class<?> type) {
+    snapshotter.assertThat(ValueUtil.getSchema(type).toPrettyString()).matchesSnapshot()
   }
 
   static class Title {}
 
   def "schema has a generated title"() {
     expect:
-    def expected =
-            ValueUtil.JSON.readTree(
-            '''
-            {
-                "$schema": "http://json-schema.org/draft-07/schema#",
-                "type": "object",
-                "title": "Title",
-                "additionalProperties": true
-            }''')
-
-    def actual = ValueUtil.getSchema(Title)
-    assertEquals(expected.toString(), actual.toString(), true)
+    schemaMatchesSnapshot(Title)
   }
 
   @JsonSchemaTitle(value = "Test Title", i18n = false)
@@ -69,56 +60,19 @@ class JSONSchemaUtilTest extends Specification {
 
   def "schema members do not have generated titles"() {
     expect:
-    def expected =
-            ValueUtil.JSON.readTree(
-            '''
-                {
-                  "$schema": "http://json-schema.org/draft-07/schema#",
-                  "type": "object",
-                  "properties": {
-                    "test": { "type": "object", "additionalProperties": { "type": "string" } },
-                    "test1": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "title": "Test Title",
-                        "additionalProperties": true
-                      }
-                    }
-                  },
-                  "title": "Members Should Not Have Title",
-                  "additionalProperties": true
-                }
-            ''')
-
-    def actual = ValueUtil.getSchema(MembersShouldNotHaveTitle)
-    assertEquals(expected.toString(), actual.toString(), true)
+    schemaMatchesSnapshot(MembersShouldNotHaveTitle)
   }
 
   def "schema remaps Byte"() {
     expect:
-    def expected =
-            ValueUtil.JSON.readTree(loadResourceAsStream(Byte.name))
-    def actual = ValueUtil.getSchema(Byte)
-    assertEquals(expected.toString(), actual.toString(), true)
+    schemaMatchesSnapshot(Byte)
   }
 
   static class AdditionalProperties {}
 
   def "schema allows additional properties"() {
     expect:
-    def expected =
-            ValueUtil.JSON.readTree(
-            '''
-            {
-                "$schema": "http://json-schema.org/draft-07/schema#",
-                "type": "object",
-                "title": "Additional Properties",
-                "additionalProperties": true
-            }''')
-
-    def actual = ValueUtil.getSchema(AdditionalProperties)
-    assertEquals(expected.toString(), actual.toString(), true)
+    schemaMatchesSnapshot(AdditionalProperties)
   }
 
   static class RemapTypes {
@@ -138,33 +92,12 @@ class JSONSchemaUtilTest extends Specification {
 
   def "schema remaps annotated types"() {
     expect:
-    def expected =
-            ValueUtil.JSON.readTree(
-            '''
-            {
-                "$schema":"http://json-schema.org/draft-07/schema#",
-                "type":"object",
-                "properties": {
-                    "test1":{"type":"string"},
-                    "test2":{"type":"boolean"},
-                    "test3":{"type":"integer","format":"utc-millisec"},
-                    "test4":{"type":"object","patternProperties":{".+":{"type":["null","number","integer","boolean","string","array","object"]}}}}
-                },
-                "required":["test1","test3"],
-                "title":"Remap Types",
-                "additionalProperties":true
-            }''')
-
-    def actual = ValueUtil.getSchema(RemapTypes)
-    assertEquals(expected.toString(), actual.toString(), false)
+    schemaMatchesSnapshot(RemapTypes)
   }
 
   def "schema handles map type #mapType.simpleName"() {
     expect:
-    def expected =
-            ValueUtil.JSON.readTree(loadResourceAsStream(mapType.name))
-    def actual = ValueUtil.getSchema(mapType)
-    assertEquals(expected.toString(), actual.toString(), true)
+    schemaMatchesSnapshot(mapType)
 
     where:
     mapType << [
@@ -190,33 +123,7 @@ class JSONSchemaUtilTest extends Specification {
 
   def "schema handles Jackson annotations"() {
     expect:
-    def expected =
-            ValueUtil.JSON.readTree(
-            '''
-            {
-                "$schema": "http://json-schema.org/draft-07/schema#",
-                "type": "object",
-                "properties": {
-                    "renamed": {
-                        "type": "boolean"
-                    },
-                    "renamed1": {
-                        "type": "boolean",
-                        "readOnly": true,
-                        "writeOnly": true
-                    },
-                    "test1": {
-                        "type": "boolean",
-                        "description": "This property should have a description."
-                    }
-                },
-                "required": [ "renamed1" ],
-                "title": "Jackson Annotations",
-                "additionalProperties": true
-            }''')
-
-    def actual = ValueUtil.getSchema(JacksonAnnotations)
-    assertEquals(expected.toString(), actual.toString(), true)
+    schemaMatchesSnapshot(JacksonAnnotations)
   }
 
   static class Primitives {
@@ -231,36 +138,7 @@ class JSONSchemaUtilTest extends Specification {
 
   def "schema requires primitive fields"() {
     expect:
-    def expected =
-            ValueUtil.JSON.readTree(
-            '''
-            {
-                "$schema": "http://json-schema.org/draft-07/schema#",
-                "type": "object",
-                "properties": {
-                    "test1": { "type": "boolean", "default": false },
-                    "test2": { "type": "integer" },
-                    "test3": { "type": "integer" },
-                    "test4": { "type": "number" },
-                    "test5": { "type": "number" },
-                    "test6": { "type": "integer" },
-                    "test7": { "type": "string" }
-                },
-                "required": [
-                    "test1",
-                    "test2",
-                    "test3",
-                    "test4",
-                    "test5",
-                    "test6",
-                    "test7"
-                ],
-                "title": "Primitives",
-                "additionalProperties": true
-            }''')
-
-    def actual = ValueUtil.getSchema(Primitives)
-    assertEquals(expected.toString(), actual.toString(), true)
+    schemaMatchesSnapshot(Primitives)
   }
 
   static class AnnotationsForFields {
@@ -274,28 +152,7 @@ class JSONSchemaUtilTest extends Specification {
 
   def "schema applies custom annotations to fields"() {
     expect:
-    def expected =
-            ValueUtil.JSON.readTree(
-            '''
-            {
-                "$schema": "http://json-schema.org/draft-07/schema#",
-                "type": "object",
-                "properties": {
-                    "all":{
-                        "type":"boolean",
-                        "title":"test",
-                        "description":"test",
-                        "default": false,
-                        "format":"test",
-                        "examples":["test"]
-                    }
-                },
-                "title": "Annotations For Fields",
-                "additionalProperties": true
-            }''')
-
-    def actual = ValueUtil.getSchema(AnnotationsForFields)
-    assertEquals(expected.toString(), actual.toString(), true)
+    schemaMatchesSnapshot(AnnotationsForFields)
   }
 
   @JsonSchemaTitle(value = "test", i18n = false)
@@ -307,24 +164,7 @@ class JSONSchemaUtilTest extends Specification {
 
   def "schema applies custom annotations to types"() {
     expect:
-    def expected =
-            ValueUtil.JSON.readTree(
-            '''
-            {
-                "$schema": "http://json-schema.org/draft-07/schema#",
-                "type": "object",
-                "title": "test",
-                "additionalProperties": true,
-                "description": "test",
-                "format": "test",
-                "default": {},
-                "examples": [
-                    "test"
-                ]
-            }''')
-
-    def actual = ValueUtil.getSchema(AnnotationsForTypes)
-    assertEquals(expected.toString(), actual.toString(), true)
+    schemaMatchesSnapshot(AnnotationsForTypes)
   }
 
   @JsonSchemaTitle("test")
@@ -333,18 +173,7 @@ class JSONSchemaUtilTest extends Specification {
 
   def "schema applies i18n annotations"() {
     expect:
-    def expected =
-            ValueUtil.JSON.readTree(
-            '''
-            {
-                "$schema": "http://json-schema.org/draft-07/schema#",
-                "type": "object",
-                "i18n": "org.openremote.model.util.JSONSchemaUtilTest.I18nAnnotations",
-                "additionalProperties": true
-            }''')
-
-    def actual = ValueUtil.getSchema(I18nAnnotations)
-    assertEquals(expected.toString(), actual.toString(), true)
+    schemaMatchesSnapshot(I18nAnnotations)
   }
 
   @JsonSchemaTitle(value = "test", i18n = false)
@@ -353,19 +182,7 @@ class JSONSchemaUtilTest extends Specification {
 
   def "schema applies partially disabled i18n annotations"() {
     expect:
-    def expected =
-            ValueUtil.JSON.readTree(
-            '''
-            {
-                "$schema": "http://json-schema.org/draft-07/schema#",
-                "type": "object",
-                "title": "test",
-                "i18n": "org.openremote.model.util.JSONSchemaUtilTest.I18nAnnotationsPartiallyDisabled",
-                "additionalProperties": true
-            }''')
-
-    def actual = ValueUtil.getSchema(I18nAnnotationsPartiallyDisabled)
-    assertEquals(expected.toString(), actual.toString(), true)
+    schemaMatchesSnapshot(I18nAnnotationsPartiallyDisabled)
   }
 
   @JsonTypeInfo(property = "type", use = JsonTypeInfo.Id.NAME)
@@ -383,53 +200,7 @@ class JSONSchemaUtilTest extends Specification {
 
   def "schema includes subtypes with a type property"() {
     expect:
-    def expected =
-            ValueUtil.JSON.readTree(
-            '''
-            {
-                "$schema": "http://json-schema.org/draft-07/schema#",
-                "definitions": {
-                    "SubType": {
-                        "title": "Sub Type",
-                        "type": "object",
-                        "additionalProperties": true,
-                        "properties": {
-                            "type": {
-                                "const": "SubType"
-                            }
-                        },
-                        "required": [
-                            "type"
-                        ]
-                    },
-                    "SubTypeSuperclass": {
-                        "title": "Sub Type Superclass",
-                        "type": "object",
-                        "additionalProperties": true,
-                        "properties": {
-                            "type": {
-                                "const": "SubTypeSuperclass"
-                            }
-                        },
-                        "required": [
-                            "type"
-                        ]
-                    }
-                },
-                "discriminator": {
-                    "propertyName": "type"
-                },
-                "oneOf": [
-                    { "$ref": "#/definitions/SubType" },
-                    { "$ref": "#/definitions/SubTypeSuperclass" }
-                ],
-                "type": "object",
-                "additionalProperties": true,
-                "title": "Polymorphic Type"
-            }''')
-
-    def actual = ValueUtil.getSchema(PolymorphicType)
-    assertEquals(expected.toString(), actual.toString(), true)
+    schemaMatchesSnapshot(PolymorphicType)
   }
 
   @JsonTypeInfo(property = "customType", use = JsonTypeInfo.Id.NAME)
@@ -450,53 +221,7 @@ class JSONSchemaUtilTest extends Specification {
 
   def "schema includes subtypes with a custom type property"() {
     expect:
-    def expected =
-            ValueUtil.JSON.readTree(
-            '''
-            {
-                "$schema": "http://json-schema.org/draft-07/schema#",
-                "definitions": {
-                    "SubTypeWithCustomProperty": {
-                        "title": "Sub Type With Custom Property",
-                        "type": "object",
-                        "additionalProperties": true,
-                        "properties": {
-                            "customType": {
-                                "const": "SubTypeWithCustomProperty"
-                            }
-                        },
-                        "required": [
-                            "customType"
-                        ]
-                    },
-                    "SubTypeSuperClassWithCustomProperty": {
-                        "title": "Sub Type Super Class With Custom Property",
-                        "type": "object",
-                        "additionalProperties": true,
-                        "properties": {
-                            "customType": {
-                                "const": "SubTypeSuperClassWithCustomProperty"
-                            }
-                        },
-                        "required": [
-                            "customType"
-                        ]
-                    }
-                },
-                "discriminator": {
-                    "propertyName": "customType"
-                },
-                "oneOf": [
-                    { "$ref": "#/definitions/SubTypeWithCustomProperty" },
-                    { "$ref": "#/definitions/SubTypeSuperClassWithCustomProperty" }
-                ],
-                "type": "object",
-                "additionalProperties": true,
-                "title": "Polymorphic Type With Custom Property"
-            }''')
-
-    def actual = ValueUtil.getSchema(PolymorphicTypeWithCustomProperty)
-    assertEquals(expected.toString(), actual.toString(), true)
+    schemaMatchesSnapshot(PolymorphicTypeWithCustomProperty)
   }
 
   // Note: JsonTypeInfo.As.EXISTING_PROPERTY doesn't necessarily change the behavior mainly the
@@ -540,53 +265,7 @@ class JSONSchemaUtilTest extends Specification {
 
   def "schema includes subtypes with an existing custom type property"() {
     expect:
-    def expected =
-            ValueUtil.JSON.readTree(
-            '''
-            {
-                "$schema": "http://json-schema.org/draft-07/schema#",
-                "definitions": {
-                    "SubTypeWithCustomExistingProperty": {
-                        "title": "Sub Type With Custom Existing Property",
-                        "type": "object",
-                        "additionalProperties": true,
-                        "properties": {
-                            "customType": {
-                                "const": "sub"
-                            }
-                        },
-                        "required": [
-                            "customType"
-                        ]
-                    },
-                    "SubTypeSuperClassWithCustomExistingProperty": {
-                        "title": "Sub Type Super Class With Custom Existing Property",
-                        "type": "object",
-                        "additionalProperties": true,
-                        "properties": {
-                            "customType": {
-                                "const": "super"
-                            }
-                        },
-                        "required": [
-                            "customType"
-                        ]
-                    }
-                },
-                "discriminator": {
-                    "propertyName": "customType"
-                },
-                "oneOf": [
-                    { "$ref": "#/definitions/SubTypeWithCustomExistingProperty" },
-                    { "$ref": "#/definitions/SubTypeSuperClassWithCustomExistingProperty" }
-                ],
-                "type": "object",
-                "additionalProperties": true,
-                "title": "Polymorphic Type With Custom Existing Property"
-            }''')
-
-    def actual = ValueUtil.getSchema(PolymorphicTypeWithCustomExistingProperty)
-    assertEquals(expected.toString(), actual.toString(), true)
+    schemaMatchesSnapshot(PolymorphicTypeWithCustomExistingProperty)
   }
 
   @JsonTypeInfo(
@@ -606,53 +285,7 @@ class JSONSchemaUtilTest extends Specification {
 
   def "schema sets the enum type for an external property"() {
     expect:
-    def expected =
-            ValueUtil.JSON.readTree(
-            '''
-            {
-                "$schema": "http://json-schema.org/draft-07/schema#",
-                "definitions": {
-                    "ExternalSubType": {
-                        "title": "External Sub Type",
-                        "type": "object",
-                        "additionalProperties": true,
-                        "properties": {
-                            "type": {
-                                "const": "ExternalSubType"
-                            }
-                        },
-                        "required": [
-                            "type"
-                        ]
-                    },
-                    "ExternalSubTypeSuperclass": {
-                        "title": "External Sub Type Superclass",
-                        "type": "object",
-                        "additionalProperties": true,
-                        "properties": {
-                            "type": {
-                                "const": "ExternalSubTypeSuperclass"
-                            }
-                        },
-                        "required": [
-                            "type"
-                        ]
-                    }
-                },
-                "discriminator": {
-                    "propertyName": "type"
-                },
-                "oneOf": [
-                    { "$ref": "#/definitions/ExternalSubType" },
-                    { "$ref": "#/definitions/ExternalSubTypeSuperclass" }
-                ],
-                "type": "object",
-                "additionalProperties": true,
-                "title": "External Polymorphic Type"
-            }''')
-
-    def actual = ValueUtil.getSchema(ExternalPolymorphicType)
-    assertEquals(expected.toString(), actual.toString(), true)
+    schemaMatchesSnapshot(ExternalPolymorphicType)
   }
 
   @JsonTypeName("ReflectedPolymorphicType")
@@ -665,47 +298,7 @@ class JSONSchemaUtilTest extends Specification {
 
   def "schema resolves subtypes through reflections"() {
     expect:
-    def expected =
-            ValueUtil.JSON.readTree(
-            '''
-            {
-                "$schema": "http://json-schema.org/draft-07/schema#",
-                "definitions": {
-                    "ResolvedSubType": {
-                        "title": "Resolved Sub Type",
-                        "type": "object",
-                        "additionalProperties": true,
-                        "properties": {
-                            "type": {
-                                "const": "ResolvedSubType"
-                            }
-                        },
-                        "required": [
-                            "type"
-                        ]
-                    }
-                },
-                "discriminator": {
-                    "propertyName": "type"
-                },
-                "title": "Reflected Polymorphic Type",
-                "oneOf": [
-                    { "$ref": "#/definitions/ResolvedSubType" }
-                ],
-                "type": "object",
-                "additionalProperties": true,
-                "properties": {
-                    "type": {
-                        "const": "ReflectedPolymorphicType"
-                    }
-                },
-                "required": [
-                    "type"
-                ]
-            }''')
-
-    def actual = ValueUtil.getSchema(ReflectedPolymorphicType)
-    assertEquals(expected.toString(), actual.toString(), true)
+    schemaMatchesSnapshot(ReflectedPolymorphicType)
   }
 
   def "schemas do not use allOf"() {
@@ -735,74 +328,7 @@ class JSONSchemaUtilTest extends Specification {
 
   def "schema applies Jackson serializers"() {
     expect:
-    def expected =
-            ValueUtil.JSON.readTree(
-            '''
-            {
-                "$schema": "http://json-schema.org/draft-07/schema#",
-                "type": "object",
-                "properties": {
-                    "duration": {
-                        "type": "integer",
-                        "format": "utc-millisec"
-                    },
-                    "instant": {
-                        "type": "integer",
-                        "format": "utc-millisec"
-                    },
-                    "localDate": { "type": "string" },
-                    "localDateTime": { "type": "string" },
-                    "localTime": { "type": "string" },
-                    "monthDay": {
-                        "title": "Month Day",
-                        "type": "object",
-                        "properties": {
-                            "month": {
-                                "type": "integer"
-                            }
-                        },
-                        "required": [
-                            "month"
-                        ],
-                        "additionalProperties": true
-                    },
-                    "offsetDateTime": {
-                        "type": "integer",
-                        "format": "utc-millisec"
-                    },
-                    "offsetTime": { "type": "string" },
-                    "period": { "type": "string" },
-                    "year": { "type": "integer" },
-                    "yearMonth": {
-                        "title": "Year Month",
-                        "type": "object",
-                        "properties": {
-                            "month": {
-                                "type": "integer"
-                            },
-                            "year": {
-                                "type": "integer"
-                            }
-                        },
-                        "required": [
-                            "month",
-                            "year"
-                        ],
-                        "additionalProperties": true
-                    },
-                    "zoneId": { "type": "string" },
-                    "zoneOffset": { "type": "string" },
-                    "zonedDateTime": {
-                        "type": "integer",
-                        "format": "utc-millisec"
-                    }
-                },
-                "title": "Java Time Jackson Module",
-                "additionalProperties": true
-            }''')
-
-    def actual = ValueUtil.getSchema(JavaTimeJacksonModule)
-    assertEquals(expected.toString(), actual.toString(), true)
+    schemaMatchesSnapshot(JavaTimeJacksonModule)
   }
 
   enum TypeOption {
@@ -816,22 +342,6 @@ class JSONSchemaUtilTest extends Specification {
 
   def "schema generates enum values"() {
     expect:
-    def expected =
-            ValueUtil.JSON.readTree(
-            '''
-            {
-                "$schema": "http://json-schema.org/draft-07/schema#",
-                "type": "string",
-                "enum": [
-                    "INTEGER",
-                    "STRING",
-                    "LONG",
-                    "FLOAT"
-                ],
-                "title": "Type Option"
-            }''')
-
-    def actual = ValueUtil.getSchema(TypeOption)
-    assertEquals(expected.toString(), actual.toString(), true)
+    schemaMatchesSnapshot(TypeOption)
   }
 }

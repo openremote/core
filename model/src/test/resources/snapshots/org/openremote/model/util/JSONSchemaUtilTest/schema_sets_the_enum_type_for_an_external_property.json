@@ -1,0 +1,38 @@
+{
+  "$schema" : "http://json-schema.org/draft-07/schema#",
+  "definitions" : {
+    "ExternalSubType" : {
+      "type" : "object",
+      "title" : "External Sub Type",
+      "additionalProperties" : true,
+      "required" : [ "type" ],
+      "properties" : {
+        "type" : {
+          "const" : "ExternalSubType"
+        }
+      }
+    },
+    "ExternalSubTypeSuperclass" : {
+      "type" : "object",
+      "title" : "External Sub Type Superclass",
+      "additionalProperties" : true,
+      "required" : [ "type" ],
+      "properties" : {
+        "type" : {
+          "const" : "ExternalSubTypeSuperclass"
+        }
+      }
+    }
+  },
+  "type" : "object",
+  "discriminator" : {
+    "propertyName" : "type"
+  },
+  "oneOf" : [ {
+    "$ref" : "#/definitions/ExternalSubType"
+  }, {
+    "$ref" : "#/definitions/ExternalSubTypeSuperclass"
+  } ],
+  "title" : "External Polymorphic Type",
+  "additionalProperties" : true
+}

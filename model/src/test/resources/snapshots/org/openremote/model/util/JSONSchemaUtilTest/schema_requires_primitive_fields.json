@@ -1,0 +1,31 @@
+{
+  "$schema" : "http://json-schema.org/draft-07/schema#",
+  "type" : "object",
+  "properties" : {
+    "test1" : {
+      "type" : "boolean",
+      "default" : false
+    },
+    "test2" : {
+      "type" : "integer"
+    },
+    "test3" : {
+      "type" : "integer"
+    },
+    "test4" : {
+      "type" : "number"
+    },
+    "test5" : {
+      "type" : "number"
+    },
+    "test6" : {
+      "type" : "integer"
+    },
+    "test7" : {
+      "type" : "string"
+    }
+  },
+  "required" : [ "test1", "test2", "test3", "test4", "test5", "test6", "test7" ],
+  "title" : "Primitives",
+  "additionalProperties" : true
+}
