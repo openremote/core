@@ -8,7 +8,15 @@ When naming scripts, use \<date>_\<time> as version number, date being YYYYMMDD 
 ## Dev environment
 
 The backend is written in Java, we target JDK 21, use modern language features up to that version during implementation.  
-Gradle is used as the build system; run `./gradlew clean installDist` for a full clean build.  
+Gradle is used as the build system:
+
+- `./gradlew assemble` builds normal backend and UI artifacts without verification, installing the distribution, or building Docker images.
+- `./gradlew check` runs backend and UI tests, Spotless, UI dependency checks, and translation checks.
+- `./gradlew build` builds and verifies the project. Use this as the normal pre-PR command.
+- `./gradlew installDist` prepares the runnable distribution in `manager/build/install/manager/` and the deployment Docker build context.
+
+Use `./gradlew clean assemble` for a clean artifact build, or `./gradlew clean build` to also run verification.
+Lifecycle tasks compose individual tasks, which remain independently runnable for targeted development and CI checks.
 In sandboxed environments, add `--offline` (requires dependencies to already be cached).
 
 ## Tests
@@ -32,7 +40,11 @@ ex.response.withCloseable { r ->
 
 ### Running tests
 
+`./gradlew test` runs backend unit tests, backend integration tests, and then `npmTest` (UI component tests followed by UI app tests). Use `./gradlew test -x npmTest` for backend tests only, or `./gradlew npmTest` for UI tests only. Both `check` and `build` include the complete test sequence.
+
 When running integration tests, part of the stack (PostgreSQL and Keycloak) must be running. Start it with `docker compose -f profile/dev-testing.yml -p openremote up -d --no-build`.
+
+The same stack is required for `check` and `build`. Install the Playwright browser once with `./gradlew :ui:test:installBrowsers` before running UI tests. The verification lifecycle prepares the manager and UI distribution required by UI app tests; standalone test tasks can reuse an existing distribution.
 
 ## REST resources
 

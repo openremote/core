@@ -66,6 +66,10 @@ tasks.register('notificationJar', Jar) {
   from sourceSets.notification.output
 }
 
+tasks.named('assemble') {
+  dependsOn tasks.withType(Jar)
+}
+
 tasks.named("compileJava") {
   dependsOn("load1Jar", "load2Jar")
 }

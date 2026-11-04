@@ -1,20 +1,13 @@
-tasks.register('clean', Delete) {
+tasks.named('clean') {
   delete "tmp"
-  delete layout.buildDirectory
 }
 
 tasks.register("installBrowsers", Exec) {
+  dependsOn getYarnInstallTask()
   mustRunAfter ":deployment:installDist"
-  commandLine npmCommand("npx"), "playwright", "install", "chromium"
+  commandLine npmCommand("yarn"), "run", "playwright", "install", "chromium"
 }
 
-def yarnInstallRequested = gradle.startParameter.taskNames.any {
-  it == "yarnInstall" || it == ":yarnInstall" || it.endsWith(":yarnInstall")
-}
-
-tasks.register('installTestDeps', Exec) {
-  onlyIf { !yarnInstallRequested }
-  // The app test tree is type checked, which reaches the app sources and every package they import, so the app
-  // workspace has to be installed whole rather than the subset the tests themselves import
-  commandLine npmCommand("yarn"), "workspaces", "focus", "@openremote/test", "@openremote/model", "@openremote/rest", "@openremote/core", "@openremote/manager"
+tasks.register('installTestDeps') {
+  dependsOn getYarnInstallTask()
 }

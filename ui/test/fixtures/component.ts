@@ -38,7 +38,7 @@ type ComponentSlots = Record<string, ComponentSlot> & { default?: ComponentSlot 
 
 type ComponentEvents = Record<string, (detail: any) => void>;
 
-export interface ComponentHooksConfig {
+interface ComponentHooksConfig {
   /**
    * Components used by the mounted markup as slotted/appended children rather than as the test
    * root. Playwright CT only imports the `mount()`ed component, so components listed here are

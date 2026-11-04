@@ -38,6 +38,7 @@
     "@openremote/or-scheduler": "workspace:*",
     "@openremote/or-translate": "workspace:*",
     "@openremote/or-vaadin-components": "workspace:*",
+    "i18next": "^26.3.6",
     "lit": "^3.3.1"
   },
   "devDependencies": {
