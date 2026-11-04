@@ -1,5 +1,6 @@
-tasks.register('clean', Delete) {
-  delete layout.buildDirectory
+tasks.register('npmBuild', Exec) {
+  dependsOn getYarnInstallTask()
+  commandLine npmCommand("yarn"), "run", "build"
 }
 
 tasks.register('prepareUi') {

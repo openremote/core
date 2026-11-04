@@ -57,9 +57,12 @@
     "@openremote/rest": "workspace:*",
     "@openremote/theme": "workspace:*",
     "@reduxjs/toolkit": "^2.12.0",
+    "i18next": "^26.3.6",
     "lit": "^3.3.1",
     "maplibre-gl": "~6.8.0",
     "moment": "^2.31.0",
+    "redux": "^5.0.1",
+    "redux-thunk": "^3.1.0",
     "reselect": "^4.1.8"
   },
   "devDependencies": {

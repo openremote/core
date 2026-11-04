@@ -39,25 +39,74 @@ subprojects {
     }
 }
 
-tasks.register('npmTest') {
+// Simplified Gradle task hierarchy. For the full dependency graph, run
+// ./gradlew build --task-graph or ./gradlew :deployment:installDist --task-graph
+//
+// build
+// ├── assemble (backend JARs, UI bundles, setup JARs)
+// └── check
+//     ├── test
+//     │   ├── testBackend (testBackendUnit, testBackendIntegration)
+//     │   └── testUi (testUiComponent, testUiApp)
+//     ├── spotlessCheck (spotlessJavaCheck, spotlessGroovyCheck, etc.)
+//     └── Subproject checks (knip, testKnip, testUiLocks, checkTranslations, etc.)
+//
+// :deployment:installDist (Docker build context)
+// └── Subproject installDist tasks (manager, setup, UI) and license
+//
+// installDist depends on the artifact-producing tasks it needs (JARs, generated
+// sources, UI bundles), not on the assemble or check lifecycle aggregators.
+// This avoids building unrelated artifacts or running verification tasks.
+
+tasks.register('testBackendUnit') {
   group = 'verification'
-  description = 'Runs all UI tests sequentially (component then app)'
+  description = 'Runs backend unit tests'
+}
+
+tasks.register('testBackendIntegration') {
+  group = 'verification'
+  description = 'Runs backend integration tests'
+}
+
+tasks.register('testBackend') {
+  group = 'verification'
+  description = 'Runs backend unit tests followed by backend integration tests'
+  dependsOn tasks.named('testBackendUnit'), tasks.named('testBackendIntegration')
+}
+
+tasks.register('testUiComponent') {
+  group = 'verification'
+  description = 'Runs UI component tests'
+}
+
+tasks.register('testUiApp') {
+  group = 'verification'
+  description = 'Runs UI app end-to-end tests'
+}
+
+tasks.register('testUi') {
+  group = 'verification'
+  description = 'Runs UI component tests followed by UI app end-to-end tests'
+  dependsOn tasks.named('testUiComponent'), tasks.named('testUiApp')
 }
 
 tasks.register('test') {
   group = 'verification'
-  description = 'Executes all backend and UI tests in specific order'
-  // When './gradlew test' is run, ensure the UI tests are also pulled into the task graph
-  dependsOn 'npmTest'
+  description = 'Runs testBackend followed by testUi for all backend and UI tests'
+  dependsOn tasks.named('testBackend'), tasks.named('testUi')
 }
 
-// Enforce order in which we run the backend- and frontend tests
-// Order: 1. Unit tests
-//     -> 2. Integration tests
-//     -> 3. UI component tests
-//     -> 4. UI app tests
+tasks.named('assemble') {
+  dependsOn subprojects.collect { it.tasks.matching { t -> t.name == 'assemble' } }
+}
+
+tasks.named('check') {
+  dependsOn tasks.named('test')
+  dependsOn subprojects.collect { it.tasks.matching { t -> t.name == 'check' } }
+}
+
 gradle.projectsEvaluated {
-  def unitTests = subprojects.findAll { it.path != ':test' }
+  def unitTests = subprojects.findAll { it.path != ':test' && !it.path.startsWith(':ui') }
   .collect { it.tasks.matching { t -> t.name == 'test' } }
 
   def integrationTests = subprojects.findAll { it.path == ':test' }
@@ -69,15 +118,23 @@ gradle.projectsEvaluated {
   def uiAppTests = subprojects.findAll { it.path.startsWith(':ui:app') }
   .collect { it.tasks.matching { t -> t.name == 'npmTest' } }
 
-  tasks.named('npmTest').configure {
-    dependsOn(uiComponentTests, uiAppTests)
+  tasks.named('testBackendUnit').configure {
+    dependsOn unitTests
   }
 
-  def rootTest = tasks.findByName('test') ?: tasks.register('test').get()
-  rootTest.configure {
-    dependsOn(unitTests, integrationTests, npmTest)
+  tasks.named('testBackendIntegration').configure {
+    dependsOn integrationTests
   }
 
+  tasks.named('testUiComponent').configure {
+    dependsOn uiComponentTests
+  }
+
+  tasks.named('testUiApp').configure {
+    dependsOn uiAppTests
+  }
+
+  // Order test execution without making standalone UI test commands run backend tests.
   integrationTests.forEach { group ->
     group.configureEach { it.mustRunAfter(unitTests) }
   }
@@ -156,7 +213,7 @@ tasks.register('checkCoverageDataExists') {
     if (!missingJacocoResults.empty) {
       println "Please run the following tasks to be able to generate a report."
       println "Required tasks: ${backendTestTaskPaths.join(', ')}"
-      println "Run: gradle test -x npmTest checkCoverageDataExists"
+      println "Run: ./gradlew testBackend checkCoverageDataExists"
       throw new StopExecutionException()
     }
   }

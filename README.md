@@ -83,6 +83,40 @@ For information and how to set up a development environment, see the [Developer 
 
 We work with Java, Groovy, TypeScript, Gradle, Docker, and a wide range of APIs and protocol implementations.
 
+Use JDK 21 and the repository's Yarn version to build from source:
+
+```sh
+./gradlew assemble       # Build backend and UI artifacts
+./gradlew check          # Run tests, formatting, dependency, and translation checks
+./gradlew build          # Build and verify: the normal pre-PR command
+./gradlew installDist    # Prepare the runnable manager and deployment files
+```
+
+For a clean build, use `./gradlew clean assemble`, or `./gradlew clean build` to include verification.
+The runnable distribution is installed in `manager/build/install/manager/`; `assemble` does not install it or build Docker images.
+
+Before running `check` or `build`, start PostgreSQL and Keycloak with `docker compose -f profile/dev-testing.yml -p openremote up -d --no-build` and install the Playwright browser with `./gradlew :ui:test:installBrowsers`.
+These lifecycle tasks compose individual tasks that remain independently runnable, allowing CI to run checks separately, reuse artifacts, and prepare distributions only where needed.
+
+For targeted test runs:
+
+```sh
+./gradlew test                      # testBackend followed by testUi
+./gradlew testBackend               # Backend unit tests followed by integration tests
+./gradlew testBackendUnit           # Backend unit tests only
+./gradlew testBackendIntegration    # Backend integration tests only
+./gradlew testUi                    # UI component tests followed by app end-to-end tests
+./gradlew testUiComponent           # UI component tests only
+./gradlew testUiApp                 # UI app end-to-end tests only
+```
+
+UI modules retain `npmTest`, alongside `npmBuild`, for individual package tests, e.g. `./gradlew :ui:component:or-element:npmTest`.
+Backend integration tests and UI app tests require the PostgreSQL and Keycloak stack described above.
+UI tests also require the Playwright browser. Before standalone UI tests, prepare the runnable distribution with `./gradlew installDist` if it is not already available.
+Both `check` and `build` include the complete test sequence as well as the other verification checks.
+
+UI compiler tasks coordinate access to shared TypeScript outputs, and Knip waits for scheduled writers to finish. See [Parallel UI tasks](ui/AGENTS.md#parallel-ui-tasks) for the reasons and concurrency limits. Run `./gradlew :ui:testUiLocks` or `yarn test:ui-locks` to verify this coordination without starting backend services or a browser.
+
 We follow the [GitHub Flow](https://docs.github.com/en/get-started/quickstart/github-flow) workflow with tags and releases for published versions of our components; when working on the codebase create descriptive branch names (e.g. `feature/cool_feature_x`, `hotfix/flux_capacitor`, `issue/123`, etc.).
 
 When your changes are complete then create a Pull Request ensuring that your branch is up-to-date with the source branch and that code changes are covered by tests and that the full test suite passes.
