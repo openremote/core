@@ -1,8 +1,7 @@
 #!/bin/bash
-set -eo pipefail
 
 # Retrieve largest uncompressed chunk size from query-exporter service
-CHUNK_SIZE="$(curl -s http://localhost:8406/metrics | grep '^pg_datapoint_largest_uncompressed_chunk' | awk '{printf "%.0f\n", $NF}' || true)"
+CHUNK_SIZE="$(curl -s http://localhost:8406/metrics | grep '^pg_datapoint_largest_uncompressed_chunk' | awk '{printf "%.0f\n", $NF}')"
 if [ -z "$CHUNK_SIZE" ]; then
   echo 'Could not retrieve chunk size from query-exporter service, using defaults from Docker Compose'
 else
