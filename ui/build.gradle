@@ -1,8 +1,39 @@
+import groovy.json.JsonSlurper
+import org.gradle.api.services.BuildService
+import org.gradle.api.services.BuildServiceParameters
+
 plugins {
   id 'base'
 }
 
+abstract class TypeScriptOutputLock implements BuildService<BuildServiceParameters.None> {}
+
 def generatedUiSources = [':ui:component:model:generateTypeScript', ':ui:component:rest:generateTypeScript']
+
+// Each tsc -b or ts-loader process builds its own reference graph. For example,
+// core can compile model while model's own npmBuild runs tsc -b --force.
+// Waiting for Java-to-TypeScript source generation does not coordinate these
+// later writes to JavaScript, declarations, and .tsbuildinfo files.
+// Collect transitive references, including projects without an npmBuild task,
+// so every compiler that can touch the same outputs uses the same resource.
+def typeScriptProjects = [:]
+def collectTypeScriptProjects
+collectTypeScriptProjects = { File target ->
+  def configFile = (target.directory ? new File(target, 'tsconfig.json') : target).canonicalFile
+  if (!configFile.exists()) {
+    return [] as Set
+  }
+  if (!typeScriptProjects.containsKey(configFile)) {
+    def projects = [configFile] as Set
+    typeScriptProjects[configFile] = projects
+    // Track the file read so reference changes invalidate the configuration cache.
+    def config = new JsonSlurper().parseText(configFile.getText('UTF-8'))
+    config.references?.each { reference ->
+      projects.addAll(collectTypeScriptProjects(new File(configFile.parentFile, reference.path)))
+    }
+  }
+  typeScriptProjects[configFile]
+}
 
 rootProject.allprojects {
   tasks.matching {
@@ -12,8 +43,21 @@ rootProject.allprojects {
   }
 }
 
-subprojects {
+subprojects { uiProject ->
   apply plugin: 'base'
+
+  // npmTest also compiles TypeScript before running Playwright. Gradle cannot
+  // infer these shared outputs from Exec commands, so declare exclusive resources
+  // for each referenced project. The lock covers the entire task, including tests;
+  // independent reference graphs and npmAnalyze can still run in parallel.
+  tasks.matching { it.name in ['npmBuild', 'npmTest'] }.configureEach {
+    collectTypeScriptProjects(uiProject.projectDir).each { configFile ->
+      def outputLock = gradle.sharedServices.registerIfAbsent("typescript:${configFile.path}", TypeScriptOutputLock) {
+        maxParallelUsages = 1
+      }
+      usesService outputLock
+    }
+  }
 
   tasks.named('assemble') {
     dependsOn tasks.matching { it.name in ['npmBuild', 'npmAnalyze'] }
@@ -39,6 +83,13 @@ tasks.register("knip", Exec) {
   group = 'verification'
   description = 'Checks UI dependencies'
   dependsOn getYarnInstallTask()
+  // Knip 6 reads emitted declarations; ui/knip.ts stops ignoring declaration-only
+  // dependencies as soon as build/lib exists. That directory can appear before its
+  // files are complete, so wait for scheduled source generation and compiler tasks.
+  // mustRunAfter preserves standalone checks with existing or absent artifacts;
+  // dependsOn would unnecessarily turn a dependency check into a build/test run.
+  mustRunAfter generatedUiSources
+  mustRunAfter subprojects.collect { it.tasks.matching { t -> t.name in ['npmBuild', 'npmTest'] } }
   workingDir project.rootDir
   commandLine npmCommand("yarn"), "run", "knip"
 }
@@ -51,6 +102,14 @@ tasks.register('testKnip', Exec) {
   commandLine npmCommand("yarn"), "run", "test:knip"
 }
 
+tasks.register('testUiLocks', Exec) {
+  group = 'verification'
+  description = 'Tests UI compiler locking, Knip ordering, and configuration-cache reuse'
+  dependsOn getYarnInstallTask()
+  workingDir project.rootDir
+  commandLine npmCommand("yarn"), "run", "test:ui-locks"
+}
+
 tasks.named('check') {
-  dependsOn tasks.named('knip'), tasks.named('testKnip')
+  dependsOn tasks.named('knip'), tasks.named('testKnip'), tasks.named('testUiLocks')
 }
