@@ -1,4 +1,26 @@
-# Manual deployments for custom projects, must be called from a workflow_dispatch workflow
+# ---------------------------------------------------------------------------------------------------------------------
+# This environment workflow runs for manual deployments of custom projects
+# (https://github.com/openremote/custom-project), it handles:
+#
+# - Building and deploying the selected commit (see deployment.yml for how deployments work)
+#
+# MANUAL TRIGGER
+#
+# The calling workflow declares the following inputs on its manual trigger and passes them as INPUTS, they override
+# secrets with the same name but not values from the '.ci_cd/env' files:
+#
+# - ENVIRONMENT           - Which environment to deploy, leave empty to only use '.ci_cd/env/.env' and secrets without
+#                           an environment prefix
+# - CLEAN_INSTALL         - Should the .ci_cd/host_init/clean.sh script be run during deployment (warning this will delete
+#                           assets, rules, etc.)
+# - COMMIT                - Which branch/SHA should be checked out for the deployment (defaults to trigger commit)
+# - OR_HOSTNAME           - FQDN of host to deploy to (e.g. demo.openremote.app)
+# - OR_ADMIN_PASSWORD     - The admin password to set for clean installs
+#
+# The calling workflow must be on the default branch before it can be triggered from the GitHub UI, and must not use
+# the same concurrency group as this workflow, GitHub cancels the run as a deadlock.
+# ---------------------------------------------------------------------------------------------------------------------
+
 name: Custom deploy
 
 on:

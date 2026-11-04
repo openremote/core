@@ -15,16 +15,14 @@
 # 'deployment/build.gradle' must exist with an installDist task that prepares the deployment image in the
 # 'deployment/build' directory; if this condition is not met the deployment will fail.
 #
-# Secrets, inputs and environment variables are combined for consumption by the '.ci_cd/deploy.sh' bash script, they are
-# combined in the following priority:
+# Secrets, inputs and environment variables are combined for consumption by the '.ci_cd/deploy.sh' bash script, later
+# entries override earlier ones:
 #
+# - secrets and inputs (inputs from manual trigger using workflow_dispatch override secrets with the same name)
 # - '.ci_cd/env/.env'
 # - '.ci_cd/env/{ENVIRONMENT}.env'
-# - secrets
-# - inputs (from manual trigger using workflow_dispatch)
 #
-# The above variables are output to 'temp/env' file for each requested deployment. If a secret called 'SSH_PASSWORD' is
-# found that is output to 'ssh.env' file (so it is not copied to the host), if a secret called 'SSH_KEY' is
+# The above variables are output to 'temp/env' file for each requested deployment. If a secret called 'SSH_KEY' is
 # found that is output to 'ssh.key' file (so it is not copied to the host). Sensitive credentials should always be stored
 # in github secrets so they are encrypted, do not store within repo files (even private repos as these are not encrypted).
 #
@@ -33,7 +31,8 @@
 # MANUAL TRIGGER
 #
 # This workflow can be triggered by push, release, manually or schedule (from any repo other than openremote/core)
-# if triggered manually then the following inputs are available and these override any set in env files and/or secrets:
+# if triggered manually then the following inputs are available, they override secrets with the same name but not
+# values from the '.ci_cd/env' files:
 #
 # Inputs:
 #
@@ -47,7 +46,6 @@
 # - COMMIT                - Which branch/SHA should be checked out for the deployment (defaults to trigger commit)
 # - OR_HOSTNAME           - FQDN of host to deploy to (e.g. demo.openremote.app)
 # - SSH_USER              - Set/override the SSH user to use for SSH/SCP commands
-# - SSH_PASSWORD          - Set/override the SSH password to use for SSH/SCP commands (SSH key should be preferred)
 # - SSH_PORT              - Set/override the SSH port to use for SSH/SCP commands
 # - OR_ADMIN_PASSWORD     - The admin password to set for clean installs
 # ---------------------------------------------------------------------------------------------------------------------
@@ -582,7 +580,7 @@ jobs:
 
       - name: Login to DockerHub
         if: ${{ steps.manager-docker-command.outputs.pushToDockerHub == 'true' }}
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           username: ${{ secrets._TEMP_DOCKERHUB_USER }}
           password: ${{ secrets._TEMP_DOCKERHUB_PASSWORD }}
@@ -860,7 +858,7 @@ jobs:
         if: |
           !cancelled() &&
           steps.manager-docker-command.outputs.pushToDockerHub == 'true'
-        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           sarif_file: ${{ steps.manager-anchore-scan.outputs.sarif }}
           category: grype-manager

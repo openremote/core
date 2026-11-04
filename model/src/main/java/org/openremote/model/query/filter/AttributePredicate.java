@@ -41,6 +41,19 @@ public class AttributePredicate extends NameValuePredicate {
 
   public AttributePredicate() {}
 
+  /** Copies this predicate, including metadata and previous-value restrictions. */
+  public AttributePredicate(AttributePredicate source) {
+    super(source);
+    meta =
+        source.meta == null
+            ? null
+            : Arrays.stream(source.meta)
+                .map(p -> p == null ? null : new NameValuePredicate(p))
+                .toArray(NameValuePredicate[]::new);
+    previousValue = ValuePredicate.copy(source.previousValue);
+    timestampOlderThan = source.timestampOlderThan;
+  }
+
   public AttributePredicate(NameHolder nameHolder, ValuePredicate value) {
     super(nameHolder, value);
   }

@@ -464,11 +464,21 @@ public class MQTTBrokerService extends RouteBuilder
             connectionIDConnectionMap.remove(getConnectionIDString(connection));
 
             if (connection.getClientID() != null) {
-              RemotingConnection remotingConnection =
-                  clientIDConnectionMap.remove(connection.getClientID());
-              if (remotingConnection != null) {
-                disconnectedConnectionCache.put(connection.getClientID(), remotingConnection);
-              }
+              // Check and remove atomically so a reconnect cannot replace this entry mid-cleanup.
+              // If it is already absent, leave any newer disconnected connection in the cache.
+              clientIDConnectionMap.computeIfPresent(
+                  connection.getClientID(),
+                  (clientID, currentConnection) -> {
+                    // Only clean up the exact connection that triggered this callback.
+                    if (currentConnection == connection) {
+                      // Last wills are processed asynchronously and still need this connection.
+                      // Cache it before removal so lookups never see a gap between the two stores.
+                      disconnectedConnectionCache.put(clientID, connection);
+                      return null; // Returning null removes the active entry.
+                    }
+                    // A reconnect has replaced this connection; preserve the replacement and cache.
+                    return currentConnection;
+                  });
             }
 
             if (exception.getType()

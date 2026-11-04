@@ -21,7 +21,6 @@
  * seems to be an issue when using Rspack.
  */
 @import "./or-vaadin-badge.css";
-@import "./or-vaadin-button.css";
 @import "./or-vaadin-checkbox-group.css";
 @import "./or-vaadin-checkbox.css"; /* Must be after the checkbox-group */
 @import "./or-vaadin-combo-box.css";
@@ -43,3 +42,4 @@
 @import "./or-vaadin-text-field.css";
 @import "./or-vaadin-time-picker.css"; /* Must be after the date-time-picker */
 @import "./or-vaadin-toggle-group.css"; /* Must be after the checkbox-group */
+@import "./or-vaadin-button.css"; /* Must be after every file that imports the Lumo button styles */

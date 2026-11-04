@@ -1,4 +1,42 @@
+# ---------------------------------------------------------------------------------------------------------------------
+# This job workflow does the deployments for custom-staging.yml, deploy.yml and custom-deploy.yml.
+#
+# The repo must contain a 'deployment/Dockerfile' and a 'deployment/build.gradle' with an installDist task that prepares
+# the deployment image in the 'deployment/build' directory; if this condition is not met the deployment will fail.
+# Deployments are only done for repos owned by the openremote organisation.
+#
+# Each deployment consists of an environment and an openremote/manager docker tag, taken from:
+#
+# - The ENVIRONMENT input (and MANAGER_TAG in this repo) when manually triggered on a branch
+# - Otherwise the 'deploy' entries in '.ci_cd/ci_cd.json' for the triggering event (see .ci_cd/README.md)
+#
+# In this repo a missing manager tag builds the manager image from the checked out commit. Custom projects always deploy
+# the manager image matching the openremote version in 'gradle/libs.versions.toml' and use the '.ci_cd' scripts of that
+# core release; the project's own '.ci_cd/deploy.sh', '.ci_cd/host_init' and '.ci_cd/aws' files take precedence.
+#
+# The environment selects '.ci_cd/env/{ENVIRONMENT}.env', the '_{ENVIRONMENT}_' prefixed secrets (in uppercase) and the
+# docker compose file (see .ci_cd/README.md).
+#
+# Secrets, inputs and environment variables are combined for consumption by the '.ci_cd/deploy.sh' bash script and
+# written to the 'temp/env' file, which is copied to the host. Later entries override earlier ones:
+#
+# - secrets and inputs (inputs override secrets with the same name)
+# - '.ci_cd/env/.env'
+# - '.ci_cd/env/{ENVIRONMENT}.env'
+#
+# Secrets prefixed with '_TEMP_' are written to the 'temp.env' file instead, which overrides 'temp/env' and is not
+# copied to the host; a secret called 'SSH_KEY' is written to the 'ssh.key' file, which is not copied to the host
+# either. Other secrets starting with '_' and secrets containing '.' are ignored. Sensitive credentials should always be
+# stored in github secrets so they are encrypted, do not store within repo files (even private repos as these are not
+# encrypted).
+#
+# When the '_TEMP_GFE_PASSWORD' secret is set it is used to decrypt the encrypted files of the deployment build.
+#
+# See https://github.com/openremote/core/tree/main/.ci_cd for details of standard variables and handling.
+# ---------------------------------------------------------------------------------------------------------------------
+
 name: Deployment
+
 on:
   workflow_call:
     inputs:

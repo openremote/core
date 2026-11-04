@@ -18,21 +18,15 @@
  */
 import { html } from "lit";
 import { OrElement } from "@openremote/or-element";
-import { customElement, property } from "lit/decorators.js";
+import { customElement, property, query } from "lit/decorators.js";
 import type { AssetDescriptor, AttributePredicate, AssetQuery, RadialGeofencePredicate } from "@openremote/model";
-import { getAssetTypeFromQuery } from "../../index";
-import "@openremote/or-mwc-components/or-mwc-input";
-import { InputType } from "@openremote/or-mwc-components/or-mwc-input";
+import type { OrVaadinDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
 import { i18next, translate } from "@openremote/or-translate";
 import { OrRulesJsonRuleChangedEvent } from "../or-rule-json-viewer";
-
-import {
-  type DialogAction,
-  type OrMwcDialog,
-  OrMwcDialogOpenedEvent,
-} from "@openremote/or-mwc-components/or-mwc-dialog";
 import { type OrMap, OrMapClickedEvent, type LngLatLike } from "@openremote/or-map";
 import "@openremote/or-map";
+import type { OrVaadinNumberField } from "@openremote/or-vaadin-components/or-vaadin-number-field";
+import type { OrVaadinButton } from "@openremote/or-vaadin-components/or-vaadin-button";
 
 @customElement("or-rule-radial-modal")
 export class OrRuleRadialModal extends translate(i18next)(OrElement) {
@@ -48,21 +42,24 @@ export class OrRuleRadialModal extends translate(i18next)(OrElement) {
   @property({ type: Object })
   public query?: AssetQuery;
 
-  constructor() {
-    super();
-    this.addEventListener(OrMwcDialogOpenedEvent.NAME, this.initRadialMap);
-  }
+  @query("#radial-modal")
+  protected _mapDialogElem?: OrVaadinDialog;
+
+  @query("#radial-modal-button")
+  protected _mapDialogButton?: OrVaadinButton;
 
   initRadialMap() {
-    const modal = this.shadowRoot!.getElementById("radial-modal");
-    if (!modal) return;
+    if (!this._mapDialogElem) {
+      console.warn("Could not find radial map dialog element!");
+      return;
+    }
 
-    const map = modal.shadowRoot!.querySelector(".or-map") as OrMap;
+    const map = this._mapDialogElem!.querySelector(".or-map") as OrMap;
     if (map) {
       map.addEventListener(OrMapClickedEvent.NAME, (evt: CustomEvent) => {
         const lngLat: any = evt.detail.lngLat;
-        const latElement = modal.shadowRoot!.querySelector(".location-lat") as HTMLInputElement;
-        const lngElement = modal.shadowRoot!.querySelector(".location-lng") as HTMLInputElement;
+        const latElement = this._mapDialogElem!.querySelector(".location-lat") as HTMLInputElement;
+        const lngElement = this._mapDialogElem!.querySelector(".location-lng") as HTMLInputElement;
         latElement.value = lngLat.lat;
         lngElement.value = lngLat.lng;
 
@@ -73,8 +70,8 @@ export class OrRuleRadialModal extends translate(i18next)(OrElement) {
         this.setValuePredicateProperty("lng", lngLat.lng);
       });
 
-      const latElement = modal.shadowRoot!.querySelector(".location-lat") as HTMLInputElement;
-      const lngElement = modal.shadowRoot!.querySelector(".location-lng") as HTMLInputElement;
+      const latElement = this._mapDialogElem!.querySelector(".location-lat") as HTMLInputElement;
+      const lngElement = this._mapDialogElem!.querySelector(".location-lng") as HTMLInputElement;
       if (lngElement.value && latElement.value) {
         const LngLat: LngLatLike = [parseFloat(lngElement.value), parseFloat(latElement.value)];
         map.flyTo(LngLat, 15);
@@ -82,10 +79,6 @@ export class OrRuleRadialModal extends translate(i18next)(OrElement) {
         map.flyTo();
       }
     }
-  }
-
-  protected getAttributeName(attributePredicate: AttributePredicate): string | undefined {
-    return attributePredicate && attributePredicate.name ? attributePredicate.name.value : undefined;
   }
 
   protected setValuePredicateProperty(propertyName: string, value: any) {
@@ -100,57 +93,54 @@ export class OrRuleRadialModal extends translate(i18next)(OrElement) {
     this.requestUpdate();
   }
 
-  renderDialogHTML(value: RadialGeofencePredicate) {
-    const dialog: OrMwcDialog = this.shadowRoot!.getElementById("radial-modal") as OrMwcDialog;
+  getDialogHTML(value: RadialGeofencePredicate) {
+    return html` <div style="display:grid">
+      <or-map class="or-map" type="VECTOR" style="border: 1px solid #d5d5d5; aspect-ratio: 1/1;">
+        <or-map-marker
+          active
+          color="#FF0000"
+          icon="information"
+          lat="${value.lat}"
+          lng="${value.lng}"
+          radius="${value.radius}"
+        ></or-map-marker>
+      </or-map>
 
-    if (dialog) {
-      dialog.content = html` <div style="display:grid">
-        <or-map
-          class="or-map"
-          type="VECTOR"
-          style="border: 1px solid #d5d5d5; height: 400px; min-width: 300px; margin-bottom: 20px;"
-        >
-          <or-map-marker
-            active
-            color="#FF0000"
-            icon="information"
-            lat="${value.lat}"
-            lng="${value.lng}"
-            radius="${value.radius}"
-          ></or-map-marker>
-        </or-map>
-
-        <div class="layout horizontal">
-          <input
-            hidden
-            class="location-lng"
-            required
-            placeholder=" "
-            type="text"
-            .value="${value && value.lng ? value.lng : null}"
-          />
-          <input
-            hidden
-            class="location-lat"
-            required
-            placeholder=" "
-            type="text"
-            .value="${value && value.lat ? value.lat : null}"
-          />
-        </div>
-
-        <label>${i18next.t("radiusMin")}</label>
+      <div class="layout horizontal">
         <input
-          @change="${(e: any) => this.setValuePredicateProperty("radius", parseInt(e.target.value))}"
-          style="max-width: calc(50% - 30px);"
+          hidden
+          class="location-lng"
           required
           placeholder=" "
-          min="100"
-          type="number"
-          .value="${value && value.radius ? value.radius : 100}"
+          type="text"
+          .value="${value && value.lng ? value.lng : null}"
         />
-      </div>`;
-    }
+        <input
+          hidden
+          class="location-lat"
+          required
+          placeholder=" "
+          type="text"
+          .value="${value && value.lat ? value.lat : null}"
+        />
+      </div>
+
+      <or-vaadin-number-field
+        style="max-width: 50%; margin-top: var(--lumo-space-m);"
+        min="100"
+        required
+        value=${value.radius ?? 100}
+        @change=${(ev: Event) => {
+          const elem = ev.currentTarget as OrVaadinNumberField;
+          if (elem.checkValidity()) {
+            this.setValuePredicateProperty("radius", parseInt(elem.value));
+          }
+          this._mapDialogButton!.disabled = !elem.checkValidity();
+        }}
+      >
+        <or-translate slot="label" value="radiusMin"></or-translate>
+      </or-vaadin-number-field>
+    </div>`;
   }
 
   protected render() {
@@ -161,44 +151,29 @@ export class OrRuleRadialModal extends translate(i18next)(OrElement) {
     if (!this.assetDescriptor || !valuePredicate) {
       return html``;
     }
-
-    const attributeName = this.getAttributeName(this.attributePredicate);
-    const assetType = getAssetTypeFromQuery(this.query);
     // @ts-ignore
     const value: RadialGeofencePredicate = valuePredicate || undefined;
 
-    const radiusPickerModalActions: DialogAction[] = [
-      {
-        actionName: "cancel",
-        content: html`<or-mwc-input class="button" .type="${InputType.BUTTON}" label="cancel"></or-mwc-input>`,
-        action: () => {
-          // Nothing to do here
-        },
-      },
-      {
-        actionName: "ok",
-        default: true,
-        content: html`<or-mwc-input class="button" .type="${InputType.BUTTON}" label="ok"></or-mwc-input>`,
-        action: () => {},
-      },
-    ];
-
     const radialPickerModalOpen = () => {
-      const dialog: OrMwcDialog = this.shadowRoot!.getElementById("radial-modal") as OrMwcDialog;
-      if (dialog) {
-        dialog.dismissAction = null;
-        dialog.open();
-        this.renderDialogHTML(value);
-      }
+      this._mapDialogElem?.open();
+      this.initRadialMap();
     };
-
-    this.renderDialogHTML(value);
 
     return html`
       <or-vaadin-button ?disabled=${this.readonly} @click=${() => radialPickerModalOpen()}>
         <or-translate value="area"></or-translate>
       </or-vaadin-button>
-      <or-mwc-dialog id="radial-modal" heading="area" .actions="${radiusPickerModalActions}"></or-mwc-dialog>
+      <or-vaadin-dialog id="radial-modal" width="512px">
+        <h2 slot="header-content">
+          <or-translate value="area"></or-translate>
+        </h2>
+        ${this.getDialogHTML(value)}
+        <div slot="footer" style="width: 100%; display: flex; justify-content: end;">
+          <or-vaadin-button id="radial-modal-button" theme="primary" @click=${() => this._mapDialogElem?.close()}>
+            <or-translate value="ok"></or-translate>
+          </or-vaadin-button>
+        </div>
+      </or-vaadin-dialog>
     `;
   }
 }

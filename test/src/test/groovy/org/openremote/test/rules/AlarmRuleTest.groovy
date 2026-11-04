@@ -35,6 +35,8 @@ import org.openremote.model.notification.NotificationSendResult
 import org.openremote.model.query.RulesetQuery
 import org.openremote.model.rules.json.JsonRulesetDefinition
 import org.openremote.model.rules.json.RuleActionAlarm
+import org.openremote.model.rules.json.RuleAction
+import org.openremote.model.rules.json.RuleActionWriteAttribute
 import org.openremote.model.security.User
 import org.openremote.model.util.ValueUtil
 import org.openremote.setup.integration.KeycloakTestSetup
@@ -128,13 +130,18 @@ class AlarmRuleTest extends Specification implements ManagerContainerTrait {
   }
 
   @Shared
-  createAlarmRule = { severity, assigneeId ->
+  createAlarmRule = { severity, assigneeId, resetAfterAlarm = false ->
     when: "a ruleset with a notification action is created in the building realm"
     def rulesStr = getClass().getResource("/org/openremote/test/rules/CO2AlarmRule.json").text
     JsonRulesetDefinition rulesetDef = ValueUtil.JSON.readValue(rulesStr, JsonRulesetDefinition.class)
     rulesetDef.rules[0].when.groups.get(0).items.get(0).assets.ids(managerTestSetup.apartment2LivingroomId)
     ((RuleActionAlarm) rulesetDef.rules[0].then[0]).alarm.setSeverity(severity)
     ((RuleActionAlarm) rulesetDef.rules[0].then[0]).assigneeId = assigneeId
+    if (resetAfterAlarm) {
+      // A second action lets rejection tests wait for the alarm action to finish.
+      rulesetDef.rules[0].then = (rulesetDef.rules[0].then.toList() +
+              new RuleActionWriteAttribute(attributeName: "co2Level", value: 4000)) as RuleAction[]
+    }
     rulesStr = ValueUtil.JSON.writeValueAsString(rulesetDef)
     def realmRuleset = new RealmRuleset(managerTestSetup.realmBuildingName, "CO2 Alarm Rule", Ruleset.Lang.JSON, rulesStr)
     realmRuleset = rulesetStorageService.merge(realmRuleset)
@@ -221,12 +228,42 @@ Value: 6000
     where:
     severity | assigneeId | emailNotifications
     Alarm.Severity.LOW | null | 0
-    Alarm.Severity.LOW | keycloakTestSetup.testuser1Id | 0
+    Alarm.Severity.LOW | keycloakTestSetup.testuser2Id | 0
     Alarm.Severity.MEDIUM | null | 0
     Alarm.Severity.MEDIUM | keycloakTestSetup.testuser2Id | 0
     Alarm.Severity.HIGH | null | 1
-    Alarm.Severity.HIGH | keycloakTestSetup.testuser3Id | 1
+    Alarm.Severity.HIGH | keycloakTestSetup.buildingUserId | 1
     Alarm.Severity.HIGH | alarmsReadWriteUserId | 1
+  }
+
+  def "rule rejects alarm with inaccessible assignee '#assigneeId' and severity '#severity'"() {
+    given: "the target starts below the alarm threshold"
+    def conditions = new PollingConditions(timeout: 10, delay: 0.2)
+    assetProcessingService.sendAttributeEvent(new AttributeEvent(managerTestSetup.apartment2LivingroomId, "co2Level", 3000))
+    conditions.eventually {
+      def asset = assetStorageService.find(managerTestSetup.apartment2LivingroomId, true)
+      assert asset.getAttribute("co2Level").flatMap { it.getValue() }.orElse(null) == 3000
+    }
+    createAlarmRule(severity, assigneeId, true)
+
+    when: "the alarm condition is triggered"
+    assetProcessingService.sendAttributeEvent(new AttributeEvent(managerTestSetup.apartment2LivingroomId, "co2Level", 6000))
+
+    then: "the action after the alarm runs, confirming the rejection did not stop the rule"
+    conditions.eventually {
+      def asset = assetStorageService.find(managerTestSetup.apartment2LivingroomId, true)
+      assert asset.getAttribute("co2Level").flatMap { it.getValue() }.orElse(null) == 4000
+    }
+
+    and: "no alarm or email notification was created"
+    alarmService.getAlarms(managerTestSetup.realmBuildingName, null, null, null).isEmpty()
+    notificationMessages.isEmpty()
+
+    where:
+    severity | assigneeId
+    Alarm.Severity.LOW | keycloakTestSetup.testuser1Id
+    Alarm.Severity.HIGH | keycloakTestSetup.testuser1Id
+    Alarm.Severity.HIGH | keycloakTestSetup.testuser3Id
   }
 
   def "rule does not create alarm when rules service is restarted"() {

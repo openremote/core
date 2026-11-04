@@ -205,6 +205,59 @@ public class UserQuery {
 
   public UserQuery() {}
 
+  /**
+   * Copies all query options, including nested mutable predicates. Empty arrays are preserved: an
+   * empty asset selection matches no users, whereas a null selection imposes no asset filter.
+   */
+  public UserQuery(UserQuery source) {
+    realmPredicate =
+        source.realmPredicate == null ? null : new RealmPredicate(source.realmPredicate.name);
+    assets = source.assets == null ? null : source.assets.clone();
+    pathPredicate =
+        source.pathPredicate == null
+            ? null
+            : new PathPredicate(
+                source.pathPredicate.path == null ? null : source.pathPredicate.path.clone());
+    ids = source.ids == null ? null : source.ids.clone();
+    select = source.select == null ? null : new Select().basic(source.select.basic);
+    usernames = copyPredicates(source.usernames);
+    attributes =
+        source.attributes == null
+            ? null
+            : Arrays.stream(source.attributes)
+                .map(
+                    attribute ->
+                        attribute == null
+                            ? null
+                            : new AttributeValuePredicate(
+                                attribute.negated,
+                                copyPredicate(attribute.name),
+                                copyPredicate(attribute.value)))
+                .toArray(AttributeValuePredicate[]::new);
+    clientRoles = copyPredicates(source.clientRoles);
+    realmRoles = copyPredicates(source.realmRoles);
+    serviceUsers = source.serviceUsers;
+    limit = source.limit;
+    offset = source.offset;
+    orderBy =
+        source.orderBy == null
+            ? null
+            : new OrderBy(source.orderBy.property, source.orderBy.descending);
+  }
+
+  private static StringPredicate[] copyPredicates(StringPredicate[] predicates) {
+    return predicates == null
+        ? null
+        : Arrays.stream(predicates).map(UserQuery::copyPredicate).toArray(StringPredicate[]::new);
+  }
+
+  private static StringPredicate copyPredicate(StringPredicate predicate) {
+    return predicate == null
+        ? null
+        : new StringPredicate(predicate.match, predicate.caseSensitive, predicate.value)
+            .negate(predicate.negate);
+  }
+
   public UserQuery realm(RealmPredicate realmPredicate) {
     this.realmPredicate = realmPredicate;
     return this;

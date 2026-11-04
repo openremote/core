@@ -1,7 +1,7 @@
 # CI/CD workflow files
 
-The files in this directory are used by the [CI/CD workflow](../.github/workflows/ci_cd.yml) which provides a standard
-github workflow for CI/CD tasks in this repo and custom projects/forks on a linux host via SSH.
+The files in this directory are used by the [CI/CD workflows](../.github/workflows) of this repo and custom
+projects/forks, which deploy to a Linux host via SSH (see [deployment.yml](../.github/workflows/deployment.yml)).
 
 # `ci_cd.json` File
 
@@ -115,7 +115,6 @@ Standard variables:
 - `OR_HOSTNAME` - FQDN for the host (default: env/secrets.OR_HOSTNAME)
 - `SSH_USER` - SSH username (default: root)
 - `SSH_KEY` - SSH private key (this is written to `ssh.key` file and loaded by `deploy.sh` for SSH/SCP commands)
-- `SSH_PASSWORD` - SSH password (alternative to private key authentication)
 - `SSH_PORT` - SSH port (default: 22)
 - `AWS_KEY` - AWS access key ID (should be prefixed with `_TEMP_`
 - `AWS_SECRET` - AWS access key secret
