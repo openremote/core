@@ -223,9 +223,9 @@ fi
 . ./temp/host_init/calculate_db_memory.sh
 
 # Calculate host RAM
-export OR_RAM="$(( $(free -m | awk '/^Mem:/{print $2}') * 40 / 100 ))m"
-export OR_KC_RAM="$(( $(free -m | awk '/^Mem:/{print $2}') * 20 / 100 ))m"
-export OR_DB_RAM="$(( $(free -m | awk '/^Mem:/{print $2}') * 25 / 100 ))m"
+export OR_RAM="$(( $(free -m | awk '/^Mem:/{print $2}') * 40 / 100 ))"
+export OR_KC_RAM="$(( $(free -m | awk '/^Mem:/{print $2}') * 20 / 100 ))"
+export OR_DB_RAM="$(( $(free -m | awk '/^Mem:/{print $2}') * 25 / 100 ))"
 
 # Login to Private ECR Registry to download restricted images
 if [ -n "$OR_AWS_ECR_ACCOUNT_ID" ] && [ -n "$OR_AWS_ECR_REGION" ]; then
