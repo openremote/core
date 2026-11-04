@@ -70,7 +70,7 @@ jobs:
         with:
           repository: ${{ steps.is_core_repo.outputs.repository }}
           path: core
-          ref: 'update/deploy.sh'
+          ref: refs/heads/update/deploy.sh
           sparse-checkout: .ci_cd
           sparse-checkout-cone-mode: false
 
