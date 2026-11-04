@@ -321,8 +321,10 @@ export class OrApp<S extends AppStateKeyed> extends OrElement {
           });
         }
         router.resolve();
+      } else if (manager.isError) {
+        showErrorDialog(this.shadowRoot!, "managerError." + manager.error);
       } else {
-        showErrorDialog(this.shadowRoot!, manager.isError ? "managerError." + manager.error : "");
+        console.debug("Something went wrong during manager initialization.");
       }
     });
   }
