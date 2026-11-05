@@ -21,7 +21,6 @@ package org.openremote.manager.gateway;
 import static org.apache.camel.builder.PredicateBuilder.or;
 import static org.openremote.container.persistence.PersistenceService.PERSISTENCE_TOPIC;
 import static org.openremote.container.persistence.PersistenceService.isPersistenceEventForEntityType;
-import static org.openremote.manager.gateway.GatewayConnector.mapAssetId;
 import static org.openremote.model.Constants.*;
 import static org.openremote.model.syslog.SyslogCategory.GATEWAY;
 import static org.openremote.model.util.MapAccess.getInteger;
@@ -29,6 +28,7 @@ import static org.openremote.model.util.MapAccess.getString;
 
 import jakarta.persistence.EntityManager;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -51,6 +51,7 @@ import org.openremote.manager.rules.RulesService;
 import org.openremote.manager.rules.RulesetStorageService;
 import org.openremote.manager.security.ManagerIdentityService;
 import org.openremote.manager.security.ManagerKeycloakIdentityProvider;
+import org.openremote.manager.system.ApplicationVersionService;
 import org.openremote.manager.web.ManagerWebService;
 import org.openremote.model.Container;
 import org.openremote.model.ContainerService;
@@ -85,6 +86,7 @@ public class GatewayService extends RouteBuilder implements ContainerService {
 
   // Need a high priority so that event authorizer can get the events before other authorizers
   public static final int PRIORITY = HIGH_PRIORITY + 100;
+  public static final String ASSET_ID_MAPPING_V2_VERSION = "1.34.0";
   public static final String GATEWAY_CLIENT_ID_PREFIX = "gateway-";
   public static final String OR_GATEWAY_TUNNEL_SSH_KEY_FILE = "OR_GATEWAY_TUNNEL_SSH_KEY_FILE";
   private static final Logger LOG =
@@ -106,6 +108,7 @@ public class GatewayService extends RouteBuilder implements ContainerService {
   protected ExecutorService executorService;
   protected ScheduledExecutorService scheduledExecutorService;
   protected TimerService timerService;
+  protected ApplicationVersionService applicationVersionService;
   protected String tunnelSSHHostname;
   protected String tunnelHostname;
   protected int tunnelSSHPort;
@@ -188,6 +191,7 @@ public class GatewayService extends RouteBuilder implements ContainerService {
   @Override
   public void init(Container container) throws Exception {
     assetStorageService = container.getService(AssetStorageService.class);
+    applicationVersionService = container.getService(ApplicationVersionService.class);
     assetProcessingService = container.getService(AssetProcessingService.class);
     identityService = container.getService(ManagerIdentityService.class);
     clientEventService = container.getService(ClientEventService.class);
@@ -242,6 +246,13 @@ public class GatewayService extends RouteBuilder implements ContainerService {
         getInteger(container.getConfig(), OR_GATEWAY_TUNNEL_AUTO_CLOSE_MINUTES, 0);
   }
 
+  protected Instant getGatewayMappingV2ActivatedOn() {
+    return applicationVersionService
+        .getFirstActivationAtOrAfter(ASSET_ID_MAPPING_V2_VERSION)
+        .orElseThrow(
+            () -> new IllegalStateException("No activation recorded for gateway mapping V2"));
+  }
+
   @Override
   public void start(Container container) throws Exception {
 
@@ -285,7 +296,8 @@ public class GatewayService extends RouteBuilder implements ContainerService {
                     scheduledExecutorService,
                     this,
                     timerService,
-                    gateway);
+                    gateway,
+                    getGatewayMappingV2ActivatedOn());
             gatewayConnectorMap.put(gateway.getId().toLowerCase(Locale.ROOT), connector);
 
             // Get IDs of all assets under this gateway
@@ -404,7 +416,18 @@ public class GatewayService extends RouteBuilder implements ContainerService {
   public boolean onAttributeEventIntercepted(EntityManager em, AttributeEvent event)
       throws AssetProcessingException {
 
-    // If the event came from a gateway then we don't want to process it here
+    // The authenticated connector's identity survives queuing until this transaction.
+    if (event.getSource() != null
+        && event.getSource().startsWith(GatewayConnector.EVENT_SOURCE + ":")) {
+      String gatewayId = event.getSource().substring(GatewayConnector.EVENT_SOURCE.length() + 1);
+      Asset<?> asset =
+          em.find(Asset.class, event.getId(), jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+      assetStorageService.requireGatewayOwnership(em, asset, gatewayId, false);
+      event.getMeta().remove(MetaItemType.AGENT_LINK);
+      return false;
+    }
+
+    // Internal status updates for the registration itself.
     if (getClass().getSimpleName().equals(event.getSource())) {
       // Clear out agentlink meta so agent interceptor doesn't try intercepting the event
       event.getMeta().remove(MetaItemType.AGENT_LINK);
@@ -526,13 +549,19 @@ public class GatewayService extends RouteBuilder implements ContainerService {
               + ", gatewayId="
               + gatewayId
               + ")");
+      Asset<?> persisted =
+          em.find(Asset.class, event.getId(), jakarta.persistence.LockModeType.PESSIMISTIC_READ);
+      assetStorageService.requireGatewayOwnership(em, persisted, gatewayId, false);
       connector.sendMessageToGateway(
           new AttributeEvent(
-                  mapAssetId(gatewayId, event.getId(), true),
+                  connector.mapAssetId(event.getId(), true),
                   event.getName(),
                   event.getValue().orElse(null),
                   event.getTimestamp())
-              .setParentId(mapAssetId(gatewayId, event.getParentId(), true))
+              .setParentId(
+                  gatewayId.equals(persisted.getParentId())
+                      ? null
+                      : connector.mapAssetId(persisted.getParentId(), true))
               .setRealm(event.getRealm()));
 
       // Consume this event as it is for a gateway descendant and we've sent it to that gateway for
@@ -863,7 +892,8 @@ public class GatewayService extends RouteBuilder implements ContainerService {
                 scheduledExecutorService,
                 this,
                 timerService,
-                gateway);
+                gateway,
+                getGatewayMappingV2ActivatedOn());
         gatewayConnectorMap.put(gateway.getId().toLowerCase(Locale.ROOT), connector);
       }
       case UPDATE -> {
