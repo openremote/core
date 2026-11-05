@@ -54,7 +54,7 @@ class ChildAssetControlRulesTest extends Specification implements ManagerContain
             .setId(UniqueIdentifierGenerator.generateId("GroupAssetLights"))
             .setRealm(Constants.MASTER_REALM)
             .addAttributes(
-            new Attribute<?>(LightAsset.ON_OFF).addMeta(new MetaItem<>(MetaItemType.RULE_STATE)),
+            new Attribute<>(LightAsset.ON_OFF).addMeta(new MetaItem<>(MetaItemType.RULE_STATE)),
             new Attribute<>(LightAsset.BRIGHTNESS).addMeta(new MetaItem<>(MetaItemType.RULE_STATE)),
             new Attribute<>(LightAsset.COLOUR_RGB).addMeta(new MetaItem<>(MetaItemType.RULE_STATE)),
             new Attribute<>(LightAsset.COLOUR_TEMPERATURE).addMeta(new MetaItem<>(MetaItemType.RULE_STATE))
