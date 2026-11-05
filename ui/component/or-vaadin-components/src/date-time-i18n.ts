@@ -18,6 +18,7 @@
  */
 import i18next from "i18next";
 import { I18NEXT_TO_MOMENT_LOCALE } from "@openremote/core";
+import { getAdjustedYear } from "@vaadin/date-picker/src/vaadin-date-picker-helper.js";
 import type { DatePickerDate, DatePickerI18n } from "@vaadin/date-picker";
 import type { TimePickerI18n } from "@vaadin/time-picker";
 import type { TimePickerTime } from "@vaadin/time-picker/src/vaadin-time-picker-helper.js";
@@ -171,22 +172,10 @@ function parseDate(fieldOrder: string[], text: string): DatePickerDate | undefin
   const month = parts.month === undefined ? today.getMonth() : parseInt(parts.month) - 1;
   let year = today.getFullYear();
   if (parts.year !== undefined) {
+    // getAdjustedYear takes at most two digits, so a longer year is already a full one
     year = parts.year.length < 3 ? getAdjustedYear(today, parseInt(parts.year), month, day) : parseInt(parts.year);
   }
   return { day, month, year };
-}
-
-/**
- * Returns the year ending in the two given digits that lies within 50 years of the reference date.
- */
-function getAdjustedYear(referenceDate: Date, year: number, month: number, day: number): number {
-  let adjustedYear = year + Math.floor(referenceDate.getFullYear() / 100) * 100;
-  if (referenceDate < new Date(adjustedYear - 50, month, day)) {
-    adjustedYear -= 100;
-  } else if (referenceDate > new Date(adjustedYear + 50, month, day)) {
-    adjustedYear += 100;
-  }
-  return adjustedYear;
 }
 
 /**

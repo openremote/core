@@ -88,6 +88,14 @@ export interface OrVaadinComponent {
 }
 
 /**
+ * Returns whether the {@link InputType} holds its value as JSON text, so it needs to be parsed on the way out
+ * and serialized on the way in.
+ */
+export function inputTypeIsJson(inputType: InputType) {
+  return inputType === InputType.JSON || inputType === InputType.JSON_OBJECT;
+}
+
+/**
  * Returns whether the {@link InputType} should show a "send" button within the attribute input UI.
  * Some input types have internal mechanics for updating attributes, which is why they should return `false`.
  * Generic input types, like a text field, "support a send button", so should return `true`
@@ -102,8 +110,7 @@ export function inputTypeSupportsSendButton(inputType: InputType): boolean {
     inputType === InputType.DATE ||
     inputType === InputType.DATETIME ||
     inputType === InputType.EMAIL ||
-    inputType === InputType.JSON ||
-    inputType === InputType.JSON_OBJECT ||
+    inputTypeIsJson(inputType) ||
     inputType === InputType.MONTH ||
     inputType === InputType.TEXTAREA ||
     inputType === InputType.TIME ||
@@ -122,4 +129,40 @@ export function inputTypeSupportsLabel(inputType: InputType) {
     inputType === InputType.CHECKBOX ||
     inputType === InputType.BUTTON_MOMENTARY
   );
+}
+
+/**
+ * Parses the text of a JSON input type. An empty field is a valid, absent value; text that does not parse,
+ * or that is not an object for {@link InputType.JSON_OBJECT}, is invalid and has no value.
+ * @param inputType - The input type being parsed
+ * @param text - The text to parse
+ */
+export function parseJson(inputType: InputType, text?: string): { value?: any; valid: boolean } {
+  if (!text?.trim()) {
+    return { valid: true };
+  }
+  try {
+    const value = JSON.parse(text);
+    if (inputType === InputType.JSON_OBJECT && (typeof value !== "object" || value === null || Array.isArray(value))) {
+      return { valid: false };
+    }
+    return { value, valid: true };
+  } catch {
+    return { valid: false };
+  }
+}
+
+/**
+ * Serializes a value for display in a JSON input type, matching what {@link parseJson} reads back.
+ * @param value - The value to serialize
+ */
+export function stringifyJson(value: any): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return undefined;
+  }
 }
