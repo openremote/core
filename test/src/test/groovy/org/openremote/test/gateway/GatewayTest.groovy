@@ -61,12 +61,14 @@ import org.openremote.model.value.ValueFormat
 import org.openremote.setup.integration.ManagerTestSetup
 import org.openremote.test.ManagerContainerTrait
 import spock.lang.Ignore
+import spock.lang.Shared
 import spock.lang.Specification
 import spock.util.concurrent.PollingConditions
 
 import javax.net.ssl.SSLSession
 import java.nio.file.Paths
 import java.time.Duration
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -86,6 +88,9 @@ import static org.openremote.model.value.ValueType.*
 
 class GatewayTest extends Specification implements ManagerContainerTrait {
 
+  @Shared
+  Map<String, GatewayDisconnectEvent.Reason> gatewayDisconnectReasons = new ConcurrentHashMap<>()
+
   def setupSpec() {
     // Mock the GatewayClientService so we can use a different port for authentication on the GatewayClientConnector
     def services = defaultServices().toList()
@@ -102,7 +107,17 @@ class GatewayTest extends Specification implements ManagerContainerTrait {
       callRealMethod()
     }
 
-    // Start the container with the spy service
+    // Observe gateway rejections before the asynchronous disconnect message races with socket closure.
+    def clientEventServiceIndex = services.findIndexOf {it instanceof ClientEventService}
+    def clientEventService = services.removeAt(clientEventServiceIndex) as ClientEventService
+    def spyClientEventService = Spy(clientEventService)
+    services.add(clientEventServiceIndex, spyClientEventService)
+    spyClientEventService.sendToWebsocketSession(_ as String, _ as GatewayDisconnectEvent) >> { String sessionId, GatewayDisconnectEvent event ->
+      callRealMethod()
+      gatewayDisconnectReasons.put(sessionId, event.reason)
+    }
+
+    // Start the container with the spy services
     startContainer(defaultConfig(), services)
   }
 
@@ -115,6 +130,7 @@ class GatewayTest extends Specification implements ManagerContainerTrait {
     def assetStorageService = container.getService(AssetStorageService.class)
     def agentService = container.getService(AgentService.class)
     def gatewayService = container.getService(GatewayService.class)
+    def clientEventService = container.getService(ClientEventService.class)
     def managerTestSetup = container.getService(SetupService.class).getTaskOfType(ManagerTestSetup.class)
     def identityProvider = container.getService(ManagerIdentityService.class).identityProvider as ManagerKeycloakIdentityProvider
 
@@ -684,29 +700,46 @@ class GatewayTest extends Specification implements ManagerContainerTrait {
       [new AbstractNettyIOClient.MessageToMessageDecoder<String>(String.class, rogueGatewayClient)].toArray(new ChannelHandler[0])
     })
 
-    and: "we add callback consumers to the rogue client"
-    List<ConnectionStatus> rogueConnectionStatuses = new CopyOnWriteArrayList<>()
+    and: "we observe the manager's rejection of the rogue session"
+    gatewayDisconnectReasons.clear()
+    def registeredGatewayConnector = gatewayService.gatewayConnectorMap.get(gateway.getId().toLowerCase(Locale.ROOT))
+    def legitimateSessionId = registeredGatewayConnector.getSessionId()
+    def legitimateDisconnect = registeredGatewayConnector.requestDisconnect
+    assert legitimateSessionId != null
+
+    and: "we record messages received by the rogue client"
     List<String> rogueClientReceivedMessages = new CopyOnWriteArrayList<>()
     rogueGatewayClient.addMessageConsumer({message ->
       getLOG().info("Message received from central manager: $message")
       rogueClientReceivedMessages.add(message as String)
     })
-    rogueGatewayClient.addConnectionStatusConsumer({status ->
-      getLOG().info("Rouge gateway client connection staus changed: $status")
-      rogueConnectionStatuses.add(status)
-    })
 
     and: "the rogue client connects"
     rogueGatewayClient.connect()
 
-    then: "the rogue netty client status should continually connect as legitimate gateway client ALREADY_CONNECTED"
+    then: "the manager rejects the rogue session and finishes processing its closure"
+    // Removal from sessionStates follows both the session open and close handlers.
     conditions.eventually {
-      assert rogueConnectionStatuses.count(ConnectionStatus.CONNECTING) > 5
-      assert rogueConnectionStatuses.count(ConnectionStatus.CONNECTED) > 5
+      assert gatewayDisconnectReasons.any { sessionId, reason ->
+        reason == GatewayDisconnectEvent.Reason.UNRECOGNISED && !clientEventService.sessionStates.containsKey(sessionId)
+      }
     }
 
-    then: "the rogue client is disconnected"
+    and: "the legitimate gateway session is preserved and the rogue client cannot start synchronization"
+    assert registeredGatewayConnector.getSessionId() == legitimateSessionId
+    assert registeredGatewayConnector.requestDisconnect.is(legitimateDisconnect)
+    assert gatewayClient.connectionStatus == ConnectionStatus.CONNECTED
+    assert assetStorageService.find(gateway.id).getGatewayStatus().orElse(null) == ConnectionStatus.CONNECTED
+    assert !clientReceivedMessages.any {it.contains(GatewayDisconnectEvent.TYPE)}
+    assert !rogueClientReceivedMessages.any {it.contains(GatewayInitStartEvent.TYPE)}
+
+    when: "the rogue client is disconnected"
     rogueGatewayClient.disconnect()
+
+    then: "all its session events are processed before testing another connection attempt"
+    conditions.eventually {
+      assert clientEventService.sessionStates.keySet() == [legitimateSessionId] as Set
+    }
 
     when: "time advances"
     advancePseudoClock(1, TimeUnit.SECONDS, container)
@@ -765,17 +798,23 @@ class GatewayTest extends Specification implements ManagerContainerTrait {
     }
 
     when: "the rogue client connects now the legitimate gateway client is disconnected"
-    rogueConnectionStatuses.clear()
+    gatewayDisconnectReasons.clear()
+    rogueClientReceivedMessages.clear()
     rogueGatewayClient.connect()
 
-    then: "the gateway connector disconnect runnable should not be set"
-    assert gatewayService.gatewayConnectorMap.get(gateway.getId().toLowerCase(Locale.ROOT)).requestDisconnect == null
-
-    and: "the gateway netty client status should still continually connect as it's rogue"
+    then: "the manager rejects the new rogue session and finishes processing its closure"
     conditions.eventually {
-      assert rogueConnectionStatuses.count(ConnectionStatus.CONNECTING) > 5
-      assert rogueConnectionStatuses.count(ConnectionStatus.CONNECTED) > 5
+      assert gatewayDisconnectReasons.any { sessionId, reason ->
+        reason == GatewayDisconnectEvent.Reason.UNRECOGNISED && !clientEventService.sessionStates.containsKey(sessionId)
+      }
     }
+
+    and: "the rogue client cannot establish a gateway session or start synchronization"
+    assert registeredGatewayConnector.getSessionId() == null
+    assert !registeredGatewayConnector.connected
+    assert registeredGatewayConnector.requestDisconnect == null
+    assert assetStorageService.find(gateway.id).getGatewayStatus().orElse(null) == ConnectionStatus.DISCONNECTED
+    assert !rogueClientReceivedMessages.any {it.contains(GatewayInitStartEvent.TYPE)}
 
     when: "the rogue client is disconnected"
     rogueGatewayClient.disconnect()
