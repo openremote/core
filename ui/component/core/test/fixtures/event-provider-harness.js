@@ -33,6 +33,12 @@ const EVENTS = {
 
 const sleep = (millis) => new Promise((resolve) => setTimeout(resolve, millis));
 
+const DEFAULT_TIMEOUTS = {
+  reply: WebSocketEventProvider.REPLY_TIMEOUT_MILLIS,
+  heartbeatInterval: WebSocketEventProvider.HEARTBEAT_INTERVAL_MILLIS,
+  heartbeatTimeout: WebSocketEventProvider.HEARTBEAT_TIMEOUT_MILLIS,
+};
+
 /**
  * Stands in for a browser socket and the server behind it, which holds the subscriptions of that connection. The
  * socket's own events only fire when a test calls `open`, `error` or `closed`, so a test decides their order.
@@ -53,6 +59,10 @@ class FakeWebSocket {
     const frame = message.substring(0, separator);
     const body = JSON.parse(message.substring(separator + 1));
     this.frames.push(frame);
+
+    if (FakeWebSocket.harness.silent) {
+      return;
+    }
 
     if (frame === "UNSUBSCRIBE") {
       this.subscriptions.delete(body.subscriptionId);
@@ -113,10 +123,22 @@ export class EventProviderHarness extends HTMLElement {
     this.subscribeReply = "subscribed";
     /** The labels of the subscribe calls whose callback got an event, in order. */
     this.received = [];
+    /** Whether the server stops answering anything, like a connection that died without closing. */
+    this.silent = false;
+    this.setTimeouts(DEFAULT_TIMEOUTS);
 
     FakeWebSocket.harness = this;
     window.WebSocket = FakeWebSocket;
     this.provider = new WebSocketEventProvider("https://localhost");
+  }
+
+  /** Sets the provider's reply and heartbeat timeouts, in milliseconds, for the rest of the test. */
+  setTimeouts({ reply, heartbeatInterval, heartbeatTimeout }) {
+    WebSocketEventProvider.REPLY_TIMEOUT_MILLIS = reply ?? WebSocketEventProvider.REPLY_TIMEOUT_MILLIS;
+    WebSocketEventProvider.HEARTBEAT_INTERVAL_MILLIS =
+      heartbeatInterval ?? WebSocketEventProvider.HEARTBEAT_INTERVAL_MILLIS;
+    WebSocketEventProvider.HEARTBEAT_TIMEOUT_MILLIS =
+      heartbeatTimeout ?? WebSocketEventProvider.HEARTBEAT_TIMEOUT_MILLIS;
   }
 
   /** The socket the provider opened last. */
