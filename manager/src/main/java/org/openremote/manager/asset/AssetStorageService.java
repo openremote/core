@@ -1013,7 +1013,7 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
                     existingAsset.setParentId(asset.getParentId());
                     existingAsset.setAccessPublicRead(asset.isAccessPublicRead());
                     updatedAsset = em.merge(existingAsset);
-                  } else if (existingAsset == null) {
+                  } else if (existingAsset == null && requestingGatewayAsset != null) {
                     // INSERT must fail on a concurrent ID collision, never merge the new owner's
                     // row.
                     em.persist(asset);
