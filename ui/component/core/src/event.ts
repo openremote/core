@@ -277,7 +277,8 @@ abstract class EventProviderImpl implements EventProvider {
       (info) => info.eventSubscription.subscriptionId === subscriptionId
     );
     if (queuedIndex !== -1) {
-      this._queuedSubscriptions.splice(queuedIndex, 1);
+      const [queued] = this._queuedSubscriptions.splice(queuedIndex, 1);
+      this._resolveUnsubscribed(queued);
       return;
     }
 
@@ -596,14 +597,24 @@ abstract class EventProviderImpl implements EventProvider {
       this._onStatusChanged(EventProviderStatus.DISCONNECTED);
     }
     if (this._pendingSubscription) {
-      if (!this._pendingSubscription.cancelled) {
-        this._queuedSubscriptions.unshift(this._pendingSubscription);
-      }
+      const pending = this._pendingSubscription;
       this._pendingSubscription = null;
+
+      if (pending.cancelled) {
+        this._resolveUnsubscribed(pending);
+      } else {
+        this._queuedSubscriptions.unshift(pending);
+      }
     }
 
     this._onStatusChanged(EventProviderStatus.CONNECTING);
     this._scheduleReconnect();
+  }
+
+  // Resolves rather than rejects, since the subscribe didn't fail but was unsubscribed
+  protected _resolveUnsubscribed(subscription: EventSubscriptionInfo<SharedEvent>) {
+    subscription.deferred?.resolve(subscription.eventSubscription.subscriptionId!);
+    subscription.deferred = null;
   }
 
   protected _scheduleReconnect() {
