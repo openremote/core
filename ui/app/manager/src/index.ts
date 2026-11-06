@@ -171,6 +171,10 @@ fetch(configURL)
 
     return { ...appConfig };
   })
+  .catch((e) => {
+    console.error("Failed to load the manager app config, using the defaults", e);
+    return {} as ManagerAppConfig;
+  })
   .then((appConfig: ManagerAppConfig) => {
     // Set locales and load path
     if (!appConfig.manager) {

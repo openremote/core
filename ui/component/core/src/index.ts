@@ -457,7 +457,11 @@ export class Manager implements EventProviderFactory {
       const json = await new Promise<any>((resolve, reject) => {
         const oReq = new XMLHttpRequest();
         oReq.addEventListener("load", () => {
-          resolve(JSON.parse(oReq.responseText));
+          try {
+            resolve(JSON.parse(oReq.responseText));
+          } catch (e) {
+            reject(e);
+          }
         });
         oReq.addEventListener("error", () => {
           reject(new Error("Failed to contact the manager"));
