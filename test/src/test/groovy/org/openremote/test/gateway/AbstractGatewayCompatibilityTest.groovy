@@ -23,6 +23,7 @@ import org.apache.http.client.utils.URIBuilder
 import org.openremote.agent.protocol.io.AbstractNettyIOClient
 import org.openremote.agent.protocol.websocket.WebsocketIOClient
 import org.openremote.manager.asset.AssetStorageService
+import org.openremote.manager.gateway.GatewayConnector
 import org.openremote.manager.gateway.GatewayService
 import org.openremote.manager.security.ManagerIdentityService
 import org.openremote.manager.security.ManagerKeycloakIdentityProvider
@@ -44,9 +45,12 @@ import org.openremote.setup.integration.ManagerTestSetup
 import spock.lang.Specification
 import spock.util.concurrent.PollingConditions
 
-import static org.openremote.manager.gateway.GatewayConnector.mapAssetId
 
 abstract class AbstractGatewayCompatibilityTest extends Specification implements ManagerContainerTrait {
+
+  private static String mapAssetId(String gatewayId, String assetId, boolean outbound) {
+    GatewayConnector.mapAssetId(gatewayId, assetId, outbound, 2)
+  }
 
   // Frozen AssetsEvent JSON captured from BETA (c706a7fb78542967c68eb97dcf6ef06673475ff7,
   // be467d6^), 1.0.0 (be467d6dfaa3875c5d48b65146cecb5bc5b8e30b), and 1.1.0

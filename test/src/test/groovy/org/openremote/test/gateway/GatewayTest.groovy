@@ -74,7 +74,6 @@ import java.util.function.Consumer
 import java.util.stream.Collectors
 import java.util.stream.IntStream
 
-import static org.openremote.manager.gateway.GatewayConnector.mapAssetId
 import static org.openremote.manager.gateway.GatewayService.getGatewayClientId
 import static org.openremote.manager.security.ManagerIdentityProvider.OR_ADMIN_PASSWORD
 import static org.openremote.manager.security.ManagerIdentityProvider.OR_ADMIN_PASSWORD_DEFAULT
@@ -85,6 +84,10 @@ import static org.openremote.model.value.MetaItemType.*
 import static org.openremote.model.value.ValueType.*
 
 class GatewayTest extends Specification implements ManagerContainerTrait {
+
+  private static String mapAssetId(String gatewayId, String assetId, boolean outbound) {
+    GatewayConnector.mapAssetId(gatewayId, assetId, outbound, 2)
+  }
 
   def setupSpec() {
     // Mock the GatewayClientService so we can use a different port for authentication on the GatewayClientConnector
