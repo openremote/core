@@ -56,6 +56,10 @@ CMD:
 cmd /C "set OR_HOSTNAME=192.168.1.1 && docker compose -p openremote up -d"
 ```
 
+## One-Click Deploy
+
+[![Deploy on RepoCloud](https://d16t0pc4846x52.cloudfront.net/deploylobe.svg)](https://repocloud.io/details/OpenRemote/)
+
 ## What next
 
 Try creating assets, agents, rules, users, realms, etc. using the Manager UI, please refer to the [documentation](https://docs.openremote.io) for more information, some things to try:
