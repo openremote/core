@@ -159,12 +159,13 @@ ct("should end with one server subscription when resubscribing during a restore"
   });
 
   expect(result.outcome).toBe("resolved");
-  expect(result.frames).toEqual(["SUBSCRIBE", "UNSUBSCRIBE", "SUBSCRIBE"]);
+  // Subscribes may be in flight together, so only the frames are fixed and not their order
+  expect([...result.frames].sort()).toEqual(["SUBSCRIBE", "SUBSCRIBE", "UNSUBSCRIBE"]);
   expect(result.subscriptions).toBe(1);
   expect(result.received).toEqual(["new"]);
 });
 
-ct("should not restore a subscription unsubscribed while it waits for its turn", async ({ mount }) => {
+ct("should not keep a restored subscription unsubscribed before the server confirmed it", async ({ mount }) => {
   const component = await mount(EventProviderHarness);
 
   const result = await component.evaluate(async (el: EventProviderHarness) => {
@@ -173,17 +174,16 @@ ct("should not restore a subscription unsubscribed while it waits for its turn",
 
     el.subscribeReply = "none";
     await el.reconnect();
-    const inFlight = el.socket.unanswered[0].subscriptionId;
-    const waiting = subscriptionIds.find((subscriptionId) => subscriptionId !== inFlight);
-    await el.provider.unsubscribe(waiting);
+    const kept = el.socket.unanswered[0].subscriptionId;
+    const dropped = subscriptionIds.find((subscriptionId) => subscriptionId !== kept);
+    await el.provider.unsubscribe(dropped);
     el.socket.answer();
     await el.settle();
 
-    return { inFlight, frames: el.socket.frames, subscriptions: [...el.socket.subscriptions.keys()] };
+    return { kept, subscriptions: [...el.socket.subscriptions.keys()] };
   });
 
-  expect(result.frames).toEqual(["SUBSCRIBE"]);
-  expect(result.subscriptions).toEqual([result.inFlight]);
+  expect(result.subscriptions).toEqual([result.kept]);
 });
 
 ct("should not restore a subscription unsubscribed before another drop", async ({ mount }) => {
@@ -202,4 +202,99 @@ ct("should not restore a subscription unsubscribed before another drop", async (
   });
 
   expect(result.frames).toEqual([]);
+});
+
+ct("should keep a shared subscription when a callback is added while the last one is removed", async ({ mount }) => {
+  const component = await mount(EventProviderHarness);
+
+  const result = await component.evaluate(async (el: EventProviderHarness) => {
+    await el.connect();
+    const first = await el.subscribeTo("attribute", "first");
+    const removed = el.provider.unsubscribe(first);
+    const outcome = await el.outcome(el.subscribeTo("attribute", "second"));
+    await removed;
+    el.trigger("attribute");
+
+    return { outcome, received: el.received };
+  });
+
+  expect(result.outcome).toBe("resolved");
+  // Removing the last callback used to unsubscribe from the server after the new callback had joined, so it got no events
+  expect(result.received).toEqual(["second"]);
+});
+
+ct("should reject a reply that was pending when the connection dropped", async ({ mount }) => {
+  const component = await mount(EventProviderHarness);
+
+  const outcome = await component.evaluate(async (el: EventProviderHarness) => {
+    await el.connect();
+    const reply = el.provider.sendEventWithReply({ eventType: "read-assets" });
+    await el.reconnect();
+
+    return el.outcome(reply);
+  });
+
+  // A reply lost with the connection used to leave the caller waiting for good
+  expect(outcome).toBe("rejected: Not connected");
+});
+
+ct("should reject a reply that does not arrive in time", async ({ mount }) => {
+  const component = await mount(EventProviderHarness);
+
+  const outcome = await component.evaluate(async (el: EventProviderHarness) => {
+    el.setTimeouts({ reply: 100 });
+    await el.connect();
+
+    return el.outcome(el.provider.sendEventWithReply({ eventType: "read-assets" }));
+  });
+
+  // A reply that never arrived used to leave the caller waiting for good
+  expect(outcome).toBe("rejected: Timed out waiting for a reply");
+});
+
+ct("should reconnect when the connection stops responding", async ({ mount }) => {
+  const component = await mount(EventProviderHarness);
+
+  const result = await component.evaluate(async (el: EventProviderHarness) => {
+    el.setTimeouts({ heartbeatTimeout: 100 });
+    await el.connect();
+    const unresponsive = el.socket;
+    el.silent = true;
+    window.dispatchEvent(new Event("online"));
+    await el.until(() => el.socket !== unresponsive);
+
+    el.silent = false;
+    el.socket.open();
+    await el.until(() => el.provider.status === "CONNECTED");
+
+    return { frames: unresponsive.frames, closeRequested: unresponsive.closeRequested, status: el.provider.status };
+  });
+
+  expect(result.frames).toEqual(["SUBSCRIBE"]);
+  // A connection that died without closing used to count as connected until the browser noticed, which can take hours
+  expect(result.closeRequested).toBe(true);
+  expect(result.status).toBe("CONNECTED");
+});
+
+ct("should keep a connection that answers the heartbeat", async ({ mount }) => {
+  const component = await mount(EventProviderHarness);
+
+  const result = await component.evaluate(async (el: EventProviderHarness) => {
+    el.setTimeouts({ heartbeatTimeout: 100 });
+    await el.connect();
+    window.dispatchEvent(new Event("online"));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    return {
+      frames: el.socket.frames,
+      subscriptions: el.socket.subscriptions.size,
+      socketCount: el.sockets.length,
+      status: el.provider.status,
+    };
+  });
+
+  expect(result.frames).toEqual(["SUBSCRIBE", "UNSUBSCRIBE"]);
+  expect(result.subscriptions).toBe(0);
+  expect(result.socketCount).toBe(1);
+  expect(result.status).toBe("CONNECTED");
 });
