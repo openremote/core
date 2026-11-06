@@ -22,9 +22,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.openremote.container.persistence.PersistenceService;
-import org.openremote.manager.persistence.ApplicationVersion;
 import org.openremote.model.Container;
 import org.openremote.model.ContainerService;
+import org.openremote.model.util.VersionUtil;
 
 /** Records the first activation of each normalized application version for other services. */
 public class ApplicationVersionService implements ContainerService {
@@ -55,7 +55,7 @@ public class ApplicationVersionService implements ContainerService {
    * timestamp is stored in {@code updated_on} and is never refreshed on reactivation.
    */
   public Optional<Instant> getFirstActivation(String applicationVersion) {
-    String version = ApplicationVersion.normalize(applicationVersion);
+    String version = VersionUtil.normalizeVersion(applicationVersion);
     return persistenceService.doReturningTransaction(
         em -> {
           List<?> timestamps =
@@ -76,7 +76,7 @@ public class ApplicationVersionService implements ContainerService {
    * qualifiers and build metadata are ignored. Empty means no qualifying activation was recorded.
    */
   public Optional<Instant> getFirstActivationAtOrAfter(String applicationVersion) {
-    String version = ApplicationVersion.normalize(applicationVersion);
+    String version = VersionUtil.normalizeVersion(applicationVersion);
     return persistenceService.doReturningTransaction(
         em ->
             Optional.ofNullable(
@@ -93,7 +93,7 @@ public class ApplicationVersionService implements ContainerService {
   }
 
   protected void recordApplicationVersion(String applicationVersion) {
-    String version = ApplicationVersion.normalize(applicationVersion);
+    String version = VersionUtil.normalizeVersion(applicationVersion);
     // Atomic insert preserves the first timestamp across concurrent startups.
     persistenceService.doTransaction(
         em ->

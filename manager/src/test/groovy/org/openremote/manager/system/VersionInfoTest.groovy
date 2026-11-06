@@ -16,37 +16,15 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
-package org.openremote.manager.persistence
+package org.openremote.manager.system
 
 import spock.lang.Specification
 
-class ApplicationVersionTest extends Specification {
-  def "normalize #version"() {
+class VersionInfoTest extends Specification {
+  def "loadVersion should load manager version from resources"() {
     expect:
-    ApplicationVersion.normalize(version) == "1.2.0"
-
-    where:
-    version << [
-      "1.2.0",
-      "1.2.0-SNAPSHOT",
-      "1.2.0-M1",
-      "1.2.0-RC1",
-      "1.2.0-beta.2",
-      "1.2.0-alpha",
-      "1.2.0-LOCAL",
-      "1.2.0+build.42",
-      "1.2.0-RC1+build.42"
-    ]
-  }
-
-  def "reject unexpected version #version"() {
-    when:
-    ApplicationVersion.normalize(version)
-
-    then:
-    thrown(IllegalArgumentException)
-
-    where:
-    version << [null, "", "1.2", "v1.2.0", "01.2.0", "1.2.0-", "1.2.0+", "1.2.0/foo", "1.2.0-beta..2", "1.2.0 "]
+    !VersionInfo.loadVersion().isBlank()
+    VersionInfo.loadVersion() == VersionInfo.VERSION
+    VersionInfo.loadVersion() == VersionInfo.getManagerVersion()
   }
 }

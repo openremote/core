@@ -19,9 +19,9 @@
 package org.openremote.test.system
 
 import org.openremote.container.persistence.PersistenceService
-import org.openremote.manager.persistence.ApplicationVersion
 import org.openremote.manager.system.ApplicationVersionService
 import org.openremote.manager.system.VersionInfo
+import org.openremote.model.util.VersionUtil
 import org.openremote.test.ManagerContainerTrait
 import spock.lang.Specification
 
@@ -48,7 +48,7 @@ class ApplicationVersionServiceTest extends Specification implements ManagerCont
     }
 
     expect: "startup has recorded the running application after migrations"
-    rows().containsKey(ApplicationVersion.normalize(VersionInfo.managerVersion))
+    rows().containsKey(VersionUtil.normalizeVersion(VersionInfo.managerVersion))
 
     when:
     persistence.doTransaction {
