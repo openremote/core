@@ -32,7 +32,19 @@ import {
   type ReadAssetEvent,
   type ValueDatapoint,
 } from "@openremote/model";
-import manager, { DefaultColor2, DefaultColor3, DefaultColor4, DefaultColor5, Util } from "@openremote/core";
+import manager, {
+  DefaultColor2,
+  DefaultColor3,
+  DefaultColor4,
+  DefaultColor5,
+  getTimeWindowDates,
+  normalizeTimePrefix,
+  shiftTimeWindowDates,
+  TIME_PREFIXES,
+  type TimeDirection,
+  TimePrefix,
+  Util,
+} from "@openremote/core";
 import "@openremote/or-asset-tree";
 import "@openremote/or-components/or-panel";
 import "@openremote/or-translate";
@@ -453,7 +465,7 @@ export class OrChart extends translate(i18next)(OrElement) {
   public timestampControls = true;
 
   /**
-   * List of 'time prefix' options like 'this' or 'last', for the user to select from.
+   * List of 'time prefix' options like 'current' or 'last', for the user to select from.
    * In combination with the {@link timeWindowOptions} attribute, it becomes a string like 'last 6 hours'.
    * @protected
    */
@@ -944,9 +956,11 @@ export class OrChart extends translate(i18next)(OrElement) {
     const menuItems: MenuBarItem[] = [
       {
         component: createMenuBarItem(
-          html`<or-translate value=${this.timeframe ? "dashboard.customTimeSpan" : this.timePrefixKey}></or-translate>`
+          html`<or-translate
+            value=${this.timeframe ? "dashboard.customTimeSpan" : normalizeTimePrefix(this.timePrefixKey ?? "")}
+          ></or-translate>`
         ),
-        children: this.timePrefixOptions?.map((o) => ({
+        children: this.timePrefixOptions?.map(normalizeTimePrefix).map((o) => ({
           type: "prefix",
           value: o,
           component: createMenuBarItem(html`<or-translate value=${o}></or-translate>`),
@@ -982,14 +996,14 @@ export class OrChart extends translate(i18next)(OrElement) {
           class="button button-icon"
           ?disabled="${disabled}"
           icon="chevron-left"
-          @click="${() => this._shiftTimeframe(this.timeframe?.[0] ?? new Date(this._startOfPeriod!), this.timeframe?.[1] ?? new Date(this._endOfPeriod!), this.timeWindowKey!, "previous")}"
+          @click="${() => this._shiftTimeframe(this.timeframe?.[0] ?? new Date(this._startOfPeriod!), this.timeframe?.[1] ?? new Date(this._endOfPeriod!), this.timeWindowKey!, TimePrefix.LAST)}"
         ></or-icon>
         <!-- Scroll right button -->
         <or-icon
           class="button button-icon"
           ?disabled="${disabled}"
           icon="chevron-right"
-          @click="${() => this._shiftTimeframe(this.timeframe?.[0] ?? new Date(this._startOfPeriod!), this.timeframe?.[1] ?? new Date(this._endOfPeriod!), this.timeWindowKey!, "next")}"
+          @click="${() => this._shiftTimeframe(this.timeframe?.[0] ?? new Date(this._startOfPeriod!), this.timeframe?.[1] ?? new Date(this._endOfPeriod!), this.timeWindowKey!, TimePrefix.NEXT)}"
         ></or-icon>
         <!-- Button that opens custom time selection or restores to widget setting-->
         <or-icon
@@ -1310,8 +1324,8 @@ export class OrChart extends translate(i18next)(OrElement) {
     }
   }
 
-  protected _getDefaultTimePrefixOptions(): string[] {
-    return ["this", "last", "next"];
+  protected _getDefaultTimePrefixOptions(): TimePrefix[] {
+    return [...TIME_PREFIXES];
   }
 
   protected _getDefaultTimeWindowOptions(): Map<string, [moment.unitOfTime.DurationConstructor, number]> {
@@ -1338,55 +1352,17 @@ export class OrChart extends translate(i18next)(OrElement) {
    * @protected
    */
   protected _getTimeSelectionDates(selectedTimePrefix: string, selectedTimeWindow: string): [Date, Date] {
-    let startDate = moment();
-    let endDate = moment();
-    const timeWindow: [moment.unitOfTime.DurationConstructor, number] | undefined =
-      this.timeWindowOptions!.get(selectedTimeWindow);
+    const timeWindow = this.timeWindowOptions!.get(selectedTimeWindow);
     if (!timeWindow) {
       throw new Error(`Unsupported time window selected: ${selectedTimeWindow}`);
     }
-    const [unit, value]: [moment.unitOfTime.DurationConstructor, number] = timeWindow;
-    switch (selectedTimePrefix) {
-      case "this":
-        if (value === 1) {
-          // For singulars like this hour
-          startDate = moment().startOf(unit);
-          endDate = moment().endOf(unit);
-        } else {
-          // For multiples like this 5 min, put now in the middle
-          startDate = moment().subtract(value * 0.5, unit);
-          endDate = moment().add(value * 0.5, unit);
-        }
-        break;
-      case "last":
-        startDate = moment().subtract(value, unit).startOf(unit);
-        if (value === 1) {
-          // For singulars like last hour
-          endDate = moment().startOf(unit);
-        } else {
-          // For multiples like last 5 min
-          endDate = moment();
-        }
-        break;
-      case "next":
-        if (value === 1) {
-          // For singulars like next hour
-          startDate = moment().add(value, unit).startOf(unit);
-          endDate = moment().add(value, unit).endOf(unit);
-        } else {
-          // For multiples like next 5 min
-          startDate = moment();
-          endDate = moment().add(value, unit);
-        }
-        break;
-    }
-    return [startDate.toDate(), endDate.toDate()];
+    return getTimeWindowDates(selectedTimePrefix, timeWindow);
   }
 
   /**
    * Internal function for shifting a timeframe in a specific {@link direction}.
    * Based on the given {@link currentStart} and {@link currentEnd} dates, it will move forward/backwards for the {@link selectedTimeWindow}.
-   * For example, when viewing '1 week' of data, and calling this function with the 'previous' direction, it will update {@link timeframe} with dates one week in advance.
+   * For example, when viewing '1 week' of data, and calling this function with the 'last' direction, it will update {@link timeframe} with dates one week in advance.
    *
    * @param currentStart - Start date of the current viewport
    * @param currentEnd - End date of the current viewport
@@ -1398,22 +1374,18 @@ export class OrChart extends translate(i18next)(OrElement) {
     currentStart: Date,
     currentEnd: Date,
     selectedTimeWindow: string,
-    direction: "previous" | "next"
+    direction: TimeDirection
   ) {
     const timeWindow = this.timeWindowOptions!.get(selectedTimeWindow);
     if (!timeWindow) {
       throw new Error(`Unsupported time window selected: ${selectedTimeWindow}`);
     }
-    const [unit, value] = timeWindow;
-    const newStart = moment(currentStart);
-    direction === "previous"
-      ? newStart.subtract(value, unit as moment.unitOfTime.DurationConstructor)
-      : newStart.add(value, unit as moment.unitOfTime.DurationConstructor);
-    const newEnd = moment(currentEnd);
-    direction === "previous"
-      ? newEnd.subtract(value, unit as moment.unitOfTime.DurationConstructor)
-      : newEnd.add(value, unit as moment.unitOfTime.DurationConstructor);
-    this.timeframe = [newStart.toDate(), newEnd.toDate()];
+    this.timeframe = shiftTimeWindowDates(
+      currentStart,
+      currentEnd,
+      this._isCustomWindow ? undefined : timeWindow,
+      direction
+    );
   }
 
   protected _getInterval(diffInHours: number): [number, DatapointInterval] {
