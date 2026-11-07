@@ -18,9 +18,19 @@
  */
 @import "@vaadin/vaadin-lumo-styles/components/confirm-dialog.css";
 
+@media lumo_components_confirm-dialog-overlay-internal {
+  :host([theme~="no-header"]) [part="header"] {
+    display: none;
+  }
+  :host([theme~="no-header"]) [part="content"] {
+    padding-top: var(--lumo-space-m) !important;
+  }
+}
+
 :root::before,
 :host::before {
   --_lumo-vaadin-confirm-dialog-overlay-inject: 1;
   --_lumo-vaadin-confirm-dialog-overlay-inject-modules:
-    lumo_mixins_overlay, lumo_components_dialog-overlay, lumo_components_confirm-dialog-overlay;
+    lumo_mixins_overlay, lumo_components_dialog-overlay, lumo_components_confirm-dialog-overlay,
+    lumo_components_confirm-dialog-overlay-internal;
 }

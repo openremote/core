@@ -80,10 +80,10 @@ export class OrVaadinDialog extends (Dialog as new () => Dialog & LitElement) im
         }
         ::part(header),
         ::part(footer) {
-          padding: var(--lumo-space-l);
+          padding: var(--lumo-space-m);
         }
         ::part(content) {
-          padding: 0 var(--lumo-space-l);
+          padding: 0 var(--lumo-space-m);
         }
       `,
     ];

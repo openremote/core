@@ -200,11 +200,17 @@ public class PushNotificationHandler extends RouteBuilder implements Notificatio
       List<Notification.Target> targets,
       AbstractNotificationMessage message) {
 
-    // Check if message is going to a topic if so then filter consoles subscribed to that topic
     PushNotificationMessage pushMessage = (PushNotificationMessage) message;
     List<Notification.Target> mappedTargets = new ArrayList<>();
 
     if (pushMessage.getTargetType() == TOPIC || pushMessage.getTargetType() == CONDITION) {
+      // Firebase resolves these audiences, so their realm and asset scope cannot be verified.
+      if (source == Notification.Source.REALM_RULESET
+          || source == Notification.Source.ASSET_RULESET) {
+        throw new NotificationProcessingException(
+            NotificationProcessingException.Reason.INSUFFICIENT_ACCESS,
+            "Realm- and asset-scoped rules cannot send TOPIC or CONDITION push notifications");
+      }
       mappedTargets.add(
           new Notification.Target(
               Notification.TargetType.CUSTOM,
@@ -213,6 +219,14 @@ public class PushNotificationHandler extends RouteBuilder implements Notificatio
     }
 
     if (targets != null) {
+      if (targets.stream().anyMatch(target -> target.getType() == Notification.TargetType.CUSTOM)) {
+        throw new NotificationProcessingException(
+            NotificationProcessingException.Reason.ERROR_TARGET_MAPPING,
+            "CUSTOM targets are not supported for device push notifications");
+      }
+
+      String rulesRealm =
+          NotificationScope.resolveRulesRealm(source, sourceId, assetStorageService);
 
       // Filter out console targets
       String[] assetTargets =
@@ -259,14 +273,16 @@ public class PushNotificationHandler extends RouteBuilder implements Notificatio
             // Prefer consoles that still have an FCM token so a normal send is unchanged.
             // #3113: when none do, map FCM consoles anyway so the send records
             // "No FCM token found" instead of a missing-targets error. Browser consoles
-            // (push version "web") stay out of both queries.
+            // (push version "web") stay out of both queries. Rules-realm scoping applies to both.
             List<String> consoleAssetIds =
                 consoleIds(
-                    consoleAssetsLinkedTo(targetType, targetId).attributes(nonEmptyFcmToken()));
+                    consoleAssetsLinkedTo(targetType, targetId, rulesRealm, source, sourceId)
+                        .attributes(nonEmptyFcmToken()));
             if (consoleAssetIds.isEmpty()) {
               consoleAssetIds =
                   consoleIds(
-                      consoleAssetsLinkedTo(targetType, targetId).attributes(fcmProviderVersion()));
+                      consoleAssetsLinkedTo(targetType, targetId, rulesRealm, source, sourceId)
+                          .attributes(fcmProviderVersion()));
             }
 
             if (!consoleAssetIds.isEmpty()) {
@@ -583,7 +599,12 @@ public class PushNotificationHandler extends RouteBuilder implements Notificatio
     return builder.build();
   }
 
-  private AssetQuery consoleAssetsLinkedTo(Notification.TargetType targetType, String targetId) {
+  private AssetQuery consoleAssetsLinkedTo(
+      Notification.TargetType targetType,
+      String targetId,
+      String rulesRealm,
+      Notification.Source source,
+      String sourceId) {
     AssetQuery assetQuery =
         new AssetQuery()
             .select(new AssetQuery.Select().excludeAttributes())
@@ -596,13 +617,49 @@ public class PushNotificationHandler extends RouteBuilder implements Notificatio
       case USER ->
           // Any console assets linked to the target user
           assetQuery.userIds(targetId);
-      case ASSET ->
+      case ASSET -> {
+        if (rulesRealm == null) {
           // Any users linked to this asset and then their linked console assets
           assetQuery.userIds(
               assetStorageService.findUserAssetLinks(null, null, targetId).stream()
                   .map(ual -> ual.getId().getUserId())
-                  .collect(Collectors.toSet())
+                  .distinct()
                   .toArray(String[]::new));
+        } else {
+          // Resolve regular, non-system users in the rule's realm before expanding their
+          // consoles.
+          assetQuery.userIds(
+              Arrays.stream(
+                      managerIdentityService
+                          .getIdentityProvider()
+                          .queryUsers(
+                              new UserQuery()
+                                  .assets(targetId)
+                                  .realm(new RealmPredicate(rulesRealm))
+                                  .serviceUsers(false)
+                                  .attributes(
+                                      new UserQuery.AttributeValuePredicate(
+                                          true,
+                                          new StringPredicate(User.SYSTEM_ACCOUNT_ATTRIBUTE)))))
+                  .filter(
+                      user ->
+                          source != Notification.Source.ASSET_RULESET
+                              || NotificationScope.isUserInAssetScope(
+                                  user.getRealm(),
+                                  user.getId(),
+                                  sourceId,
+                                  managerIdentityService.getIdentityProvider(),
+                                  assetStorageService))
+                  .map(User::getId)
+                  .distinct()
+                  .toArray(String[]::new));
+        }
+      }
+    }
+
+    if (rulesRealm != null) {
+      // Delivery consoles must share the rule's realm, but need not be in its asset subtree.
+      assetQuery.realm(new RealmPredicate(rulesRealm));
     }
     return assetQuery;
   }

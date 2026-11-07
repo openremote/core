@@ -754,6 +754,8 @@ public class RulesEngine<T extends Ruleset> {
   }
 
   protected void publishRulesEngineStatus() {
+    // Global engine has no realm
+    String realm = id == null ? null : id.getRealm().orElse(null);
     String engineId = id == null ? null : id.getRealm().orElse(id.getAssetId().orElse(null));
     int compilationErrors = getCompilationErrorDeploymentCount();
     int executionErrors = getExecutionErrorDeploymentCount();
@@ -761,7 +763,8 @@ public class RulesEngine<T extends Ruleset> {
         new RulesEngineInfo(getStatus(), compilationErrors, executionErrors);
 
     RulesEngineStatusEvent event =
-        new RulesEngineStatusEvent(timerService.getCurrentTimeMillis(), engineId, engineInfo);
+        new RulesEngineStatusEvent(
+            timerService.getCurrentTimeMillis(), realm, engineId, engineInfo);
 
     LOG.finest("Publishing rules engine status event: " + event);
 
@@ -776,6 +779,8 @@ public class RulesEngine<T extends Ruleset> {
 
     Ruleset ruleset = deployment.ruleset;
     RulesetStatus previousStatus = deploymentStatusMap.get(ruleset.getId());
+    // Global engine has no realm
+    String realm = id == null ? null : id.getRealm().orElse(null);
     String engineId = id == null ? null : id.getRealm().orElse(id.getAssetId().orElse(null));
     RulesetStatus currentStatus = deployment.getStatus();
 
@@ -785,7 +790,7 @@ public class RulesEngine<T extends Ruleset> {
       ruleset.setError(deployment.getErrorMessage());
 
       RulesetChangedEvent event =
-          new RulesetChangedEvent(timerService.getCurrentTimeMillis(), engineId, ruleset);
+          new RulesetChangedEvent(timerService.getCurrentTimeMillis(), realm, engineId, ruleset);
 
       LOG.finest("Ruleset '" + deployment.getName() + "': status=" + currentStatus);
 

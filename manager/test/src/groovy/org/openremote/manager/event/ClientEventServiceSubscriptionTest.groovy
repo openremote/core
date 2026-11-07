@@ -23,17 +23,34 @@ import org.apache.camel.Exchange
 import org.apache.camel.component.undertow.UndertowConstants
 import org.apache.camel.impl.DefaultCamelContext
 import org.apache.camel.support.DefaultExchange
+import org.openremote.container.message.MessageBrokerService
 import org.openremote.container.security.AuthContext
+import org.openremote.manager.rules.RulesService
+import org.openremote.manager.security.ManagerIdentityProvider
+import org.openremote.manager.security.ManagerIdentityService
+import org.openremote.manager.web.ManagerWebService
+import org.openremote.model.Container
 import org.openremote.model.event.Event
 import org.openremote.model.event.shared.CancelEventSubscription
 import org.openremote.model.event.shared.EventSubscription
+import org.openremote.model.event.shared.RealmFilter
+import org.openremote.model.event.shared.SharedEvent
 import org.openremote.model.event.shared.UnauthorizedEventSubscription
 import org.openremote.model.alarm.AlarmEvent
+import org.openremote.model.rules.GlobalRuleset
+import org.openremote.model.rules.RealmRuleset
+import org.openremote.model.rules.Ruleset
+import org.openremote.model.rules.RulesEngineInfo
+import org.openremote.model.rules.RulesEngineStatus
+import org.openremote.model.rules.RulesEngineStatusEvent
+import org.openremote.model.rules.RulesetChangedEvent
+import org.openremote.model.security.ClientRole
 import org.openremote.model.syslog.SyslogEvent
 import spock.lang.Specification
 import spock.lang.Unroll
 
 import static org.openremote.model.Constants.AUTH_CONTEXT
+import static org.openremote.model.Constants.KEYCLOAK_CLIENT_ID
 import static org.openremote.model.Constants.REALM_PARAM_NAME
 
 class ClientEventServiceSubscriptionTest extends Specification {
@@ -137,14 +154,176 @@ class ClientEventServiceSubscriptionTest extends Specification {
     "subscriptionId" | new EventSubscription<>(SyslogEvent.class, null, "bad::id")
   }
 
+  def "delivers #eventClass.simpleName events to a regular user only for their own realm when requesting #requestedFilter"() {
+    given: "a client event service guarded by the rules service subscription authorizer"
+    def service = new RecordingClientEventService()
+    new RulesService().init(containerFor(service))
+    def channel = dummyChannel()
+    String sessionKey = "session-5"
+    service.sessionChannels.put(sessionKey, channel)
+
+    when: "a regular user of the building realm subscribes"
+    def subscription = new EventSubscription<>(eventClass, requestedFilter)
+    service.procesInboundEvent(exchangeFor(sessionKey, channel, subscription, regularUser("building", ClientRole.READ_RULES), "building"))
+
+    then: "the subscription should be accepted"
+    service.sentPayloads.last().is(subscription)
+    subscription.subscribed
+
+    when: "events are published for the global engine and the smartcity and building realms"
+    service.sendToSubscribers(rulesEvent(eventClass, null))
+    service.sendToSubscribers(rulesEvent(eventClass, "smartcity"))
+    service.sendToSubscribers(rulesEvent(eventClass, "building"))
+
+    then: "the user should only receive the building realm event"
+    service.triggeredEvents*.realm == ["building"]
+
+    where:
+    eventClass             | requestedFilter
+    RulesetChangedEvent    | null
+    RulesetChangedEvent    | new RealmFilter<>("smartcity")
+    RulesEngineStatusEvent | null
+    RulesEngineStatusEvent | new RealmFilter<>("smartcity")
+  }
+
+  def "rejects #eventClass.simpleName subscription from a regular user without the read rules role"() {
+    given: "a client event service guarded by the rules service subscription authorizer"
+    def service = new RecordingClientEventService()
+    new RulesService().init(containerFor(service))
+    def channel = dummyChannel()
+    String sessionKey = "session-6"
+    service.sessionChannels.put(sessionKey, channel)
+
+    when: "a regular user of the building realm with only the read assets role subscribes"
+    def exchange = exchangeFor(sessionKey, channel, new EventSubscription<>(eventClass), regularUser("building", ClientRole.READ_ASSETS), "building")
+    service.procesInboundEvent(exchange)
+
+    then: "the subscription should be rejected"
+    exchange.routeStop
+    service.eventSubscriptions.findAll { it.key.eventType == Event.getEventType(eventClass) }.empty
+    service.sentPayloads.size() == 1
+    service.sentPayloads[0] instanceof UnauthorizedEventSubscription
+
+    where:
+    eventClass << [RulesetChangedEvent, RulesEngineStatusEvent]
+  }
+
+  def "rejects #eventClass.simpleName subscription from a restricted user with the read rules role"() {
+    given: "a client event service guarded by the rules service subscription authorizer that treats the user as restricted"
+    def service = new RecordingClientEventService()
+    new RulesService().init(containerFor(service, true))
+    def channel = dummyChannel()
+    String sessionKey = "session-7"
+    service.sessionChannels.put(sessionKey, channel)
+
+    when: "a restricted user of the building realm with the read rules role subscribes"
+    def exchange = exchangeFor(sessionKey, channel, new EventSubscription<>(eventClass), regularUser("building", ClientRole.READ_RULES), "building")
+    service.procesInboundEvent(exchange)
+
+    then: "the subscription should be rejected"
+    exchange.routeStop
+    service.eventSubscriptions.findAll { it.key.eventType == Event.getEventType(eventClass) }.empty
+    service.sentPayloads.size() == 1
+    service.sentPayloads[0] instanceof UnauthorizedEventSubscription
+
+    when: "events are published for the global engine and the building realm"
+    service.sendToSubscribers(rulesEvent(eventClass, null))
+    service.sendToSubscribers(rulesEvent(eventClass, "building"))
+
+    then: "the user should not receive any events"
+    service.triggeredEvents.empty
+
+    where:
+    eventClass << [RulesetChangedEvent, RulesEngineStatusEvent]
+  }
+
+  def "delivers #eventClass.simpleName events to a superuser for #description"() {
+    given: "a client event service guarded by the rules service subscription authorizer"
+    def service = new RecordingClientEventService()
+    new RulesService().init(containerFor(service))
+    def channel = dummyChannel()
+    String sessionKey = "session-8"
+    service.sessionChannels.put(sessionKey, channel)
+
+    when: "a superuser of the master realm subscribes"
+    def subscription = new EventSubscription<>(eventClass, requestedFilter)
+    service.procesInboundEvent(exchangeFor(sessionKey, channel, subscription, superUser(), "master"))
+
+    then: "the subscription should be accepted with the requested filter left untouched"
+    service.sentPayloads.last().is(subscription)
+    subscription.subscribed
+    subscription.filter.is(requestedFilter)
+
+    when: "events are published for the global engine and the smartcity and building realms"
+    service.sendToSubscribers(rulesEvent(eventClass, null))
+    service.sendToSubscribers(rulesEvent(eventClass, "smartcity"))
+    service.sendToSubscribers(rulesEvent(eventClass, "building"))
+
+    then: "the superuser should receive the expected events"
+    service.triggeredEvents*.realm == expectedRealms
+
+    where:
+    eventClass             | description           | requestedFilter                | expectedRealms
+    RulesetChangedEvent    | "all engines"         | null                           | [null, "smartcity", "building"]
+    RulesetChangedEvent    | "the requested realm" | new RealmFilter<>("smartcity") | ["smartcity"]
+    RulesEngineStatusEvent | "all engines"         | null                           | [null, "smartcity", "building"]
+    RulesEngineStatusEvent | "the requested realm" | new RealmFilter<>("smartcity") | ["smartcity"]
+  }
+
+  private AuthContext superUser() {
+    Stub(AuthContext) {
+      getAuthenticatedRealmName() >> "master"
+      isSuperUser() >> true
+    }
+  }
+
+  private AuthContext regularUser(String realm, ClientRole role) {
+    Stub(AuthContext) {
+      getAuthenticatedRealmName() >> realm
+      hasResourceRole(role.value, KEYCLOAK_CLIENT_ID) >> true
+    }
+  }
+
+  private static SharedEvent rulesEvent(Class<?> eventClass, String realm) {
+    eventClass == RulesetChangedEvent
+            ? new RulesetChangedEvent(0L, realm, realm, realm == null
+            ? new GlobalRuleset("Global rules", Ruleset.Lang.GROOVY, "global rule source")
+            : new RealmRuleset(realm, "Realm rules", Ruleset.Lang.GROOVY, "realm rule source"))
+            : new RulesEngineStatusEvent(0L, realm, realm, new RulesEngineInfo(RulesEngineStatus.RUNNING, 0, 0))
+  }
+
   private Exchange exchangeFor(String sessionKey, WebSocketChannel channel, Object body) {
+    exchangeFor(sessionKey, channel, body, Stub(AuthContext), "master")
+  }
+
+  private Exchange exchangeFor(String sessionKey, WebSocketChannel channel, Object body, AuthContext authContext, String realm) {
     Exchange exchange = new DefaultExchange(new DefaultCamelContext())
     exchange.in.body = body
     exchange.in.setHeader(UndertowConstants.CONNECTION_KEY, sessionKey)
     exchange.in.setHeader(UndertowConstants.CHANNEL, channel)
-    exchange.in.setHeader(AUTH_CONTEXT, Stub(AuthContext))
-    exchange.in.setHeader(REALM_PARAM_NAME, "master")
+    exchange.in.setHeader(AUTH_CONTEXT, authContext)
+    exchange.in.setHeader(REALM_PARAM_NAME, realm)
     exchange
+  }
+
+  private Container containerFor(ClientEventService clientEventService, boolean restrictedUser = false) {
+    def identityService = Stub(ManagerIdentityService) {
+      getIdentityProvider() >> Stub(ManagerIdentityProvider) {
+        isRestrictedUser(_) >> restrictedUser
+      }
+    }
+    Map<Class<?>, Object> services = [
+      (ClientEventService)    : clientEventService,
+      (ManagerIdentityService): identityService,
+      (MessageBrokerService)  : Stub(MessageBrokerService),
+      (ManagerWebService)     : Stub(ManagerWebService)
+    ]
+    Stub(Container) {
+      getConfig() >> [:]
+      getMeterRegistry() >> null
+      getServices(_ as Class) >> []
+      getService(_ as Class) >> { Class<?> type -> services[type] }
+    }
   }
 
   private WebSocketChannel dummyChannel() {
@@ -162,6 +341,22 @@ class ClientEventServiceSubscriptionTest extends Specification {
     @Override
     void sendToWebsocketSession(String sessionKey, Object data) {
       sentPayloads.add(data)
+    }
+  }
+
+  /** Uses the registered subscription authorizers and records events delivered to websocket subscribers */
+  private static class RecordingClientEventService extends ClientEventService {
+    final List<Object> sentPayloads = []
+    final List<SharedEvent> triggeredEvents = []
+
+    @Override
+    void sendToWebsocketSession(String sessionKey, Object data) {
+      sentPayloads.add(data)
+    }
+
+    @Override
+    protected void onWebsocketSubscriptionTriggered(String sessionKey, EventSubscription<?> subscription, SharedEvent event) {
+      triggeredEvents.add(event)
     }
   }
 }

@@ -806,7 +806,7 @@ export class BaseMap {
       });
 
       this._map.on("mousedown", (e) => {
-        if (!pressTimeout) {
+        if (!pressTimeout && e.originalEvent.button === 0) {
           pos = e.lngLat;
           pressTimeout = setTimeout(() => {
             this._onLongPress(pos!);
@@ -815,7 +815,7 @@ export class BaseMap {
         }
       });
 
-      this._map.on("dragstart", clearTimeoutFunc);
+      this._map.on("movestart", clearTimeoutFunc);
       this._map.on("mouseup", clearTimeoutFunc);
       this._map.on("touchend", clearTimeoutFunc);
       this._map.on("touchcancel", clearTimeoutFunc);

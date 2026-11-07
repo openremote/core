@@ -23,15 +23,23 @@ import static org.openremote.container.persistence.PersistenceService.isPersiste
 import static org.openremote.model.Constants.RESTRICTED_USER_REALM_ROLE;
 import static org.openremote.model.syslog.SyslogCategory.API;
 
+import com.google.common.base.Ticker;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.mqtt.MqttQoS;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.SecureRandom;
+import java.security.Signature;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateExpiredException;
 import java.security.cert.CertificateNotYetValidException;
 import java.security.cert.X509Certificate;
+import java.security.interfaces.EdECKey;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -66,6 +74,49 @@ import org.openremote.model.util.ValueUtil;
  * This {@link MQTTHandler} is responsible for provisioning service users and assets and
  * authenticating the client against the configured {@link
  * org.openremote.model.provisioning.ProvisioningConfig}s.
+ *
+ * <h2>X.509 provisioning</h2>
+ *
+ * <p>A public certificate is not a credential, so a client must prove it holds the certificate's
+ * private key on the same MQTT connection, for both initial enrollment and every reconnect:
+ *
+ * <ol>
+ *   <li>Subscribe to {@code provisioning/{CN}/response}.
+ *   <li>Publish an {@link X509ProvisioningChallengeRequestMessage} to {@code
+ *       provisioning/{CN}/request}; the certificate is validated and an {@link
+ *       X509ProvisioningChallengeResponseMessage} is returned.
+ *   <li>Publish an {@link X509ProvisioningMessage} with the certificate and the signed challenge;
+ *       only once the signature verifies is the service user and asset looked up or created and the
+ *       connection authenticated.
+ * </ol>
+ *
+ * <p>A challenge is a protocol prefix, the request topic and a random 256-bit nonce. It is bound to
+ * the {@link RemotingConnection}, topic and certificate, expires after 60 seconds, is replaced by a
+ * new request and is consumed by any verification attempt, so a proof can never be replayed. The
+ * signature algorithm follows the certificate's key: SHA256withRSA, SHA256withECDSA for every
+ * curve, Ed25519 or Ed448; RSASSA-PSS keys are rejected. Certificate-only {@code x509} requests are
+ * rejected with {@code UNAUTHORIZED}; there is no fallback.
+ *
+ * <h3>Response topic ownership</h3>
+ *
+ * <p>Responses go to a device-wide topic, so whichever connection receives them must be the one
+ * making the requests, otherwise an attacker could have the real device sign the attacker's
+ * challenge or push errors into its exchange:
+ *
+ * <ul>
+ *   <li>{@link #canSubscribe} claims the response topic atomically, and a connection may own only
+ *       one, so a single connection cannot lock many devices out of provisioning.
+ *   <li>{@link #canPublish} only lets the owner publish to the matching request topic.
+ *   <li>Requests are processed from a queue after {@link #canPublish} authorized them, so ownership
+ *       is checked again before processing, and a message whose connection has lost the topic is
+ *       dropped without a reply.
+ *   <li>Artemis runs the disconnect callbacks before it closes the transport, so cleanup marks the
+ *       connection first and a concurrent {@link #canSubscribe} backs out of its claim.
+ * </ul>
+ *
+ * <p>The client-facing protocol, including what a device must check before signing, is documented
+ * at <a href="https://docs.openremote.io/docs/user-guide/gateways-and-devices/auto-provisioning">
+ * Auto provisioning devices and users</a>.
  */
 public class UserAssetProvisioningMQTTHandler extends MQTTHandler {
 
@@ -126,8 +177,53 @@ public class UserAssetProvisioningMQTTHandler extends MQTTHandler {
   protected final ConcurrentMap<Long, Set<RemotingConnection>>
       provisioningConfigAuthenticatedConnectionMap = new ConcurrentHashMap<>();
   protected Timer provisioningTimer;
-  protected final Map<String, RemotingConnection> responseSubscribedConnections =
+
+  /**
+   * The single source of truth for which connection owns a provisioning response topic; ownership
+   * is claimed atomically in {@link #canSubscribe} and is required to publish the matching request
+   * topic.
+   */
+  protected final ConcurrentMap<String, RemotingConnection> responseTopicOwners =
       new ConcurrentHashMap<>();
+
+  /**
+   * Reverse index of {@link #responseTopicOwners} so disconnects don't scan the whole map. A
+   * connection may own at most one response topic, see {@link #canSubscribe}.
+   */
+  protected final ConcurrentMap<RemotingConnection, String> connectionResponseTopics =
+      new ConcurrentHashMap<>();
+
+  /**
+   * Connections whose disconnect cleanup has started. Artemis calls the disconnect callbacks before
+   * it closes the transport, so a subscribe being authorized at the same time cannot tell from the
+   * transport that the connection is going; {@link #canSubscribe} checks this after claiming and
+   * backs out. Weak keys let entries go once Artemis drops the connection.
+   */
+  protected final Set<RemotingConnection> closedConnections =
+      Collections.newSetFromMap(
+          CacheBuilder.newBuilder().weakKeys().<RemotingConnection, Boolean>build().asMap());
+
+  protected final SecureRandom challengeRandom = new SecureRandom();
+  protected final Cache<RemotingConnection, X509Challenge> provisioningChallenges;
+
+  protected record X509Challenge(
+      String topic, X509Certificate certificate, String challenge, String algorithm) {}
+
+  public UserAssetProvisioningMQTTHandler() {
+    this(Ticker.systemTicker());
+  }
+
+  protected UserAssetProvisioningMQTTHandler(Ticker ticker) {
+    provisioningChallenges =
+        CacheBuilder.newBuilder()
+            .weakKeys()
+            // Challenges live for at most 60s and are dropped with their connection; the size cap
+            // only bounds memory under a burst, where an evicted device simply requests a new one.
+            .maximumSize(10000)
+            .expireAfterWrite(Duration.ofSeconds(60))
+            .ticker(ticker)
+            .build();
+  }
 
   @Override
   public void init(Container container, Configuration serverConfiguration) throws Exception {
@@ -236,34 +332,84 @@ public class UserAssetProvisioningMQTTHandler extends MQTTHandler {
             && !TOKEN_MULTI_LEVEL_WILDCARD.equals(topicTokenIndexToString(topic, 1))
             && !TOKEN_SINGLE_LEVEL_WILDCARD.equals(topicTokenIndexToString(topic, 1));
 
-    if (allowed) {
-      // Only allow if there is no existing subscription for this topic
-      RemotingConnection existingConnection = responseSubscribedConnections.get(topic.toString());
-      if (existingConnection != null && existingConnection.getTransportConnection().isOpen()) {
-        LOG.warning("Subscription already exists possible eavesdropping");
-        allowed = false;
-      }
+    if (!allowed) {
+      return false;
     }
 
-    return allowed;
+    String responseTopic = topic.toString();
+
+    // A provisioning client only ever needs its own response topic, so a connection may own one.
+    // Without this cap a single anonymous connection could claim the topics of many devices and
+    // lock them all out of provisioning until it disconnects.
+    String existingTopic = connectionResponseTopics.putIfAbsent(connection, responseTopic);
+    if (existingTopic != null && !existingTopic.equals(responseTopic)) {
+      LOG.info(
+          "Connection already owns a provisioning response topic: existing="
+              + existingTopic
+              + ", requested="
+              + responseTopic
+              + ", "
+              + MQTTBrokerService.connectionToString(connection));
+      return false;
+    }
+
+    // Claim the response topic atomically during authorization. Otherwise two concurrent
+    // subscribers could both pass this check and receive each other's challenges and responses.
+    //
+    // The claim deliberately outlives a subscribe that Artemis fails after authorizing it; it is
+    // released by unsubscribe or disconnect. Deferring it to onSubscribe would reopen the window
+    // above, and the leftover claim only keeps this one topic from other connections while the
+    // connection that asked for it stays open. That connection can simply retry, as re-claiming
+    // a topic it already owns is allowed.
+    RemotingConnection owner =
+        responseTopicOwners.compute(
+            responseTopic,
+            (t, existing) ->
+                existing == null || existing == connection || !isOpen(existing)
+                    ? connection
+                    : existing);
+
+    if (owner != connection) {
+      // Give back the slot reserved above so the connection can still claim its own topic
+      connectionResponseTopics.remove(connection, responseTopic);
+      LOG.warning("Subscription already exists possible eavesdropping");
+      return false;
+    }
+
+    // If disconnect cleanup started while claiming, it may already have run and would never remove
+    // these entries, leaking the connection; clearConnectionState marks the connection before it
+    // removes anything, so either this check sees the mark or the cleanup sees the claims.
+    if (closedConnections.contains(connection)) {
+      releaseResponseTopic(connection, responseTopic);
+      return false;
+    }
+
+    return true;
   }
 
   @Override
   public void onSubscribe(RemotingConnection connection, Topic topic) {
-    responseSubscribedConnections.put(topic.toString(), connection);
+    // Ownership was already claimed in canSubscribe, which is the only place it is granted; see
+    // there for why a failed subscribe keeps its claim
   }
 
   @Override
   public void onUnsubscribe(RemotingConnection connection, Topic topic) {
-    responseSubscribedConnections.computeIfPresent(
-        topic.toString(),
-        (t, existingConnection) -> {
-          // Don't remove the existing entry if it is for a different connection; this is a
-          // possibility if a client
-          // disconnects and quickly reconnects as we have no guaranteed ordering of
-          // subscribe/unsubscribe calls
-          return existingConnection == connection ? null : existingConnection;
-        });
+    releaseResponseTopic(connection, topic.toString());
+  }
+
+  protected static boolean isOpen(RemotingConnection connection) {
+    return connection.getTransportConnection() != null
+        && connection.getTransportConnection().isOpen();
+  }
+
+  /**
+   * Releases the topic only if this connection still owns it; a client that disconnects and quickly
+   * reconnects has no guaranteed ordering of subscribe/unsubscribe calls.
+   */
+  protected void releaseResponseTopic(RemotingConnection connection, String responseTopic) {
+    responseTopicOwners.remove(responseTopic, connection);
+    connectionResponseTopics.remove(connection, responseTopic);
   }
 
   @Override
@@ -278,9 +424,34 @@ public class UserAssetProvisioningMQTTHandler extends MQTTHandler {
       return false;
     }
 
-    return isRequestTopic(topic)
-        && !TOKEN_MULTI_LEVEL_WILDCARD.equals(topicTokenIndexToString(topic, 1))
-        && !TOKEN_SINGLE_LEVEL_WILDCARD.equals(topicTokenIndexToString(topic, 1));
+    if (!isRequestTopic(topic)
+        || TOKEN_MULTI_LEVEL_WILDCARD.equals(topicTokenIndexToString(topic, 1))
+        || TOKEN_SINGLE_LEVEL_WILDCARD.equals(topicTokenIndexToString(topic, 1))) {
+      return false;
+    }
+
+    // Requests and their responses are two halves of one exchange on a device wide topic pair, so
+    // only the connection that owns the response topic may publish requests. Without this an
+    // unauthorised client could push errors into a legitimate device's handshake, or make the
+    // manager do certificate validation work on messages it will never answer to that client.
+    if (!ownsResponseTopic(connection, topic)) {
+      LOG.fine(
+          () ->
+              "Connection does not own the provisioning response topic: topic="
+                  + topic
+                  + ", "
+                  + MQTTBrokerService.connectionToString(connection));
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * The connection must be subscribed to {@code provisioning/{id}/response} to publish requests.
+   */
+  protected boolean ownsResponseTopic(RemotingConnection connection, Topic requestTopic) {
+    return responseTopicOwners.get(getResponseTopic(requestTopic)) == connection;
   }
 
   @Override
@@ -312,6 +483,7 @@ public class UserAssetProvisioningMQTTHandler extends MQTTHandler {
 
   @Override
   public void onConnectionLost(RemotingConnection connection) {
+    clearConnectionState(connection);
     provisioningConfigAuthenticatedConnectionMap
         .values()
         .forEach(
@@ -326,6 +498,7 @@ public class UserAssetProvisioningMQTTHandler extends MQTTHandler {
 
   @Override
   public void onDisconnect(RemotingConnection connection) {
+    clearConnectionState(connection);
     provisioningConfigAuthenticatedConnectionMap
         .values()
         .forEach(
@@ -360,9 +533,13 @@ public class UserAssetProvisioningMQTTHandler extends MQTTHandler {
       return;
     }
 
-    if (provisioningMessage instanceof X509ProvisioningMessage) {
-      processX509ProvisioningMessage(
-          connection, topic, (X509ProvisioningMessage) provisioningMessage);
+    switch (provisioningMessage) {
+      case X509ProvisioningChallengeRequestMessage message ->
+          processX509ProvisioningMessage(connection, topic, message.getCert(), null, true);
+      case X509ProvisioningMessage message ->
+          processX509ProvisioningMessage(
+              connection, topic, message.getCert(), message.getSignature(), false);
+      default -> {}
     }
   }
 
@@ -382,15 +559,39 @@ public class UserAssetProvisioningMQTTHandler extends MQTTHandler {
     return PROVISIONING_TOKEN + "/" + topicTokenIndexToString(topic, 1) + "/" + RESPONSE_TOKEN;
   }
 
+  /**
+   * Handles both steps of the X.509 exchange; {@code challengeRequest} selects the first one. No
+   * lock is held here: the one use semantics of a challenge come from removing it atomically from
+   * {@link #provisioningChallenges}, and the provisioning work that follows involves Keycloak I/O
+   * that must not block the Artemis threads running the disconnect callbacks.
+   */
   protected void processX509ProvisioningMessage(
-      RemotingConnection connection, Topic topic, X509ProvisioningMessage provisioningMessage) {
+      RemotingConnection connection,
+      Topic topic,
+      String cert,
+      String signature,
+      boolean challengeRequest) {
 
     LOG.fine(
         () ->
             "Processing X.509 provisioning message: "
                 + MQTTBrokerService.connectionToString(connection));
 
-    if (TextUtil.isNullOrEmpty(provisioningMessage.getCert())) {
+    // canPublish checked ownership when the message arrived, but it is processed later from a queue
+    // and the topic may have changed hands since. Drop it silently: any reply would go to the
+    // response topic of whichever connection owns it now.
+    if (!ownsResponseTopic(connection, topic)) {
+      LOG.fine(
+          () ->
+              "Dropping X.509 provisioning message as the connection no longer owns the response"
+                  + " topic: topic="
+                  + topic
+                  + ", "
+                  + MQTTBrokerService.connectionToString(connection));
+      return;
+    }
+
+    if (TextUtil.isNullOrEmpty(cert)) {
       LOG.info(
           "Certificate is missing from X509 provisioning message"
               + MQTTBrokerService.connectionToString(connection));
@@ -404,7 +605,7 @@ public class UserAssetProvisioningMQTTHandler extends MQTTHandler {
     // Parse client cert
     X509Certificate clientCertificate;
     try {
-      clientCertificate = ProvisioningUtil.getX509Certificate(provisioningMessage.getCert());
+      clientCertificate = ProvisioningUtil.getX509Certificate(cert);
     } catch (CertificateException e) {
       LOG.log(
           Level.INFO,
@@ -468,6 +669,21 @@ public class UserAssetProvisioningMQTTHandler extends MQTTHandler {
       publishMessage(
           getResponseTopic(topic),
           new ErrorResponseMessage(ErrorResponseMessage.Error.UNIQUE_ID_MISMATCH),
+          MqttQoS.AT_MOST_ONCE);
+      return;
+    }
+
+    if (challengeRequest) {
+      issueX509Challenge(connection, topic, clientCertificate);
+      return;
+    }
+
+    // A CA-valid public certificate is not an authentication credential. Require a one-time proof
+    // on this connection before looking up or creating any user or asset, including on reconnect.
+    if (!verifyX509Proof(connection, topic, clientCertificate, signature)) {
+      publishMessage(
+          getResponseTopic(topic),
+          new ErrorResponseMessage(ErrorResponseMessage.Error.UNAUTHORIZED),
           MqttQoS.AT_MOST_ONCE);
       return;
     }
@@ -556,6 +772,96 @@ public class UserAssetProvisioningMQTTHandler extends MQTTHandler {
     LOG.fine("Client successfully provisioned: " + uniqueId);
     publishMessage(
         getResponseTopic(topic), new SuccessResponseMessage(realm, asset), MqttQoS.AT_MOST_ONCE);
+  }
+
+  protected void issueX509Challenge(
+      RemotingConnection connection, Topic topic, X509Certificate certificate) {
+    provisioningChallenges.invalidate(connection);
+    // Responses use a device wide topic. Only its owning connection may request a challenge,
+    // otherwise an attacker could cause the legitimate subscriber to sign the attacker's challenge.
+    // canPublish and processX509ProvisioningMessage already check this; it is repeated right before
+    // the challenge is issued as ownership can still change during processing. Nothing is published
+    // on failure, as the response topic belongs to another connection.
+    if (!ownsResponseTopic(connection, topic)) {
+      LOG.fine(
+          () ->
+              "Not issuing X.509 challenge as the connection does not own the response topic: "
+                  + MQTTBrokerService.connectionToString(connection));
+      return;
+    }
+
+    // Signature algorithms are chosen from the key algorithm as reported by the provider. EC keys
+    // always get SHA-256 whatever the curve, and keys that report as RSASSA-PSS are not supported
+    // and are rejected as UNAUTHORIZED.
+    String algorithm =
+        switch (certificate.getPublicKey().getAlgorithm()) {
+          case "RSA" -> "SHA256withRSA";
+          case "EC" -> "SHA256withECDSA";
+          case "EdDSA" -> ((EdECKey) certificate.getPublicKey()).getParams().getName();
+          case "Ed25519", "Ed448" -> certificate.getPublicKey().getAlgorithm();
+          default -> null;
+        };
+    if (algorithm == null) {
+      publishMessage(
+          getResponseTopic(topic),
+          new ErrorResponseMessage(ErrorResponseMessage.Error.UNAUTHORIZED),
+          MqttQoS.AT_MOST_ONCE);
+      return;
+    }
+
+    byte[] nonce = new byte[32];
+    challengeRandom.nextBytes(nonce);
+    String challenge =
+        X509ProvisioningChallengeResponseMessage.CHALLENGE_PREFIX
+            + topic
+            + "\n"
+            + Base64.getEncoder().encodeToString(nonce);
+    provisioningChallenges.put(
+        connection, new X509Challenge(topic.toString(), certificate, challenge, algorithm));
+    publishMessage(
+        getResponseTopic(topic),
+        new X509ProvisioningChallengeResponseMessage(challenge, algorithm),
+        MqttQoS.AT_MOST_ONCE);
+  }
+
+  protected boolean verifyX509Proof(
+      RemotingConnection connection, Topic topic, X509Certificate certificate, String signature) {
+    // Atomically consume the challenge even if the proof is invalid. Replays must never succeed.
+    X509Challenge challenge = provisioningChallenges.asMap().remove(connection);
+    if (challenge == null
+        || TextUtil.isNullOrEmpty(signature)
+        || !challenge.topic().equals(topic.toString())
+        || !challenge.certificate().equals(certificate)
+        || !ownsResponseTopic(connection, topic)) {
+      return false;
+    }
+    try {
+      Signature verifier = Signature.getInstance(challenge.algorithm());
+      verifier.initVerify(certificate.getPublicKey());
+      verifier.update(challenge.challenge().getBytes(StandardCharsets.UTF_8));
+      return verifier.verify(Base64.getDecoder().decode(signature));
+    } catch (GeneralSecurityException | IllegalArgumentException e) {
+      LOG.fine(
+          "Invalid X.509 provisioning proof: " + MQTTBrokerService.connectionToString(connection));
+      return false;
+    }
+  }
+
+  protected void clearConnectionState(RemotingConnection connection) {
+    // Mark first so a concurrent canSubscribe backs out of any claim made after the removes below
+    closedConnections.add(connection);
+    provisioningChallenges.invalidate(connection);
+    String responseTopic = connectionResponseTopics.remove(connection);
+
+    if (responseTopic != null) {
+      responseTopicOwners.remove(responseTopic, connection);
+    }
+  }
+
+  @Override
+  public void stop() throws Exception {
+    provisioningChallenges.invalidateAll();
+    super.stop();
   }
 
   protected X509ProvisioningConfig getMatchingX509ProvisioningConfig(
