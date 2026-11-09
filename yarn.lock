@@ -1815,7 +1815,7 @@ __metadata:
     "@types/lodash.transform": "npm:^4"
     "@types/qs": "npm:^6.9.7"
     axios: "npm:1.20.0"
-    i18next: "npm:^26.3.6"
+    i18next: "npm:^26.7.1"
     i18next-http-backend: "npm:^4.0.4"
     keycloak-js: "npm:^25.0.1"
     lodash.transform: "npm:^4.6.0"
@@ -1975,7 +1975,7 @@ __metadata:
     "@openremote/or-vaadin-components": "workspace:*"
     "@openremote/util": "workspace:*"
     axios: "npm:1.20.0"
-    i18next: "npm:^26.3.6"
+    i18next: "npm:^26.7.1"
     lit: "npm:^3.3.1"
   languageName: unknown
   linkType: soft
@@ -2377,7 +2377,7 @@ __metadata:
   dependencies:
     "@openremote/or-element": "workspace:*"
     "@openremote/util": "workspace:*"
-    i18next: "npm:^26.3.6"
+    i18next: "npm:^26.7.1"
     lit: "npm:^3.3.1"
   languageName: unknown
   linkType: soft
@@ -2426,7 +2426,7 @@ __metadata:
     "@vaadin/text-field": "npm:~25.3.5"
     "@vaadin/time-picker": "npm:~25.3.5"
     "@vaadin/vaadin-themable-mixin": "npm:~25.3.5"
-    i18next: "npm:^26.3.6"
+    i18next: "npm:^26.7.1"
     lit: "npm:^3.3.1"
   languageName: unknown
   linkType: soft
@@ -2476,7 +2476,7 @@ __metadata:
     "@sand4rt/experimental-ct-web": "npm:1.59.1"
     css-loader: "npm:^7.1.2"
     html-webpack-plugin: "npm:^5.6.6"
-    i18next: "npm:^26.3.6"
+    i18next: "npm:^26.7.1"
     i18next-http-backend: "npm:^4.0.4"
     playwright: "npm:1.59.1"
     playwright-core: "npm:1.59.1"
@@ -7737,15 +7737,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"i18next@npm:^26.3.6":
-  version: 26.3.6
-  resolution: "i18next@npm:26.3.6"
+"i18next@npm:^26.7.1":
+  version: 26.7.1
+  resolution: "i18next@npm:26.7.1"
   peerDependencies:
     typescript: ^5 || ^6 || ^7
   peerDependenciesMeta:
     typescript:
       optional: true
-  checksum: 10c0/5920ac8fb6b647a2bdd439d121de04e5297246e52c4d95d13f5faae0824fd45b2faeb66038bcd61fc62362daa815f9c32fb992d6faa3787607d1dfe768e9a8b1
+  checksum: 10c0/742c0d5ea25a68e0380de3be5c4b7d1f2a9ab9da81d5f2a85ea2892a500f60ba1a87a2c1fd6e0cd16588f37175dc88da817d3b26dda1963044f045bd86202960
   languageName: node
   linkType: hard
 
