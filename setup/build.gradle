@@ -10,6 +10,7 @@ base {
 
 sourceSets {
   clustering
+  create("config-template")
   datetime
   demo
   integration
@@ -21,6 +22,7 @@ sourceSets {
 // dependencies declaration
 configurations {
   clusteringImplementation.extendsFrom(implementation)
+  configTemplateImplementation.extendsFrom(implementation)
   datetimeImplementation.extendsFrom(implementation)
   demoImplementation.extendsFrom(implementation)
   integrationImplementation.extendsFrom(implementation)
@@ -44,6 +46,11 @@ dependencies {
 tasks.register('clusteringJar', Jar) {
   archiveBaseName.set("openremote-clustering-${project.name}")
   from sourceSets.clustering.output
+}
+
+tasks.register('config-templateJar', Jar) {
+  archiveBaseName.set("openremote-config-template-${project.name}")
+  from sourceSets.getByName("config-template").output
 }
 
 tasks.register('datetimeJar', Jar) {
