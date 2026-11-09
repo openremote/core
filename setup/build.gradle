@@ -2,13 +2,14 @@ plugins {
   id 'java-library'
 }
 
-var setupJar = project.hasProperty("SETUP_JAR") ? project.property("SETUP_JAR") : ""
+var setupJar = project.hasProperty("SETUP_JAR") ? project.property("SETUP_JAR") : "attributeconfig"
 
 base {
   archivesName = "openremote-${setupJar}-${project.name}"
 }
 
 sourceSets {
+  attributeconfig
   clustering
   datetime
   demo
@@ -20,6 +21,7 @@ sourceSets {
 
 // dependencies declaration
 configurations {
+  attributeconfigImplementation.extendsFrom(implementation)
   clusteringImplementation.extendsFrom(implementation)
   datetimeImplementation.extendsFrom(implementation)
   demoImplementation.extendsFrom(implementation)
@@ -39,6 +41,11 @@ dependencies {
   demoRuntimeOnly("io.openremote.extension:openremote-demo-setup-extension:(,${extensionMaxVersion}]") {
     exclude group: "io.openremote"
   }
+}
+
+tasks.register('attributeconfigJar', Jar) {
+  archiveBaseName.set("openremote-attributeconfig-${project.name}")
+  from sourceSets.attributeconfig.output
 }
 
 tasks.register('clusteringJar', Jar) {
