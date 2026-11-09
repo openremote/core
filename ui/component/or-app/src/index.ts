@@ -16,13 +16,14 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
-import { css, html, type PropertyValues, type TemplateResult, unsafeCSS } from "lit";
+import { css, html, nothing, type PropertyValues, type TemplateResult, unsafeCSS } from "lit";
 import { OrElement } from "@openremote/or-element";
 import { customElement, property, query, state } from "lit/decorators.js";
 import { type AppConfig, type Page, type RealmAppConfig, router } from "./types";
 import "@openremote/or-translate";
 import "@openremote/or-mwc-components/or-mwc-snackbar";
 import "./or-header";
+import "./or-app-loading";
 import "@openremote/or-icon";
 import { updateMetadata } from "pwa-helpers/metadata";
 import { i18next } from "@openremote/or-translate";
@@ -32,6 +33,7 @@ import manager, {
   DefaultColor4,
   type Manager,
   normaliseConfig,
+  ORError,
   OREvent,
   Util,
 } from "@openremote/core";
@@ -58,6 +60,7 @@ export const DefaultFavIcon = require("@openremote/or-app/images/favicon.ico");
 export { AnyAction };
 export * from "./app";
 export * from "./or-header";
+export * from "./or-app-loading";
 export * from "./types";
 
 // Declare MANAGER_URL and KEYCLOAK_URL - Global var injected by webpack
@@ -95,6 +98,10 @@ export class OrApp<S extends AppStateKeyed> extends OrElement {
 
   @state()
   protected _initialised = false;
+
+  /** Why the app didn't start: the manager was unreachable, or another error that a dialog shows */
+  @state()
+  protected _startupFailure?: "unreachable" | "error";
 
   @state()
   protected _page?: string;
@@ -245,30 +252,35 @@ export class OrApp<S extends AppStateKeyed> extends OrElement {
     }
     console.info("Initialising the manager");
 
+    const showStartupError = (host: Node, message: string) => {
+      this._startupFailure = "error";
+      showErrorDialog(host, message);
+    };
+
     manager.init(managerConfig).then(async (success) => {
       if (success) {
         this.doAppConfigInit();
 
         if (!this.appConfig) {
-          showErrorDialog(document.body, "appError.noConfig");
+          showStartupError(document.body, "appError.noConfig");
           console.error("No AppConfig supplied");
           return;
         }
 
         if (!this._config) {
-          showErrorDialog(document.body, "appError.noConfig");
+          showStartupError(document.body, "appError.noConfig");
           console.error("No default AppConfig or realm specific config provided so cannot render");
           return;
         }
 
         if (!this._store) {
-          showErrorDialog(document.body, "appError.noReduxStore");
+          showStartupError(document.body, "appError.noReduxStore");
           console.error("No Redux store supplied");
           return;
         }
 
         if (!this.appConfig.pages || Object.keys(this.appConfig.pages).length === 0) {
-          showErrorDialog(document.body, "appError.noPages");
+          showStartupError(document.body, "appError.noPages");
           console.error("No page providers");
           return;
         }
@@ -321,8 +333,10 @@ export class OrApp<S extends AppStateKeyed> extends OrElement {
           });
         }
         router.resolve();
+      } else if (manager.error === ORError.MANAGER_FAILED_TO_LOAD) {
+        this._startupFailure = "unreachable";
       } else {
-        showErrorDialog(this.shadowRoot!, manager.isError ? "managerError." + manager.error : "");
+        showStartupError(this.shadowRoot!, manager.isError ? "managerError." + manager.error : "");
       }
     });
   }
@@ -427,7 +441,14 @@ export class OrApp<S extends AppStateKeyed> extends OrElement {
 
   protected render(): TemplateResult | void {
     if (!this._initialised) {
-      return html`<or-mwc-dialog id="app-modal"></or-mwc-dialog>`;
+      return html`
+        <or-mwc-dialog id="app-modal"></or-mwc-dialog>
+        ${
+          this._startupFailure === "error"
+            ? nothing
+            : html`<or-app-loading ?failed=${this._startupFailure === "unreachable"}></or-app-loading>`
+        }
+      `;
     }
     let consoleStyles;
     if (manager.consoleAppConfig) {

@@ -489,7 +489,8 @@
   "appError": {
     "noConfig": "No app config provided",
     "noReduxStore": "No Redux store provided",
-    "noPages": "No pages provided"
+    "noPages": "No pages provided",
+    "loadFailed": "Could not load the app, try again later"
   },
   "couldNotRetrieveAttribute": "Could not retrieve attribute information",
   "pressEnterToSend": "Press Enter to send",
