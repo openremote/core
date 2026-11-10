@@ -107,7 +107,8 @@ class GatewayTest extends Specification implements ManagerContainerTrait {
       callRealMethod()
     }
 
-    // Observe gateway rejections before the asynchronous disconnect message races with socket closure.
+    // Capture all gateway disconnects, including ALREADY_CONNECTED for an existing session,
+    // because asynchronous delivery can race with socket closure.
     def clientEventServiceIndex = services.findIndexOf {it instanceof ClientEventService}
     def clientEventService = services.removeAt(clientEventServiceIndex) as ClientEventService
     def spyClientEventService = Spy(clientEventService)
@@ -706,6 +707,7 @@ class GatewayTest extends Specification implements ManagerContainerTrait {
     def legitimateSessionId = registeredGatewayConnector.getSessionId()
     def legitimateDisconnect = registeredGatewayConnector.requestDisconnect
     assert legitimateSessionId != null
+    def sessionKeysBeforeRogue = new HashSet<>(clientEventService.sessionStates.keySet())
 
     and: "we record messages received by the rogue client"
     List<String> rogueClientReceivedMessages = new CopyOnWriteArrayList<>()
@@ -730,6 +732,7 @@ class GatewayTest extends Specification implements ManagerContainerTrait {
     assert registeredGatewayConnector.requestDisconnect.is(legitimateDisconnect)
     assert gatewayClient.connectionStatus == ConnectionStatus.CONNECTED
     assert assetStorageService.find(gateway.id).getGatewayStatus().orElse(null) == ConnectionStatus.CONNECTED
+    assert !gatewayDisconnectReasons.containsKey(legitimateSessionId)
     assert !clientReceivedMessages.any {it.contains(GatewayDisconnectEvent.TYPE)}
     assert !rogueClientReceivedMessages.any {it.contains(GatewayInitStartEvent.TYPE)}
 
@@ -738,7 +741,7 @@ class GatewayTest extends Specification implements ManagerContainerTrait {
 
     then: "all its session events are processed before testing another connection attempt"
     conditions.eventually {
-      assert clientEventService.sessionStates.keySet() == [legitimateSessionId] as Set
+      assert clientEventService.sessionStates.keySet() == sessionKeysBeforeRogue
     }
 
     when: "time advances"
@@ -797,7 +800,13 @@ class GatewayTest extends Specification implements ManagerContainerTrait {
       assert !gatewayService.gatewayConnectorMap.get(gateway.getId().toLowerCase(Locale.ROOT)).disabled
     }
 
+    and: "the legitimate gateway session is fully closed"
+    conditions.eventually {
+      assert !clientEventService.sessionStates.containsKey(legitimateSessionId)
+    }
+
     when: "the rogue client connects now the legitimate gateway client is disconnected"
+    sessionKeysBeforeRogue = new HashSet<>(clientEventService.sessionStates.keySet())
     gatewayDisconnectReasons.clear()
     rogueClientReceivedMessages.clear()
     rogueGatewayClient.connect()
@@ -819,7 +828,12 @@ class GatewayTest extends Specification implements ManagerContainerTrait {
     when: "the rogue client is disconnected"
     rogueGatewayClient.disconnect()
 
-    and: "the gateway asset client secret attribute is updated"
+    then: "all its session events are processed"
+    conditions.eventually {
+      assert clientEventService.sessionStates.keySet() == sessionKeysBeforeRogue
+    }
+
+    when: "the gateway asset client secret attribute is updated"
     def newSecret = UUID.randomUUID().toString()
     assetProcessingService.sendAttributeEvent(new AttributeEvent(gateway.getId(), GatewayAsset.CLIENT_SECRET, newSecret))
 
