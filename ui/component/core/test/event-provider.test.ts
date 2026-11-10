@@ -239,3 +239,19 @@ ct("should resolve a subscribe unsubscribed before its reply when the connection
   expect(result.outcome).toBe("resolved");
   expect(result.frames).toEqual([]);
 });
+
+ct("should resolve a subscribe unsubscribed before it was rejected", async ({ mount }) => {
+  const component = await mount(EventProviderHarness);
+
+  const result = await component.evaluate(async (el: EventProviderHarness) => {
+    await el.connect();
+    el.subscribeReply = "unauthorized";
+    const subscribed = el.provider.subscribe({ eventType: "alarm", subscriptionId: "own" }, () => {});
+    await el.provider.unsubscribe("own");
+
+    return { outcome: await el.outcome(subscribed), frames: el.socket.frames };
+  });
+
+  expect(result.outcome).toBe("resolved");
+  expect(result.frames).toEqual(["SUBSCRIBE"]);
+});

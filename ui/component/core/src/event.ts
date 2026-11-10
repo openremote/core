@@ -39,6 +39,9 @@ export enum EventProviderStatus {
   CONNECTING = "CONNECTING",
 }
 
+/**
+ * Subscriptions survive a reconnect, so subscribing again without unsubscribing first delivers every event twice.
+ */
 export interface EventProvider {
   status: EventProviderStatus;
 
@@ -253,6 +256,12 @@ abstract class EventProviderImpl implements EventProvider {
           const subscription = this._pendingSubscription;
           this._pendingSubscription = null;
           this._processNextSubscription();
+
+          if (subscription.cancelled) {
+            this._resolveUnsubscribed(subscription);
+            return;
+          }
+
           const deferred = subscription.deferred;
           subscription.deferred = null;
 
