@@ -201,12 +201,6 @@ export class PageExport extends Page<AppStateKeyed> {
           display: flex;
           justify-content: space-between;
         }
-
-        .export-btn-wrapper .button {
-          padding: 0;
-          margin-right: 0;
-          margin-bottom: 0;
-        }
       `,
     ];
   }
@@ -336,19 +330,10 @@ export class PageExport extends Page<AppStateKeyed> {
             </or-vaadin-select>
           </div>
           <div class="export-btn-wrapper">
-            <or-vaadin-button
-              class="button"
-              ?disabled=${this.isClearExportBtnDisabled}
-              @click=${() => this.clearSelection()}
-            >
+            <or-vaadin-button ?disabled=${this.isClearExportBtnDisabled} @click=${() => this.clearSelection()}>
               <or-translate value="clearTable"></or-translate>
             </or-vaadin-button>
-            <or-vaadin-button
-              class="button"
-              theme="primary"
-              ?disabled=${this.isExportBtnDisabled}
-              @click=${() => this.export()}
-            >
+            <or-vaadin-button theme="primary" ?disabled=${this.isExportBtnDisabled} @click=${() => this.export()}>
               <or-translate value="export"></or-translate>
             </or-vaadin-button>
           </div>

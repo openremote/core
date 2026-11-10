@@ -348,10 +348,11 @@ export class OrAttributeInput extends subscribe(manager)(translate(i18next)(OrEl
 
         #wrapper or-map {
           min-height: 250px;
+          aspect-ratio: 3/1 !important;
         }
 
         #wrapper .long-press-msg {
-          display: none;
+          display: none !important;
         }
 
         #wrapper {

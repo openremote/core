@@ -74,10 +74,11 @@ export class AssetViewer {
     await configItemLocator.getByRole("button", { name: "Add configuration items" }).click();
     for (const item of items) {
       await this.page
-        .locator("li", { has: this.page.getByText(Util.camelCaseToSentenceCase(item), { exact: true }) })
+        .getByRole("dialog")
+        .getByRole("checkbox", { name: Util.camelCaseToSentenceCase(item), exact: true })
         .check();
     }
-    await this.page.getByRole("button", { name: "Add", exact: true }).click();
+    await this.page.getByRole("dialog").getByRole("button", { name: "Add", exact: true }).click();
   }
 
   /**

@@ -63,6 +63,9 @@ import org.openremote.model.attribute.Attribute;
 import org.openremote.model.attribute.AttributeEvent;
 import org.openremote.model.attribute.AttributeInfo;
 import org.openremote.model.attribute.AttributeRef;
+import org.openremote.model.event.shared.EventSubscription;
+import org.openremote.model.event.shared.RealmFilter;
+import org.openremote.model.event.shared.RealmScopedEvent;
 import org.openremote.model.query.AssetQuery;
 import org.openremote.model.query.RulesetQuery;
 import org.openremote.model.query.filter.LocationAttributePredicate;
@@ -196,30 +199,30 @@ public class RulesService extends RouteBuilder implements ContainerService {
     }
 
     clientEventService.addSubscriptionAuthorizer(
-        (realm, auth, subscription) -> {
-          if (subscription.isEventType(RulesEngineStatusEvent.class)
-              || subscription.isEventType(RulesetChangedEvent.class)) {
-
-            if (auth == null) {
-              return false;
-            }
-
-            if (auth.isSuperUser()) {
-              return true;
-            }
-
-            // Regular user must have role
-            if (!auth.hasResourceRole(
-                ClientRole.READ_ASSETS.getValue(), Constants.KEYCLOAK_CLIENT_ID)) {
-              return false;
-            }
-
-            boolean isRestrictedUser = identityService.getIdentityProvider().isRestrictedUser(auth);
-
-            return !isRestrictedUser;
+        (realm, authContext, eventSubscription) -> {
+          if (!(eventSubscription.isEventType(RulesEngineStatusEvent.class)
+                  || eventSubscription.isEventType(RulesetChangedEvent.class))
+              || authContext == null) {
+            return false;
           }
 
-          return false;
+          if (authContext.isSuperUser()) {
+            return true;
+          }
+
+          // Regular user must have role
+          if (!authContext.hasResourceRole(
+                  ClientRole.READ_RULES.getValue(), Constants.KEYCLOAK_CLIENT_ID)
+              || identityService.getIdentityProvider().isRestrictedUser(authContext)) {
+            return false;
+          }
+
+          // Force a filter for the users realm; global engine events have no realm so never match
+          @SuppressWarnings("unchecked")
+          EventSubscription<RealmScopedEvent> subscription =
+              (EventSubscription<RealmScopedEvent>) eventSubscription;
+          subscription.setFilter(new RealmFilter<>(authContext.getAuthenticatedRealmName()));
+          return true;
         });
 
     clientEventService.addSubscription(AttributeEvent.class, null, this::onAttributeEvent);

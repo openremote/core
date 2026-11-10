@@ -19,16 +19,30 @@
 package org.openremote.model.provisioning;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
+/** Completes an X.509 provisioning challenge using proof of possession of the private key. */
 public class X509ProvisioningMessage extends ProvisioningMessage {
   protected String cert;
+  protected String signature;
+
+  public X509ProvisioningMessage(String cert) {
+    this(cert, null);
+  }
 
   @JsonCreator
-  public X509ProvisioningMessage(String cert) {
+  public X509ProvisioningMessage(
+      @JsonProperty("cert") String cert, @JsonProperty("signature") String signature) {
     this.cert = cert;
+    this.signature = signature;
   }
 
   public String getCert() {
     return cert;
+  }
+
+  /** Base64-encoded signature over the UTF-8 bytes of the server's challenge. */
+  public String getSignature() {
+    return signature;
   }
 }

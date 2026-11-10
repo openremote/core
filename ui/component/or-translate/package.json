@@ -30,7 +30,7 @@
   "license": "AGPL-3.0-or-later",
   "dependencies": {
     "@openremote/or-element": "workspace:*",
-    "i18next": "^26.3.6",
+    "i18next": "^26.7.1",
     "lit": "^3.3.1"
   },
   "devDependencies": {

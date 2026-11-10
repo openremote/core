@@ -36,12 +36,12 @@
     "@sand4rt/experimental-ct-web": "1.59.1",
     "css-loader": "^7.1.2",
     "html-webpack-plugin": "^5.6.6",
-    "i18next": "^26.3.6",
+    "i18next": "^26.7.1",
     "i18next-http-backend": "^4.0.4",
     "playwright": "1.59.1",
     "playwright-core": "1.59.1",
     "ts-loader": "~9.5.2",
     "typescript": "~5.9.3",
-    "webpack": "^5.108.3"
+    "webpack": "^5.112.2"
   }
 }
