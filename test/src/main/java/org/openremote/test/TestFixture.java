@@ -21,6 +21,7 @@ package org.openremote.test;
 import java.util.List;
 import org.openremote.agent.protocol.io.AbstractNettyIOClient;
 import org.openremote.container.Container;
+import org.openremote.container.util.LogUtil;
 import org.openremote.model.asset.Asset;
 import org.openremote.model.asset.UserAssetLink;
 import org.openremote.model.gateway.GatewayConnection;
@@ -45,6 +46,8 @@ public class TestFixture implements IGlobalExtension {
 
   @Override
   public void start() {
+    LogUtil.initialiseJUL();
+
     // Force RECONNECT times to be short to improve test run times
     AbstractNettyIOClient.RECONNECT_DELAY_INITIAL_MILLIS = 50;
     AbstractNettyIOClient.RECONNECT_DELAY_MAX_MILLIS = 50;
