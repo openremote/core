@@ -19,6 +19,7 @@
 package org.openremote.model.util;
 
 import static org.openremote.model.asset.ConfigurationTemplateImportFailure.*;
+import static org.openremote.model.value.MetaItemType.*;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -30,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
 import org.openremote.model.asset.Asset;
 import org.openremote.model.asset.AttributeConfiguration;
@@ -39,6 +41,7 @@ import org.openremote.model.asset.ConfigurationTemplate;
 import org.openremote.model.asset.ConfigurationTemplateImportPreview;
 import org.openremote.model.attribute.Attribute;
 import org.openremote.model.attribute.AttributeMap;
+import org.openremote.model.attribute.MetaMap;
 import org.openremote.model.value.MetaItemDescriptor;
 
 /**
@@ -47,11 +50,24 @@ import org.openremote.model.value.MetaItemDescriptor;
  */
 public final class ConfigurationTemplateUtil {
 
+  /**
+   * Metadata that stays with an asset rather than travel in a document, as it grants access or
+   * links attributes by asset id. Export leaves it out and import keeps that of the target.
+   */
+  public static final Set<String> ASSET_BOUND_META_ITEMS =
+      Set.of(
+          ACCESS_PUBLIC_READ.getName(),
+          ACCESS_PUBLIC_WRITE.getName(),
+          ACCESS_RESTRICTED_READ.getName(),
+          ACCESS_RESTRICTED_WRITE.getName(),
+          ATTRIBUTE_LINKS.getName());
+
   private ConfigurationTemplateUtil() {}
 
   /**
    * Builds the export document of an asset, holding the type and metadata of every attribute that
-   * has metadata. A null or empty selection exports all of them.
+   * has metadata other than {@link #ASSET_BOUND_META_ITEMS}. A null or empty selection exports all
+   * of them.
    */
   public static ConfigurationTemplate export(Asset<?> asset, Collection<String> attributeNames) {
     boolean selectAll = attributeNames == null || attributeNames.isEmpty();
@@ -59,14 +75,16 @@ public final class ConfigurationTemplateUtil {
 
     if (asset.getAttributes() != null) {
       asset.getAttributes().values().stream()
-          .filter(attribute -> attribute.getMeta() != null && !attribute.getMeta().isEmpty())
           .filter(attribute -> selectAll || attributeNames.contains(attribute.getName()))
           .forEach(
-              attribute ->
+              attribute -> {
+                ObjectNode meta = withoutAssetBoundMeta(attribute.getMeta());
+
+                if (!meta.isEmpty()) {
                   attributes.put(
-                      attribute.getName(),
-                      new AttributeConfiguration(
-                          typeName(attribute), toObjectNode(attribute.getMeta()))));
+                      attribute.getName(), new AttributeConfiguration(typeName(attribute), meta));
+                }
+              });
     }
 
     return new ConfigurationTemplate(
@@ -77,7 +95,8 @@ public final class ConfigurationTemplateUtil {
    * Validates a document against an asset draft and works out what importing it would do, without
    * changing the draft. The returned {@link
    * ConfigurationTemplateImportPreview#getPatchedAttributes()} holds the draft attributes with the
-   * metadata of every importable attribute replaced.
+   * metadata of every importable attribute replaced, except for {@link #ASSET_BOUND_META_ITEMS},
+   * which keep the values of the draft.
    */
   public static ConfigurationTemplateImportPreview preview(Asset<?> draft, String document) {
     JsonNode root;
@@ -123,6 +142,7 @@ public final class ConfigurationTemplateUtil {
       }
 
       ObjectNode importedMeta = ((ObjectNode) meta).deepCopy();
+      importedMeta.remove(ASSET_BOUND_META_ITEMS);
 
       if (!isValidMeta(importedMeta)) {
         return ConfigurationTemplateImportPreview.failed(INVALID_META_ITEM);
@@ -165,9 +185,18 @@ public final class ConfigurationTemplateUtil {
 
     ObjectNode patchedAttributes = toObjectNode(targetAttributes);
     importable.forEach(
-        attribute ->
-            ((ObjectNode) patchedAttributes.get(attribute.getName()))
-                .set("meta", imported.get(attribute.getName()).getMeta()));
+        attribute -> {
+          ObjectNode patched = (ObjectNode) patchedAttributes.get(attribute.getName());
+          ObjectNode meta = imported.get(attribute.getName()).getMeta();
+          JsonNode targetMeta = patched.get("meta");
+
+          if (targetMeta != null && targetMeta.isObject()) {
+            ASSET_BOUND_META_ITEMS.stream()
+                .filter(targetMeta::has)
+                .forEach(name -> meta.set(name, targetMeta.get(name)));
+          }
+          patched.set("meta", meta);
+        });
 
     return new ConfigurationTemplateImportPreview(
         null, importable, missing, typeMismatches, patchedAttributes);
@@ -175,6 +204,12 @@ public final class ConfigurationTemplateUtil {
 
   protected static boolean isAbsent(JsonNode node) {
     return node == null || node.isNull();
+  }
+
+  protected static ObjectNode withoutAssetBoundMeta(MetaMap meta) {
+    ObjectNode node = meta != null ? toObjectNode(meta) : ValueUtil.JSON.createObjectNode();
+    node.remove(ASSET_BOUND_META_ITEMS);
+    return node;
   }
 
   /**

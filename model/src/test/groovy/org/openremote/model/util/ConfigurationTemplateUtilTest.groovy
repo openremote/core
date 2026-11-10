@@ -121,6 +121,42 @@ class ConfigurationTemplateUtilTest extends Specification {
     NO_IMPORTABLE_ATTRIBUTES | document(ThingAsset.DESCRIPTOR.name, [:])
   }
 
+  def "export leaves out metadata that grants access or links attributes"() {
+    given: "an asset whose attributes hold access and attribute link metadata"
+    def asset = thingAsset([
+      temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature", (MetaItemType.ACCESS_PUBLIC_WRITE.name): true]),
+      linked: attribute("linked", ValueType.NUMBER, [(MetaItemType.ACCESS_RESTRICTED_READ.name): true, (MetaItemType.ATTRIBUTE_LINKS.name): []])
+    ])
+
+    when: "the configuration is exported"
+    def exported = ConfigurationTemplateUtil.export(asset, null)
+
+    then: "that metadata is left out"
+    exported.attributes.temperature.meta.fieldNames().toList() == [MetaItemType.LABEL.name]
+
+    and: "an attribute holding no other metadata is left out entirely"
+    exported.attributes.keySet() == ["temperature"] as Set
+  }
+
+  def "import keeps the access and attribute link metadata of the asset and ignores that of the document"() {
+    given: "an asset whose attribute is publicly readable"
+    def asset = thingAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature", (MetaItemType.ACCESS_PUBLIC_READ.name): true])])
+
+    when: "a document granting public write access is previewed"
+    def preview = ConfigurationTemplateUtil.preview(asset, document(ThingAsset.DESCRIPTOR.name, [
+      temperature: '{"type": "number", "meta": {"label": "Imported", "accessPublicWrite": true, "attributeLinks": []}}'
+    ]))
+
+    then: "the other metadata is imported"
+    def meta = preview.patchedAttributes.get("temperature").get("meta")
+    meta.get(MetaItemType.LABEL.name).asText() == "Imported"
+
+    and: "the access and attribute link metadata of the document is ignored and that of the asset kept"
+    !meta.has(MetaItemType.ACCESS_PUBLIC_WRITE.name)
+    !meta.has(MetaItemType.ATTRIBUTE_LINKS.name)
+    meta.get(MetaItemType.ACCESS_PUBLIC_READ.name).asBoolean()
+  }
+
   def "an attribute missing on the target asset is skipped and reported"() {
     given: "an asset without the imported attribute"
     def asset = thingAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature"])])

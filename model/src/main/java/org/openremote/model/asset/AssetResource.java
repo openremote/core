@@ -346,9 +346,10 @@ public interface AssetResource {
 
   /**
    * Retrieve a configuration template of the asset: a user editable document holding the type and
-   * metadata of every attribute that has metadata. Repeat the attributeName query parameter to
-   * export a subset of them. Access follows the same rules as {@link #get}. A 400 status is
-   * returned if nothing is left to export.
+   * metadata of every attribute that has metadata. Metadata that grants access or links attributes
+   * stays with the asset. Repeat the attributeName query parameter to export a subset of them.
+   * Access follows the same rules as {@link #get}. A 400 status is returned if nothing is left to
+   * export.
    */
   @GET
   @Path("{assetId}/configurationTemplate")
@@ -358,7 +359,7 @@ public interface AssetResource {
       operationId = "exportConfigurationTemplate",
       summary = "Export a configuration template of an asset",
       description =
-          "Returns a versioned document holding the type and metadata of each attribute that has metadata, limited to the requested attribute names when any are given. Attributes without metadata are never included. Exporting nothing is rejected.")
+          "Returns a versioned document holding the type and metadata of each attribute that has metadata, limited to the requested attribute names when any are given. Metadata that grants access or links attributes stays with the asset, and attributes without other metadata are never included. Exporting nothing is rejected.")
   @OpenApiResponses.Ok
   @OpenApiResponses.Authenticated
   @OpenApiResponses.BadRequest
@@ -392,7 +393,7 @@ public interface AssetResource {
       operationId = "previewConfigurationTemplateImport",
       summary = "Preview a configuration template import",
       description =
-          "Validates the document, matches its attributes against the draft by name and type, and returns the compatibility report together with the draft attributes holding the imported metadata. Nothing is stored; the client applies the patch after the user confirms.")
+          "Validates the document, matches its attributes against the draft by name and type, and returns the compatibility report together with the draft attributes holding the imported metadata. Metadata that grants access or links attributes is ignored, and the draft keeps its own. Nothing is stored; the client applies the patch after the user confirms.")
   @OpenApiResponses.Ok
   @OpenApiResponses.Authenticated
   @ApiResponse(

@@ -224,10 +224,26 @@ const dialogStyle = html`
   </style>
 `;
 
+/** Configuration items that stay with an asset rather than travel in a template, as they grant access or link attributes. */
+const ASSET_BOUND_META_ITEMS: string[] = [
+  WellknownMetaItems.ACCESSPUBLICREAD,
+  WellknownMetaItems.ACCESSPUBLICWRITE,
+  WellknownMetaItems.ACCESSRESTRICTEDREAD,
+  WellknownMetaItems.ACCESSRESTRICTEDWRITE,
+  WellknownMetaItems.ATTRIBUTELINKS,
+];
+
+/** The configuration items of an attribute that a template holds. */
+function getTemplateMeta(attribute: Attribute<any> | undefined): { [name: string]: unknown } {
+  return Object.fromEntries(
+    Object.entries(attribute?.meta || {}).filter(([name]) => !ASSET_BOUND_META_ITEMS.includes(name))
+  );
+}
+
 /** The attributes holding configuration items for a template, which are the attributes that can be exported. */
 export function getConfigurableAttributes(asset: Asset): Attribute<any>[] {
   return Object.entries(asset.attributes || {})
-    .filter(([, attribute]) => Object.keys(attribute.meta || {}).length > 0)
+    .filter(([, attribute]) => Object.keys(getTemplateMeta(attribute)).length > 0)
     .map(([name, attribute]) => ({ ...attribute, name }))
     .sort(Util.sortByString((attribute) => attribute.name!.toUpperCase()));
 }
@@ -597,7 +613,7 @@ function getAttributeRowTemplate(asset: Asset, attribute: Attribute<any>, lead: 
     <div class="ac-row">
       <div class="ac-row-header" @click=${toggleExpanded}>
         ${lead}
-        <or-vaadin-badge theme="counter">${Object.keys(attribute.meta || {}).length}</or-vaadin-badge>
+        <or-vaadin-badge theme="counter">${Object.keys(getTemplateMeta(attribute)).length}</or-vaadin-badge>
         <or-vaadin-button class="ac-expander" theme="tertiary icon">
           <or-icon icon="chevron-down"></or-icon>
         </or-vaadin-button>
@@ -707,7 +723,7 @@ function attributeName(asset: Asset, attribute: Attribute<any>): string {
 
 /** The configuration items of an attribute that a template holds, sorted by label. */
 function getConfigurationItems(asset: Asset, attribute: Attribute<any>): ConfigurationItem[] {
-  return Object.entries(attribute.meta || {})
+  return Object.entries(getTemplateMeta(attribute))
     .map(([name, value]) => getConfigurationItem(asset, name, value))
     .sort((a, b) => a.label.localeCompare(b.label));
 }
