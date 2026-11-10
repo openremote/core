@@ -197,4 +197,4 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Get version details
         id: get-version-details
-        uses: openremote/core/.github/actions/get-version-details@accaf8ed2cab816cb081ae57be6bebed93c049f0
+        uses: openremote/core/.github/actions/get-version-details@99c5da2e4f277fc2f5473a413e1d9cede71fce8c
