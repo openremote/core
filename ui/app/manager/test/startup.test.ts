@@ -17,13 +17,20 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 import { expect } from "@openremote/test";
-import { test } from "./fixtures/manager.js";
+import { adminStatePath, test } from "./fixtures/manager.js";
 
 // What a reverse proxy answers while the manager restarts
 const serviceUnavailable = {
   status: 503,
   contentType: "text/html",
   body: "<html><body><h1>503 Service Unavailable</h1></body></html>",
+};
+
+// What Keycloak answers when the login code the page returns with has expired or was used
+const invalidCode = {
+  status: 400,
+  contentType: "application/json",
+  body: JSON.stringify({ error: "invalid_grant", error_description: "Code not valid" }),
 };
 
 // Startup retries back off for up to a few seconds, so the next attempt can take a while
@@ -88,4 +95,76 @@ test("should show that the app could not be loaded when the manager stays unreac
     )
     .toBe(true);
   await expect(page.getByRole("alert")).toHaveText("Could not load the app, try again later");
+});
+
+test.describe("Sign in", () => {
+  test.use({ storageState: adminStatePath });
+
+  /**
+   * @given The user is signed in
+   * @and The user profile can't be loaded from Keycloak
+   * @when The manager is opened
+   * @then The app loads
+   */
+  test("should load the app when the user profile can't be loaded", async ({ page, manager }) => {
+    // A stored language is used instead of the one in the profile
+    await page.addInitScript(() => window.localStorage.removeItem("LANGUAGE"));
+    let profileRequests = 0;
+    await page.route("**/realms/master/account", (route) => {
+      profileRequests++;
+      return route.abort("connectionreset");
+    });
+    await manager.goToRealmStartPage("master");
+    // Initialization rejected, which left the loading spinner forever
+    await expect(page.locator("#desktop-left").getByRole("link", { name: "Assets" })).toBeVisible();
+    expect(profileRequests).toBeGreaterThan(0);
+  });
+
+  /**
+   * @given The user is signed in
+   * @and Keycloak rejects the login code the page returns with once
+   * @when The manager is opened
+   * @then A new login is started
+   * @and The app loads without asking for the password
+   */
+  test("should sign in again when Keycloak rejects the returned login", async ({ page, manager }) => {
+    let rejected = 0;
+    await page.route("**/realms/master/protocol/openid-connect/token", (route) => {
+      if (rejected === 0 && route.request().postData()?.includes("grant_type=authorization_code")) {
+        rejected++;
+        return route.fulfill(invalidCode);
+      }
+      return route.fallback();
+    });
+    await manager.goToRealmStartPage("master");
+    // The rejected code showed "Could not sign in" until the page was reloaded twice
+    await expect(page.locator("#desktop-left").getByRole("link", { name: "Assets" })).toBeVisible();
+    expect(rejected).toBe(1);
+  });
+
+  /**
+   * @given The user is signed in
+   * @and Keycloak keeps rejecting the login code the page returns with
+   * @when The manager is opened
+   * @then A message says that signing in failed
+   */
+  test("should show that signing in failed when Keycloak keeps rejecting the returned login", async ({
+    page,
+    manager,
+  }) => {
+    let rejected = 0;
+    await page.route("**/realms/master/protocol/openid-connect/token", (route) => {
+      if (route.request().postData()?.includes("grant_type=authorization_code")) {
+        rejected++;
+        return route.fulfill(invalidCode);
+      }
+      return route.fallback();
+    });
+    await manager.goToRealmStartPage("master");
+    const signInFailed = page.getByRole("alertdialog").filter({ hasText: "Could not sign in, try again later" });
+    // Its content renders in an overlay, so the dialog itself has no box to check for visibility
+    await expect(signInFailed).toHaveCount(1);
+    // A single new login, not one after every rejection
+    expect(rejected).toBe(2);
+  });
 });

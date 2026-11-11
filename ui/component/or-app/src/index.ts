@@ -116,9 +116,9 @@ export class OrApp<S extends AppStateKeyed> extends OrElement {
   @state()
   protected _initialised = false;
 
-  /** Why the app didn't start: the manager was unreachable, or another error that a dialog shows */
+  /** Why the app didn't start: it could not be loaded, or an error that a dialog shows */
   @state()
-  protected _startupFailure?: "unreachable" | "error";
+  protected _startupFailure?: "loadFailed" | "error";
 
   @state()
   protected _page?: string;
@@ -269,7 +269,7 @@ export class OrApp<S extends AppStateKeyed> extends OrElement {
     }
     console.info("Initialising the manager");
 
-    manager.init(managerConfig).then(async (success) => {
+    const started = manager.init(managerConfig).then(async (success) => {
       if (success) {
         this.doAppConfigInit();
 
@@ -346,11 +346,15 @@ export class OrApp<S extends AppStateKeyed> extends OrElement {
         }
         router.resolve();
       } else if (manager.error === ORError.MANAGER_FAILED_TO_LOAD) {
-        this._startupFailure = "unreachable";
+        this._startupFailure = "loadFailed";
       } else if (manager.error) {
         this._showStartupError(this.shadowRoot!, ...STARTUP_ERRORS[manager.error]);
       }
       // Without an error, the page is on its way to the login page
+    });
+    started.catch((e) => {
+      console.error("Failed to start the app", e);
+      this._startupFailure = "loadFailed";
     });
   }
 
@@ -478,7 +482,7 @@ export class OrApp<S extends AppStateKeyed> extends OrElement {
         ${
           this._startupFailure === "error"
             ? nothing
-            : html`<or-app-loading ?failed=${this._startupFailure === "unreachable"}></or-app-loading>`
+            : html`<or-app-loading ?failed=${this._startupFailure === "loadFailed"}></or-app-loading>`
         }
       `;
     }
