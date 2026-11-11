@@ -307,7 +307,6 @@ export class Manager implements EventProviderFactory {
     return this.events;
   }
 
-  protected static MAX_RECONNECT_DELAY = 45000;
   /** Session storage key set while a new login runs after Keycloak rejected the returned one */
   protected static LOGIN_RETRY_KEY = "or-login-retry";
   private _error?: ORError;
@@ -324,8 +323,6 @@ export class Manager implements EventProviderFactory {
   private _console!: Console;
   private _consoleAppConfig?: ConsoleAppConfig;
   private _events?: EventProvider;
-  private _disconnected: boolean = false;
-  private _reconnectTimer?: number;
   private _displayRealm?: string;
 
   public isManagerSameOrigin(): boolean {
@@ -641,24 +638,13 @@ export class Manager implements EventProviderFactory {
     return connected;
   }
 
-  // Function that connects the EventProvider.
-  protected _connectEvents() {
-    if (this.events?.status === EventProviderStatus.DISCONNECTED) {
-      this.events!.connect().catch((e) => {
-        console.error(`Failed to connect EventProvider.`);
-        console.error(e);
-      });
-    } else {
-      console.warn("Tried to connect EventProvider, but it wasn't disconnected!");
-    }
-  }
-
   protected _onEventProviderStatusChanged(status: EventProviderStatus) {
     switch (status) {
       case EventProviderStatus.DISCONNECTED:
-        this._onDisconnect();
+        this._emitEvent(OREvent.OFFLINE);
         break;
       case EventProviderStatus.CONNECTED:
+        this._emitEvent(OREvent.ONLINE);
         break;
       case EventProviderStatus.CONNECTING:
         this._emitEvent(OREvent.CONNECTING);
@@ -962,8 +948,7 @@ export class Manager implements EventProviderFactory {
     if (!this._keycloakUpdateTokenInterval) {
       this._keycloakUpdateTokenInterval = window.setInterval(async () => {
         await this._updateKeycloakAccessToken().catch(() => {
-          console.debug("Keycloak failed to refresh the access token");
-          this._onDisconnect();
+          console.debug("Keycloak failed to refresh the access token, trying again later");
         });
       }, 10000);
     }
@@ -1006,145 +991,9 @@ export class Manager implements EventProviderFactory {
     }
   }
 
-  /**
-   * Disconnect can occur when events status changes to offline and/or keycloak token refresh fails
-   * we just try to reach keycloak and then get a new token as well as wait for the events status to change
-   */
-  protected async _onDisconnect() {
-    if (this._disconnected) {
-      return;
-    }
-    console.debug("Disconnected");
-    this._disconnected = true;
-
-    // Cancel token refresh timer
-    if (this._keycloakUpdateTokenInterval) {
-      window.clearTimeout(this._keycloakUpdateTokenInterval);
-      this._keycloakUpdateTokenInterval = undefined;
-    }
-
-    this._emitEvent(OREvent.OFFLINE);
-    this.reconnect();
-  }
-
-  protected _onReconnected() {
-    console.debug("Reconnected to the Manager.");
-    this._disconnected = false;
-
-    // Reinstate token update interval
-    this._createTokenUpdateInterval();
-    this._emitEvent(OREvent.ONLINE);
-  }
-
-  /**
-   * Checks keycloak is available and token is valid otherwise will redirect to login; also checks if event bus is
-   * online.
-   */
-  public async reconnect(reattemptDelayMillis: number = 3000) {
-    console.debug("Checking connection to the Manager...");
-
-    if (!this._disconnected) {
-      console.debug("Manager is still connected. No action necessary.");
-      return;
-    }
-    console.debug("Manager is disconnected!");
-
-    if (this._reconnectTimer) {
-      window.clearTimeout(this._reconnectTimer);
-      this._reconnectTimer = undefined;
-    }
-
-    const tryReconnect = async () => {
-      console.debug("Reconnecting to the Manager...");
-
-      // If the user was never authenticated (public access), skip token refresh and just reconnect the event provider.
-      if (!this._authenticated) {
-        console.debug("User is not authenticated, skipping token refresh");
-        const isEventsOnline = () => this.events?.status === EventProviderStatus.CONNECTED;
-        if (!isEventsOnline()) {
-          await this.events?.connect();
-        }
-        return isEventsOnline();
-      }
-
-      const keycloakOffline = !(await this.isKeycloakReachable());
-
-      if (keycloakOffline) {
-        console.error("Keycloak is not reachable. Reconnect attempt failed.");
-        return false;
-      }
-
-      // Check if access token can be refreshed
-      try {
-        await this._updateKeycloakAccessToken();
-      } catch (e) {
-        console.error("Could not update Keycloak access token, attempting again using offline token...", e);
-        // Try and use offline token if it is available
-        const offlineToken = await this._getNativeOfflineRefreshToken();
-        this._keycloak!.refreshToken = offlineToken;
-        if (!offlineToken) {
-          console.warn("No offline token was found on this device.");
-        }
-
-        try {
-          await this._updateKeycloakAccessToken();
-        } catch (e) {
-          this.login();
-          throw new Error("Cannot update access token so sending to login");
-        }
-        console.debug("Keycloak access token is valid");
-      }
-
-      // Check events
-      const isEventsOnline = () => this.events?.status === EventProviderStatus.CONNECTED;
-      if (!isEventsOnline()) {
-        console.debug("Event provider offline, attempting to reconnect using latest auth token.");
-        await this.events?.connect();
-      }
-      return isEventsOnline();
-    };
-
-    const connected = await tryReconnect();
-
-    if (connected === undefined) {
-      // Going back to keycloak login so nothing to do
-      return;
-    }
-
-    // If failed to connect, schedule another reconnect attempt
-    if (!connected) {
-      reattemptDelayMillis = Math.min(Manager.MAX_RECONNECT_DELAY, reattemptDelayMillis + 3000);
-      console.error(`Failed to reconnect to the Manager. Attempting again in ${reattemptDelayMillis}...`);
-      this._reconnectTimer = window.setTimeout(() => this.reconnect(reattemptDelayMillis), reattemptDelayMillis);
-      return;
-    }
-
-    this._onReconnected();
-  }
-
-  /**
-   * Checks whether keycloak is reachable using a simple HTTP HEAD request since the keycloak JS adapter doesn't give
-   * us details of the HTTP responses they get, we test it manually using this.
-   * @param timeoutMillis - Custom timeout of the HTTP HEAD request in milliseconds
-   * @protected
-   */
-  protected async isKeycloakReachable(timeoutMillis = 2000): Promise<boolean> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMillis);
-    try {
-      // Get the token URL from keycloak as this must already have CORS configured for keycloak to work
-      // Make an OPTIONS request as GET/HEAD requests are not allowed on the token endpoint
-      // Note if keycloak service is unavailable the proxy may respond with 503 and no CORS headers
-      // but this is handled by the catch block
-      // @ts-ignore
-      const tokenUrl = this._keycloak.endpoints.token();
-      const result = await fetch(tokenUrl, { method: "OPTIONS", signal: controller.signal });
-      return result.status === 200;
-    } catch (e) {
-      return false;
-    } finally {
-      clearTimeout(timeout);
-    }
+  /** @deprecated The event provider reconnects by itself, this only makes it try right away */
+  public async reconnect(): Promise<void> {
+    await this._events?.connect();
   }
 }
 

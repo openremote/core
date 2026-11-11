@@ -70,3 +70,56 @@ test("should sign in again when Keycloak ends the session", async ({ page, manag
   await runTokenCheck(page);
   await signIn;
 });
+
+/**
+ * @given The user is signed in
+ * @when The token can't be refreshed for a while, for example while Keycloak restarts
+ * @then The app stays open
+ * @and The token is refreshed once Keycloak answers again
+ */
+test("should keep the app open while the token can't be refreshed", async ({ page, manager }) => {
+  await openWithExpiringToken(page, manager);
+  let failing = true;
+  let refreshes = 0;
+  await page.route(tokenEndpoint, (route) => {
+    if (!isTokenRefresh(route.request())) {
+      return route.fallback();
+    }
+    refreshes++;
+    return failing ? route.abort("connectionrefused") : route.fallback();
+  });
+  const signIns: string[] = [];
+  page.on("request", (request) => isSignIn(request) && signIns.push(request.url()));
+  const refreshesAfterCheck = async () => {
+    await runTokenCheck(page);
+    return refreshes;
+  };
+
+  await expect.poll(refreshesAfterCheck).toBeGreaterThanOrEqual(2);
+  failing = false;
+  const failedRefreshes = refreshes;
+  await expect.poll(refreshesAfterCheck).toBeGreaterThan(failedRefreshes);
+
+  // A failed refresh used to send the user to sign in, which during a restart ended on a blank page
+  expect(signIns).toEqual([]);
+  await expect(page.locator("#desktop-left").getByRole("link", { name: "Assets" })).toBeVisible();
+});
+
+/**
+ * @given The user is signed in
+ * @when The connection for events drops
+ * @then The app connects again
+ */
+test("should connect the events again after the connection drops", async ({ page, manager }) => {
+  const connections: { close(): Promise<void> }[] = [];
+  await page.routeWebSocket(/\/websocket\/events/, (ws) => {
+    ws.connectToServer();
+    connections.push(ws);
+  });
+  await manager.goToRealmStartPage("master");
+  await expect(page.locator("#desktop-left").getByRole("link", { name: "Assets" })).toBeVisible();
+  await expect.poll(() => connections.length).toBe(1);
+
+  await connections[0].close();
+  await expect.poll(() => connections.length).toBe(2);
+});

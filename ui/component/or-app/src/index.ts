@@ -230,8 +230,6 @@ export class OrApp<S extends AppStateKeyed> extends OrElement {
         if (manager.console?.isMobile && this._offline) {
           this._startOfflineFallbackTimer(true);
         }
-        // Always try reconnecting the event provider (just in case we are disconnected)
-        manager.reconnect();
       }, 500);
     } else {
       this._store.dispatch(setVisibility(false));
