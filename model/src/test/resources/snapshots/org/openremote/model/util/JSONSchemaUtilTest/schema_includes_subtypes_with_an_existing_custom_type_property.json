@@ -1,0 +1,38 @@
+{
+  "$schema" : "http://json-schema.org/draft-07/schema#",
+  "definitions" : {
+    "SubTypeSuperClassWithCustomExistingProperty" : {
+      "properties" : {
+        "customType" : {
+          "const" : "super"
+        }
+      },
+      "title" : "Sub Type Super Class With Custom Existing Property",
+      "additionalProperties" : true,
+      "type" : "object",
+      "required" : [ "customType" ]
+    },
+    "SubTypeWithCustomExistingProperty" : {
+      "properties" : {
+        "customType" : {
+          "const" : "sub"
+        }
+      },
+      "title" : "Sub Type With Custom Existing Property",
+      "additionalProperties" : true,
+      "type" : "object",
+      "required" : [ "customType" ]
+    }
+  },
+  "type" : "object",
+  "discriminator" : {
+    "propertyName" : "customType"
+  },
+  "oneOf" : [ {
+    "$ref" : "#/definitions/SubTypeWithCustomExistingProperty"
+  }, {
+    "$ref" : "#/definitions/SubTypeSuperClassWithCustomExistingProperty"
+  } ],
+  "title" : "Polymorphic Type With Custom Existing Property",
+  "additionalProperties" : true
+}
