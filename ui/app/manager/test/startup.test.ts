@@ -16,6 +16,7 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
+import type { Route } from "@playwright/test";
 import { expect } from "@openremote/test";
 import { adminStatePath, test } from "./fixtures/manager.js";
 
@@ -166,5 +167,39 @@ test.describe("Sign in", () => {
     await expect(signInFailed).toHaveCount(1);
     // A single new login, not one after every rejection
     expect(rejected).toBe(2);
+  });
+
+  /**
+   * @given The user is signed in
+   * @when The manager is opened
+   * @then The translations, the asset model and the console app config are requested together
+   */
+  test("should request the translations and the asset model together", async ({ page, manager }) => {
+    const together = [
+      /\/model\/assetInfos/,
+      /\/model\/metaItemDescriptors/,
+      /\/model\/valueDescriptors/,
+      /\/consoleappconfig\//,
+      /\/shared\/locales\/[^/]+\/or\.json/,
+    ];
+    // Each request waits until all of them were sent
+    const requested = new Set<RegExp>();
+    const held: Route[] = [];
+    for (const pattern of together) {
+      await page.route(pattern, (route) => {
+        if (requested.size === together.length) {
+          return route.fallback();
+        }
+        requested.add(pattern);
+        held.push(route);
+        if (requested.size === together.length) {
+          held.forEach((heldRoute) => heldRoute.fallback());
+        }
+      });
+    }
+
+    await manager.goToRealmStartPage("master");
+    // They used to be requested one after another, so the first one waited forever for the others
+    await expect(page.locator("#desktop-left").getByRole("link", { name: "Assets" })).toBeVisible();
   });
 });

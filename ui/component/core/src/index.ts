@@ -434,20 +434,21 @@ export class Manager implements EventProviderFactory {
       success = this.doRestApiInit();
     }
 
-    // Don't let console registration error prevent loading
-    const consoleSuccess = await this.doConsoleInit();
-    if (consoleSuccess) {
-      // Send the console a message to clear the web history, so no pages outside the app can be accessed.
-      // For example, this prevents navigating back to an authentication screen.
-      this._clearWebHistory();
-    }
-
-    success = (await this.doTranslateInit()) && success;
-
-    if (success) {
-      success = await this.doDescriptorsInit();
-      success = await this.getConsoleAppConfig();
-    }
+    // Only the translations decide whether the app can start, and they read the language the console stored
+    const [translateSuccess] = await Promise.all([
+      // Don't let console registration error prevent loading
+      this.doConsoleInit().then((consoleSuccess) => {
+        if (consoleSuccess) {
+          // Send the console a message to clear the web history, so no pages outside the app can be accessed.
+          // For example, this prevents navigating back to an authentication screen.
+          this._clearWebHistory();
+        }
+        return this.doTranslateInit();
+      }),
+      this.doDescriptorsInit(),
+      this.getConsoleAppConfig(),
+    ]);
+    success = translateSuccess && success;
 
     this.doIconInit();
 
@@ -565,9 +566,11 @@ export class Manager implements EventProviderFactory {
     }
 
     try {
-      const assetInfosResponse = await rest.api.AssetModelResource.getAssetInfos();
-      const metaItemDescriptorResponse = await rest.api.AssetModelResource.getMetaItemDescriptors();
-      const valueDescriptorResponse = await rest.api.AssetModelResource.getValueDescriptors();
+      const [assetInfosResponse, metaItemDescriptorResponse, valueDescriptorResponse] = await Promise.all([
+        rest.api.AssetModelResource.getAssetInfos(),
+        rest.api.AssetModelResource.getMetaItemDescriptors(),
+        rest.api.AssetModelResource.getValueDescriptors(),
+      ]);
 
       AssetModelUtil._assetTypeInfos = assetInfosResponse.data;
       AssetModelUtil._metaItemDescriptors = Object.values(metaItemDescriptorResponse.data);
