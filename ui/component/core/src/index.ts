@@ -911,6 +911,11 @@ export class Manager implements EventProviderFactory {
         this._onAuthenticated();
         this._createTokenUpdateInterval();
         sessionStorage.removeItem(Manager.LOGIN_RETRY_KEY);
+        // keycloak-js calls this when Keycloak rejects a token refresh, which only happens once the session has ended
+        this._keycloak.onAuthLogout = () => {
+          console.warn("The Keycloak session has ended, signing in again");
+          this.login();
+        };
 
         const currentSession = this._keycloak.tokenParsed?.session_state;
         if (currentSession && sessionStorage.getItem("or-session") !== currentSession) {
