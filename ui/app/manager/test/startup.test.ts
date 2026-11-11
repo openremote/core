@@ -16,7 +16,7 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
-import type { Route } from "@playwright/test";
+import type { Request, Route } from "@playwright/test";
 import { expect } from "@openremote/test";
 import { adminStatePath, test } from "./fixtures/manager.js";
 
@@ -33,6 +33,12 @@ const invalidCode = {
   contentType: "application/json",
   body: JSON.stringify({ error: "invalid_grant", error_description: "Code not valid" }),
 };
+
+// The code of the app, which loads after signing in
+const isAppCode = (request: Request) => /\/app\.[0-9a-f]+\.js$/.test(new URL(request.url()).pathname);
+
+const isSignIn = (request: Request) =>
+  request.isNavigationRequest() && request.url().includes("/protocol/openid-connect/auth");
 
 // Startup retries back off for up to a few seconds, so the next attempt can take a while
 const afterRetry = { timeout: 15_000 };
@@ -201,5 +207,50 @@ test.describe("Sign in", () => {
     await manager.goToRealmStartPage("master");
     // They used to be requested one after another, so the first one waited forever for the others
     await expect(page.locator("#desktop-left").getByRole("link", { name: "Assets" })).toBeVisible();
+  });
+
+  /**
+   * @given The user is signed in
+   * @when The manager is opened
+   * @then The code of the app loads once, after the page returns from Keycloak
+   */
+  test("should load the app code once per page load", async ({ page, manager }) => {
+    let returnedFromKeycloak = false;
+    const appCodeLoads: boolean[] = [];
+    page.on("request", (request) => {
+      if (isSignIn(request)) {
+        returnedFromKeycloak = true;
+      } else if (isAppCode(request)) {
+        appCodeLoads.push(returnedFromKeycloak);
+      }
+    });
+
+    await manager.goToRealmStartPage("master");
+    await expect(page.locator("#desktop-left").getByRole("link", { name: "Assets" })).toBeVisible();
+    // The whole app used to load before the redirect to Keycloak, and again after it
+    expect(appCodeLoads).toEqual([true]);
+  });
+
+  /**
+   * @given The user is signed in
+   * @and The code of the app can't be loaded
+   * @when The manager is opened
+   * @then The page reloads once
+   * @and A message says that the app could not be loaded
+   */
+  test("should show that the app could not be loaded when its code can't be loaded", async ({ page, manager }) => {
+    let failedLoads = 0;
+    await page.route(
+      (url) => /\/app\.[0-9a-f]+\.js$/.test(url.pathname),
+      (route) => {
+        failedLoads++;
+        return route.abort("connectionreset");
+      }
+    );
+
+    await manager.goToRealmStartPage("master");
+    await expect(page.getByRole("alert")).toHaveText("Could not load the app, try again later");
+    // A page cached from before an update gets new code by reloading once, but not over and over
+    expect(failedLoads).toBe(2);
   });
 });

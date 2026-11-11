@@ -15,6 +15,16 @@
       "types": "./build/custom-elements-jsx.d.ts"
     }
   },
+  "typesVersions": {
+    "*": {
+      "build/lib/*": [
+        "build/lib/*"
+      ],
+      "*": [
+        "build/lib/*"
+      ]
+    }
+  },
   "types": "build/lib/index.d.ts",
   "files": [
     "src/images/**",

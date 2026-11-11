@@ -28,6 +28,9 @@ module.exports = (env, argv) => {
   const IS_DEV_SERVER = !!process.argv.find((arg) => arg.includes("serve"));
   const config = util.getAppConfig(argv.mode, IS_DEV_SERVER, __dirname, managerUrl, keycloakUrl, port);
 
+  config.entry = { bundle: "./src/bootstrap.ts" };
+  config.output.chunkFilename = argv.mode === "production" ? "[name].[contenthash].js" : "[name].js";
+
   if (IS_DEV_SERVER) {
     config.performance = {
       hints: false,

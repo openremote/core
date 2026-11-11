@@ -39,6 +39,7 @@ export default defineConfig({
     port: 9000, // TODO: Leave default in production
   },
   source: {
+    entry: { index: "./src/bootstrap.ts" },
     decorators: {
       version: "legacy",
     },

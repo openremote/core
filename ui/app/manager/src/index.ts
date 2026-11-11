@@ -26,11 +26,10 @@ import {
   type HeaderConfig,
   type HeaderItem,
   OrApp,
-  OrAppLoading,
+  type OrAppLoading,
   type PageProvider,
   type RealmAppConfig,
 } from "@openremote/or-app";
-import { Util } from "@openremote/core";
 import {
   headerItemAccount,
   headerItemAssets,
@@ -80,8 +79,6 @@ import type { ManagerAppConfig } from "@openremote/model";
 import { pageGatewayTunnelProvider } from "./pages/page-gateway-tunnel";
 import { type PageNotificationsConfig, pageNotificationsProvider } from "./pages/page-notifications";
 import "./pages/page-notifications";
-
-declare let MANAGER_URL: string | undefined;
 
 const rootReducer = combineReducers({
   app: appReducer,
@@ -153,195 +150,152 @@ export const DefaultRealmConfig: RealmAppConfig = {
   header: DefaultHeaderConfig,
 };
 
-// Try and load the app config from JSON and if anything is found amalgamate it with default
-const managerURL =
-  MANAGER_URL ||
-  window.location.protocol +
-    "//" +
-    window.location.hostname +
-    (window.location.port ? ":" + window.location.port : "") +
-    window.location.pathname.replace(/\/[^/]+\/?$/, "");
-const configURL = managerURL + "/api/master/configuration/manager";
+/** Starts the app with the config it signed in with, in place of the loading spinner */
+export function startApp(appConfig: ManagerAppConfig, loading: OrAppLoading) {
+  orApp.managerConfig = appConfig.manager;
 
-// Shown until the app takes over
-const loading = new OrAppLoading();
-document.body.appendChild(loading);
+  orApp.appConfigProvider = (manager) => {
+    // Build pages
+    let pages: PageProvider<any>[] = [...DefaultPagesConfig];
+    const isAdmin = manager.isSuperUser() && manager.username === "admin";
+    const applyConfigToAdmin =
+      appConfig.manager.applyConfigToAdmin !== undefined ? appConfig.manager.applyConfigToAdmin : true;
 
-Util.retryWithBackoff<ManagerAppConfig>(async () => {
-  const result = await fetch(configURL);
+    if ((!isAdmin || applyConfigToAdmin) && appConfig.pages) {
+      // The rules and notifications pages both read the notification languages each realm supports
+      const notificationConfigs = Object.fromEntries(
+        Object.entries(appConfig.realms || {}).map(([realm, realmConfig]) => [realm, realmConfig.notifications])
+      );
+      // Replace any supplied page configs
+      pages = pages.map((pageProvider) => {
+        const config: { [p: string]: any } | undefined = appConfig.pages[pageProvider.name];
 
-  // A reverse proxy answers with a 5xx while the manager restarts, any other status means there is no config
-  if (result.status >= 500) {
-    throw new Error("The manager app config request failed with status " + result.status);
-  }
-
-  return { ...(result.status === 200 ? ((await result.json()) as ManagerAppConfig) : undefined) };
-}).then(
-  (appConfig: ManagerAppConfig) => {
-    // Set locales and load path
-    if (!appConfig.manager) {
-      appConfig.manager = {};
-    }
-
-    if (appConfig.loadLocales) {
-      appConfig.manager.loadTranslations = ["app", "or"];
-
-      if (!appConfig.manager.translationsLoadPath) {
-        appConfig.manager.translationsLoadPath = "/locales/{{lng}}/{{ns}}.json";
-      }
-    }
-
-    orApp.managerConfig = appConfig.manager;
-
-    orApp.appConfigProvider = (manager) => {
-      // Build pages
-      let pages: PageProvider<any>[] = [...DefaultPagesConfig];
-      const isAdmin = manager.isSuperUser() && manager.username === "admin";
-      const applyConfigToAdmin =
-        appConfig.manager.applyConfigToAdmin !== undefined ? appConfig.manager.applyConfigToAdmin : true;
-
-      if ((!isAdmin || applyConfigToAdmin) && appConfig.pages) {
-        // The rules and notifications pages both read the notification languages each realm supports
-        const notificationConfigs = Object.fromEntries(
-          Object.entries(appConfig.realms || {}).map(([realm, realmConfig]) => [realm, realmConfig.notifications])
-        );
-        // Replace any supplied page configs
-        pages = pages.map((pageProvider) => {
-          const config: { [p: string]: any } | undefined = appConfig.pages[pageProvider.name];
-
-          switch (pageProvider.name) {
-            case "map": {
-              pageProvider = config ? pageMapProvider(store, config as PageMapConfig) : pageProvider;
-              break;
-            }
-            case "assets": {
-              pageProvider = config ? pageAssetsProvider(store, config as PageAssetsConfig) : pageProvider;
-              break;
-            }
-            case "rules": {
-              const newConfig = (config || {
-                rules: {},
-              }) as PageRulesConfig;
-              if (!newConfig.rules?.notifications) {
-                newConfig.rules.notifications = notificationConfigs;
-              }
-              pageProvider = pageRulesProvider(store, newConfig);
-              break;
-            }
-            case "notifications": {
-              const newConfig = (config || {}) as PageNotificationsConfig;
-              if (!newConfig.notifications) {
-                newConfig.notifications = notificationConfigs;
-              }
-              pageProvider = pageNotificationsProvider(store, newConfig);
-              break;
-            }
-            case "insights": {
-              pageProvider = config ? pageInsightsProvider(store, config as PageInsightsConfig) : pageProvider;
-              break;
-            }
-            case "logs": {
-              pageProvider = config ? pageLogsProvider(store, config as PageLogsConfig) : pageProvider;
-              break;
-            }
+        switch (pageProvider.name) {
+          case "map": {
+            pageProvider = config ? pageMapProvider(store, config as PageMapConfig) : pageProvider;
+            break;
           }
-
-          return pageProvider;
-        });
-      }
-
-      const orAppConfig: AppConfig<RootState> = {
-        pages,
-        superUserHeader: DefaultHeaderConfig,
-      };
-
-      // Configure realms
-      if (!appConfig.realms) {
-        orAppConfig.realms = {
-          default: { ...DefaultRealmConfig, header: DefaultHeaderConfig },
-        };
-      } else {
-        orAppConfig.realms = {};
-        const defaultRealm = appConfig.realms.default
-          ? { ...DefaultRealmConfig, ...appConfig.realms.default }
-          : DefaultRealmConfig;
-        orAppConfig.realms.default = defaultRealm;
-
-        Object.entries(appConfig.realms).forEach(([name, realmConfig]) => {
-          const normalisedConfig = { ...defaultRealm, ...realmConfig };
-
-          let headers = DefaultHeaderConfig;
-
-          if (normalisedConfig.headers) {
-            headers = {
-              mainMenu: [],
-              secondaryMenu: [],
-            };
-            normalisedConfig.headers.forEach((pageName) => {
-              // Insert header
-              if (DefaultHeaderMainMenu.hasOwnProperty(pageName)) {
-                headers.mainMenu.push(DefaultHeaderMainMenu[pageName]);
-              } else if (DefaultHeaderSecondaryMenu.hasOwnProperty(pageName)) {
-                headers.secondaryMenu!.push(DefaultHeaderSecondaryMenu[pageName]);
-              }
-            });
+          case "assets": {
+            pageProvider = config ? pageAssetsProvider(store, config as PageAssetsConfig) : pageProvider;
+            break;
           }
-
-          orAppConfig.realms[name] = { ...defaultRealm, header: headers, ...(realmConfig as RealmAppConfig) };
-        });
-      }
-
-      // When the page is not present in the header, move the PageProvider to the end of the array.
-      // This is to prevent the landing page for the user not being visible in the header
-      const realmAppConfig = orAppConfig.realms[manager.displayRealm] || orAppConfig.realms.default;
-      if (realmAppConfig) {
-        const headerPaths = [...realmAppConfig.header.mainMenu, ...realmAppConfig.header.secondaryMenu].map(
-          (item) => item.href
-        );
-        orAppConfig.pages = pages
-          .filter((pageProvider) => headerPaths.includes(pageProvider.name))
-          .concat(pages.filter((pageProvider) => !headerPaths.includes(pageProvider.name)));
-      }
-
-      // If the user does not have a preferred language configured (in Keycloak),
-      // we need to update it with their preferred language from other sources. (consoles, realm configuration etc.)
-      // Check local storage for set language, otherwise use language set in config
-      manager.getUserPreferredLanguage().then((userLang: string | undefined) => {
-        if (!userLang) {
-          manager
-            .getConsolePreferredLanguage()
-            .then((consoleLang: string | undefined) => {
-              if (consoleLang) {
-                manager.language = consoleLang;
-              } else if (orAppConfig.realms[manager.displayRealm]) {
-                manager.language = orAppConfig.realms[manager.displayRealm].language;
-              } else if (orAppConfig.realms.default) {
-                manager.language = orAppConfig.realms.default.language;
-              } else {
-                manager.language = "en";
-              }
-            })
-            .catch((reason) => {
-              console.error("Failed to initialise app: " + reason);
-            });
+          case "rules": {
+            const newConfig = (config || {
+              rules: {},
+            }) as PageRulesConfig;
+            if (!newConfig.rules?.notifications) {
+              newConfig.rules.notifications = notificationConfigs;
+            }
+            pageProvider = pageRulesProvider(store, newConfig);
+            break;
+          }
+          case "notifications": {
+            const newConfig = (config || {}) as PageNotificationsConfig;
+            if (!newConfig.notifications) {
+              newConfig.notifications = notificationConfigs;
+            }
+            pageProvider = pageNotificationsProvider(store, newConfig);
+            break;
+          }
+          case "insights": {
+            pageProvider = config ? pageInsightsProvider(store, config as PageInsightsConfig) : pageProvider;
+            break;
+          }
+          case "logs": {
+            pageProvider = config ? pageLogsProvider(store, config as PageLogsConfig) : pageProvider;
+            break;
+          }
         }
-      });
 
-      return orAppConfig;
+        return pageProvider;
+      });
+    }
+
+    const orAppConfig: AppConfig<RootState> = {
+      pages,
+      superUserHeader: DefaultHeaderConfig,
     };
 
-    // Apply theme to the Manager app
-    const style = document.createElement("style");
-    style.id = "orDefaultTheme";
-    style.textContent = themeCss;
-    document.head.appendChild(style);
+    // Configure realms
+    if (!appConfig.realms) {
+      orAppConfig.realms = {
+        default: { ...DefaultRealmConfig, header: DefaultHeaderConfig },
+      };
+    } else {
+      orAppConfig.realms = {};
+      const defaultRealm = appConfig.realms.default
+        ? { ...DefaultRealmConfig, ...appConfig.realms.default }
+        : DefaultRealmConfig;
+      orAppConfig.realms.default = defaultRealm;
 
-    // Load app
-    document.body.appendChild(orApp);
-    loading.remove();
-  },
-  (reason) => {
-    console.error("Failed to load the manager app config", reason);
-    loading.failed = true;
-  }
-);
+      Object.entries(appConfig.realms).forEach(([name, realmConfig]) => {
+        const normalisedConfig = { ...defaultRealm, ...realmConfig };
+
+        let headers = DefaultHeaderConfig;
+
+        if (normalisedConfig.headers) {
+          headers = {
+            mainMenu: [],
+            secondaryMenu: [],
+          };
+          normalisedConfig.headers.forEach((pageName) => {
+            // Insert header
+            if (DefaultHeaderMainMenu.hasOwnProperty(pageName)) {
+              headers.mainMenu.push(DefaultHeaderMainMenu[pageName]);
+            } else if (DefaultHeaderSecondaryMenu.hasOwnProperty(pageName)) {
+              headers.secondaryMenu!.push(DefaultHeaderSecondaryMenu[pageName]);
+            }
+          });
+        }
+
+        orAppConfig.realms[name] = { ...defaultRealm, header: headers, ...(realmConfig as RealmAppConfig) };
+      });
+    }
+
+    // When the page is not present in the header, move the PageProvider to the end of the array.
+    // This is to prevent the landing page for the user not being visible in the header
+    const realmAppConfig = orAppConfig.realms[manager.displayRealm] || orAppConfig.realms.default;
+    if (realmAppConfig) {
+      const headerPaths = [...realmAppConfig.header.mainMenu, ...realmAppConfig.header.secondaryMenu].map(
+        (item) => item.href
+      );
+      orAppConfig.pages = pages
+        .filter((pageProvider) => headerPaths.includes(pageProvider.name))
+        .concat(pages.filter((pageProvider) => !headerPaths.includes(pageProvider.name)));
+    }
+
+    // Without a language in the user's Keycloak profile, use the console's, then the realm's, then English
+    manager.getUserPreferredLanguage().then((userLang: string | undefined) => {
+      if (!userLang) {
+        manager
+          .getConsolePreferredLanguage()
+          .then((consoleLang: string | undefined) => {
+            if (consoleLang) {
+              manager.language = consoleLang;
+            } else if (orAppConfig.realms[manager.displayRealm]) {
+              manager.language = orAppConfig.realms[manager.displayRealm].language;
+            } else if (orAppConfig.realms.default) {
+              manager.language = orAppConfig.realms.default.language;
+            } else {
+              manager.language = "en";
+            }
+          })
+          .catch((reason) => {
+            console.error("Failed to initialise app: " + reason);
+          });
+      }
+    });
+
+    return orAppConfig;
+  };
+
+  // Apply theme to the Manager app
+  const style = document.createElement("style");
+  style.id = "orDefaultTheme";
+  style.textContent = themeCss;
+  document.head.appendChild(style);
+
+  // Load app
+  document.body.appendChild(orApp);
+  loading.remove();
+}
