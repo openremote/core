@@ -149,7 +149,7 @@ const dialogStyle = html`
       min-width: 0;
       background-color: var(--lumo-base-color);
       border-radius: var(--lumo-border-radius-s);
-      padding: var(--lumo-space-s);
+      padding: var(--lumo-space-s) var(--lumo-space-m);
     }
     .ac-item-header {
       display: flex;
