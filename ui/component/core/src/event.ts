@@ -17,7 +17,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 import manager from "./index";
-import { arrayRemove, Deferred } from "./util";
+import { arrayRemove, Deferred, withTimeout } from "./util";
 import {
   type Asset,
   type AssetEvent,
@@ -126,6 +126,8 @@ export class WebSocketEventProvider implements EventProvider {
   public static HEARTBEAT_INTERVAL_MILLIS = 30000;
   // How long a checked connection may take to answer before it counts as lost
   public static HEARTBEAT_TIMEOUT_MILLIS = 10000;
+  // How long getting the token for a connection may take before connecting is tried again
+  public static TOKEN_TIMEOUT_MILLIS = 10000;
 
   protected readonly _endpointUrl: string;
   protected _status: EventProviderStatus = EventProviderStatus.DISCONNECTED;
@@ -389,11 +391,21 @@ export class WebSocketEventProvider implements EventProvider {
   protected async _open(): Promise<boolean> {
     let url = this._endpointUrl + "?Realm=" + manager.config.realm;
     if (manager.authenticated) {
+      let authorization: string | undefined;
       try {
-        url += "&Authorization=" + (await manager.retrieveAuthorizationHeader());
+        authorization = await withTimeout(
+          manager.retrieveAuthorizationHeader(),
+          WebSocketEventProvider.TOKEN_TIMEOUT_MILLIS
+        );
       } catch (e) {
         console.warn("Failed to retrieve the authorization header for events", e);
       }
+      // The server would reject every subscription of a connection without one
+      if (!authorization) {
+        this._scheduleReconnect();
+        return false;
+      }
+      url += "&Authorization=" + authorization;
     }
     if (this._disconnectRequested) {
       return false;

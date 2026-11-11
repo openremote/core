@@ -18,7 +18,7 @@
  */
 // Plain JS on purpose: the component-test bundle compiles .ts files against ui/test's tsconfig
 // (rootDir ui/test), so TS component sources outside that dir fail the build.
-import { WebSocketEventProvider } from "@openremote/core";
+import manager, { WebSocketEventProvider } from "@openremote/core";
 
 const SETTLE_MILLIS = 50;
 const WAIT_MILLIS = 2000;
@@ -37,6 +37,7 @@ const DEFAULT_TIMEOUTS = {
   reply: WebSocketEventProvider.REPLY_TIMEOUT_MILLIS,
   heartbeatInterval: WebSocketEventProvider.HEARTBEAT_INTERVAL_MILLIS,
   heartbeatTimeout: WebSocketEventProvider.HEARTBEAT_TIMEOUT_MILLIS,
+  token: WebSocketEventProvider.TOKEN_TIMEOUT_MILLIS,
 };
 
 /**
@@ -46,7 +47,8 @@ const DEFAULT_TIMEOUTS = {
 class FakeWebSocket {
   static harness;
 
-  constructor() {
+  constructor(url) {
+    this.url = url;
     this.frames = [];
     this.subscriptions = new Map();
     this.unanswered = [];
@@ -132,13 +134,23 @@ export class EventProviderHarness extends HTMLElement {
     this.provider = new WebSocketEventProvider("https://localhost");
   }
 
-  /** Sets the provider's reply and heartbeat timeouts, in milliseconds, for the rest of the test. */
-  setTimeouts({ reply, heartbeatInterval, heartbeatTimeout }) {
+  /** Sets the provider's reply, heartbeat and token timeouts, in milliseconds, for the rest of the test. */
+  setTimeouts({ reply, heartbeatInterval, heartbeatTimeout, token }) {
+    WebSocketEventProvider.TOKEN_TIMEOUT_MILLIS = token ?? WebSocketEventProvider.TOKEN_TIMEOUT_MILLIS;
     WebSocketEventProvider.REPLY_TIMEOUT_MILLIS = reply ?? WebSocketEventProvider.REPLY_TIMEOUT_MILLIS;
     WebSocketEventProvider.HEARTBEAT_INTERVAL_MILLIS =
       heartbeatInterval ?? WebSocketEventProvider.HEARTBEAT_INTERVAL_MILLIS;
     WebSocketEventProvider.HEARTBEAT_TIMEOUT_MILLIS =
       heartbeatTimeout ?? WebSocketEventProvider.HEARTBEAT_TIMEOUT_MILLIS;
+  }
+
+  /**
+   * Signs the manager in, so the provider gets a token for every connection. `token` answers each request for one,
+   * like `manager.retrieveAuthorizationHeader`.
+   */
+  signIn(token) {
+    Object.defineProperty(manager, "authenticated", { configurable: true, get: () => true });
+    manager.retrieveAuthorizationHeader = token;
   }
 
   /** The socket the provider opened last. */

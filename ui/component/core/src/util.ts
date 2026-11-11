@@ -93,6 +93,20 @@ export interface RetryOptions {
   timeoutMillis?: number;
 }
 
+/** Rejects when `promise` takes longer than `millis`, without aborting what it waits for */
+export async function withTimeout<T>(promise: Promise<T>, millis: number): Promise<T> {
+  let timer: number | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = window.setTimeout(() => reject(new Error(`No response within ${millis} ms`)), millis);
+  });
+
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 /**
  * Calls `request` until it resolves, with an exponential backoff between attempts. An attempt that takes too long
  * counts as failed, but is not aborted.
@@ -110,21 +124,13 @@ export async function retryWithBackoff<T>(
   let delayMillis = initialDelayMillis;
 
   for (;;) {
-    let timer: number | undefined;
-    const timeout = new Promise<never>((_resolve, reject) => {
-      const millis = Math.min(attemptTimeoutMillis, deadline - Date.now());
-      timer = window.setTimeout(() => reject(new Error(`No response within ${millis} ms`)), millis);
-    });
-
     try {
-      return await Promise.race([request(), timeout]);
+      return await withTimeout(request(), Math.min(attemptTimeoutMillis, deadline - Date.now()));
     } catch (e) {
       if (Date.now() + delayMillis >= deadline) {
         throw e;
       }
       console.warn(`Request failed, trying again in ${delayMillis} ms`, e);
-    } finally {
-      window.clearTimeout(timer);
     }
 
     await new Promise((resolve) => window.setTimeout(resolve, delayMillis));

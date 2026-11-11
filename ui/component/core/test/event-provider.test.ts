@@ -350,3 +350,40 @@ ct("should resolve a subscribe unsubscribed before it was rejected", async ({ mo
   expect(result.outcome).toBe("resolved");
   expect(result.frames).toEqual(["SUBSCRIBE"]);
 });
+
+ct("should connect with a token once one can be retrieved", async ({ mount }) => {
+  const component = await mount(EventProviderHarness);
+
+  const result = await component.evaluate(async (el: EventProviderHarness) => {
+    let requests = 0;
+    el.signIn(() => (++requests === 1 ? Promise.reject(new Error("refresh failed")) : Promise.resolve("Bearer token")));
+    el.provider.connect();
+    await el.until(() => el.socket);
+
+    return { urls: el.sockets.map((socket) => socket.url), requests };
+  });
+
+  // The failed token request used to open a connection without one, whose subscriptions the server all rejected
+  expect(result.urls).toHaveLength(1);
+  expect(result.urls[0]).toContain("&Authorization=Bearer token");
+  expect(result.requests).toBe(2);
+});
+
+ct("should connect again when a token request does not answer", async ({ mount }) => {
+  const component = await mount(EventProviderHarness);
+
+  const result = await component.evaluate(async (el: EventProviderHarness) => {
+    el.setTimeouts({ token: 100 });
+    let requests = 0;
+    el.signIn(() => (++requests === 1 ? new Promise<string>(() => {}) : Promise.resolve("Bearer token")));
+    el.provider.connect();
+    await el.until(() => el.socket);
+
+    return { urls: el.sockets.map((socket) => socket.url), requests };
+  });
+
+  // Connecting used to wait for the token forever, so the provider never connected again
+  expect(result.urls).toHaveLength(1);
+  expect(result.urls[0]).toContain("&Authorization=Bearer token");
+  expect(result.requests).toBe(2);
+});
