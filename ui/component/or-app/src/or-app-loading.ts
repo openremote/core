@@ -23,8 +23,11 @@ import "@openremote/or-components/or-loading-indicator";
 import { i18next } from "@openremote/or-translate";
 import { DefaultColor3 } from "@openremote/core";
 
-// Translations come from the manager, so they are missing when it can't be reached
-function translate(key: string, fallback: string): string {
+/**
+ * Translates `key`, or returns the English `fallback` when the translations are missing. They are loaded from the
+ * manager late in the startup, so they are missing when it fails before then or can't be reached.
+ */
+export function translateWithFallback(key: string, fallback: string): string {
   return i18next.isInitialized ? i18next.t(key, { defaultValue: fallback }) : fallback;
 }
 
@@ -89,14 +92,16 @@ export class OrAppLoading extends OrElement {
 
   render() {
     if (this.failed) {
-      return html`<p role="alert">${translate("appError.loadFailed", "Could not load the app, try again later")}</p>`;
+      return html`<p role="alert">
+        ${translateWithFallback("managerError.MANAGER_FAILED_TO_LOAD", "Could not load the app, try again later")}
+      </p>`;
     }
     if (!this._spinnerVisible) {
       return nothing;
     }
     return html`<or-loading-indicator
       role="progressbar"
-      aria-label=${translate("loading", "Loading...")}
+      aria-label=${translateWithFallback("loading", "Loading...")}
     ></or-loading-indicator>`;
   }
 }

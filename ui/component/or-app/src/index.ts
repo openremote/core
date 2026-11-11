@@ -23,7 +23,7 @@ import { type AppConfig, type Page, type RealmAppConfig, router } from "./types"
 import "@openremote/or-translate";
 import "@openremote/or-mwc-components/or-mwc-snackbar";
 import "./or-header";
-import "./or-app-loading";
+import { translateWithFallback } from "./or-app-loading";
 import "@openremote/or-icon";
 import { updateMetadata } from "pwa-helpers/metadata";
 import { i18next } from "@openremote/or-translate";
@@ -39,7 +39,11 @@ import manager, {
 } from "@openremote/core";
 import { DEFAULT_LANGUAGES, HeaderConfig } from "./or-header";
 import { OrMwcDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
-import { showErrorDialog } from "@openremote/or-vaadin-components/or-vaadin-confirm-dialog";
+import {
+  getConfirmDialogContent,
+  showConfirmDialog,
+  showErrorDialog,
+} from "@openremote/or-vaadin-components/or-vaadin-confirm-dialog";
 import { OrMwcSnackbar, showSnackbar } from "@openremote/or-mwc-components/or-mwc-snackbar";
 import { AnyAction, type Store, type Unsubscribe } from "@reduxjs/toolkit";
 import { type AppStateKeyed, setOffline, setVisibility, updatePage, updateRealm } from "./app";
@@ -72,6 +76,19 @@ export { HeaderConfig, DEFAULT_LANGUAGES };
 export function getDefaultManagerConfig() {
   return normaliseConfig(DEFAULT_MANAGER_CONFIG);
 }
+
+// The English text of each startup error, shown when the translations are missing
+const STARTUP_ERRORS: Record<ORError, [key: string, fallback: string]> = {
+  [ORError.MANAGER_FAILED_TO_LOAD]: ["managerError.MANAGER_FAILED_TO_LOAD", "Could not load the app, try again later"],
+  [ORError.AUTH_FAILED]: ["managerError.AUTH_FAILED", "Could not sign in, try again later"],
+  [ORError.AUTH_TYPE_UNSUPPORTED]: ["managerError.AUTH_TYPE_UNSUPPORTED", "Requested auth type not supported"],
+  [ORError.CONSOLE_ERROR]: ["managerError.CONSOLE_ERROR", "Could not start the console, try again later"],
+  [ORError.EVENTS_CONNECTION_ERROR]: [
+    "managerError.EVENTS_CONNECTION_ERROR",
+    "Could not connect to the manager, try again later",
+  ],
+  [ORError.TRANSLATION_ERROR]: ["managerError.TRANSLATION_ERROR", "Could not load the translations, try again later"],
+};
 
 const DEFAULT_MANAGER_CONFIG: ManagerConfig = {
   managerUrl: MANAGER_URL || "",
@@ -252,35 +269,30 @@ export class OrApp<S extends AppStateKeyed> extends OrElement {
     }
     console.info("Initialising the manager");
 
-    const showStartupError = (host: Node, message: string) => {
-      this._startupFailure = "error";
-      showErrorDialog(host, message);
-    };
-
     manager.init(managerConfig).then(async (success) => {
       if (success) {
         this.doAppConfigInit();
 
         if (!this.appConfig) {
-          showStartupError(document.body, "appError.noConfig");
+          this._showStartupError(document.body, "appError.noConfig", "No app config provided");
           console.error("No AppConfig supplied");
           return;
         }
 
         if (!this._config) {
-          showStartupError(document.body, "appError.noConfig");
+          this._showStartupError(document.body, "appError.noConfig", "No app config provided");
           console.error("No default AppConfig or realm specific config provided so cannot render");
           return;
         }
 
         if (!this._store) {
-          showStartupError(document.body, "appError.noReduxStore");
+          this._showStartupError(document.body, "appError.noReduxStore", "No Redux store provided");
           console.error("No Redux store supplied");
           return;
         }
 
         if (!this.appConfig.pages || Object.keys(this.appConfig.pages).length === 0) {
-          showStartupError(document.body, "appError.noPages");
+          this._showStartupError(document.body, "appError.noPages", "No pages provided");
           console.error("No page providers");
           return;
         }
@@ -335,10 +347,30 @@ export class OrApp<S extends AppStateKeyed> extends OrElement {
         router.resolve();
       } else if (manager.error === ORError.MANAGER_FAILED_TO_LOAD) {
         this._startupFailure = "unreachable";
-      } else {
-        showStartupError(this.shadowRoot!, manager.isError ? "managerError." + manager.error : "");
+      } else if (manager.error) {
+        this._showStartupError(this.shadowRoot!, ...STARTUP_ERRORS[manager.error]);
       }
+      // Without an error, the page is on its way to the login page
     });
+  }
+
+  protected _showStartupError(host: Node, key: string, fallback: string) {
+    this._startupFailure = "error";
+    showConfirmDialog(
+      host,
+      html`
+        <or-vaadin-confirm-dialog>
+          ${getConfirmDialogContent(
+            "error tertiary",
+            html`${translateWithFallback("errorOccurred", "An error has occurred")}`,
+            html`${translateWithFallback(key, fallback)}`,
+            html`<or-vaadin-button theme="error tertiary" slot="confirm-button">
+              ${translateWithFallback("close", "Close")}
+            </or-vaadin-button>`
+          )}
+        </or-vaadin-confirm-dialog>
+      `
+    );
   }
 
   protected updated(changedProps: PropertyValues) {
