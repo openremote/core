@@ -24,6 +24,7 @@ import "@openremote/or-translate";
 import "@openremote/or-mwc-components/or-mwc-snackbar";
 import "./or-header";
 import { translateWithFallback } from "./or-app-loading";
+import { getManagerConfig } from "./config";
 import "@openremote/or-icon";
 import { updateMetadata } from "pwa-helpers/metadata";
 import { i18next } from "@openremote/or-translate";
@@ -32,7 +33,6 @@ import manager, {
   DefaultColor3,
   DefaultColor4,
   type Manager,
-  normaliseConfig,
   ORError,
   OREvent,
   Util,
@@ -53,7 +53,7 @@ import {
   dialogRenderer,
   type OrVaadinDialog,
 } from "@openremote/or-vaadin-components/or-vaadin-dialog";
-import { Auth, type ManagerConfig, type Realm } from "@openremote/model";
+import type { ManagerConfig, Realm } from "@openremote/model";
 import { pageOfflineProvider } from "./page-offline";
 import { ifDefined } from "lit/directives/if-defined.js";
 
@@ -65,17 +65,10 @@ export { AnyAction };
 export * from "./app";
 export * from "./or-header";
 export * from "./or-app-loading";
+export * from "./config";
 export * from "./types";
 
-// Declare MANAGER_URL and KEYCLOAK_URL - Global var injected by webpack
-declare const MANAGER_URL: string | undefined;
-declare const KEYCLOAK_URL: string | undefined;
-
 export { HeaderConfig, DEFAULT_LANGUAGES };
-
-export function getDefaultManagerConfig() {
-  return normaliseConfig(DEFAULT_MANAGER_CONFIG);
-}
 
 // The English text of each startup error, shown when the translations are missing
 const STARTUP_ERRORS: Record<ORError, [key: string, fallback: string]> = {
@@ -88,16 +81,6 @@ const STARTUP_ERRORS: Record<ORError, [key: string, fallback: string]> = {
     "Could not connect to the manager, try again later",
   ],
   [ORError.TRANSLATION_ERROR]: ["managerError.TRANSLATION_ERROR", "Could not load the translations, try again later"],
-};
-
-const DEFAULT_MANAGER_CONFIG: ManagerConfig = {
-  managerUrl: MANAGER_URL || "",
-  keycloakUrl: KEYCLOAK_URL || "",
-  auth: Auth.KEYCLOAK,
-  autoLogin: true,
-  realm: undefined,
-  consoleAutoEnable: true,
-  loadTranslations: ["or"],
 };
 
 @customElement("or-app")
@@ -255,16 +238,7 @@ export class OrApp<S extends AppStateKeyed> extends OrElement {
   protected firstUpdated(_changedProperties: Map<PropertyKey, unknown>): void {
     super.firstUpdated(_changedProperties);
 
-    const managerConfig: ManagerConfig = this.managerConfig
-      ? { ...DEFAULT_MANAGER_CONFIG, ...this.managerConfig }
-      : DEFAULT_MANAGER_CONFIG;
-    if (!managerConfig.realm) {
-      // Use realm query parameter if no specific realm provided
-      managerConfig.realm = Util.getQueryParameter("realm");
-    }
-    if (!managerConfig.defaultLanguage) {
-      managerConfig.defaultLanguage = Util.getBrowserLanguage();
-    }
+    const managerConfig = getManagerConfig(this.managerConfig);
     console.info("Initialising the manager");
 
     const started = manager.init(managerConfig).then(async (success) => {
