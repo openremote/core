@@ -324,6 +324,7 @@ export class Manager implements EventProviderFactory {
   private _consoleAppConfig?: ConsoleAppConfig;
   private _events?: EventProvider;
   private _displayRealm?: string;
+  private _signedIn?: Promise<boolean>;
 
   public isManagerSameOrigin(): boolean {
     if (!this.ready) {
@@ -353,10 +354,24 @@ export class Manager implements EventProviderFactory {
     }
   }
 
+  /**
+   * Loads the manager info and signs in, the part of {@link init} a page needs before it loads the app. Never rejects:
+   * a failure resolves `false` and sets {@link error}, and `false` without an error means the page is on its way to
+   * the login page. A later {@link init} continues from here, with the config given here.
+   */
+  public signIn(config: ManagerConfig): Promise<boolean> {
+    this._signedIn ??= this._settle(() => this.doSignIn(config));
+    return this._signedIn;
+  }
+
   /** Never rejects: a failure resolves `false` and sets {@link error} */
-  public async init(config: ManagerConfig): Promise<boolean> {
+  public init(config: ManagerConfig): Promise<boolean> {
+    return this._settle(() => this.doInit(config));
+  }
+
+  protected async _settle(step: () => Promise<boolean>): Promise<boolean> {
     try {
-      return await this.doInit(config);
+      return await step();
     } catch (e) {
       console.error("Failed to initialise the manager", e);
       this._setError(ORError.MANAGER_FAILED_TO_LOAD);
@@ -364,7 +379,7 @@ export class Manager implements EventProviderFactory {
     }
   }
 
-  protected async doInit(config: ManagerConfig): Promise<boolean> {
+  protected async doSignIn(config: ManagerConfig): Promise<boolean> {
     if (this._config) {
       console.debug("Already initialised");
     }
@@ -375,8 +390,6 @@ export class Manager implements EventProviderFactory {
     if (!(await this.loadManagerInfo())) {
       return false;
     }
-
-    let success = true;
 
     // Create console as we need to access storage during auth
     const orConsole = new Console(this._config.realm!, this._config.consoleAutoEnable!, () => {
@@ -423,16 +436,18 @@ export class Manager implements EventProviderFactory {
       // Normalise by stripping any trailing slashes
       this._config.keycloakUrl = this._config.keycloakUrl.replace(/\/+$/, "");
 
-      success = await this.doAuthInit();
+      return this.doAuthInit();
     }
 
-    if (!success) {
+    return true;
+  }
+
+  protected async doInit(config: ManagerConfig): Promise<boolean> {
+    if (!(await this.signIn(config))) {
       return false;
     }
 
-    if (success) {
-      success = this.doRestApiInit();
-    }
+    let success = this.doRestApiInit();
 
     // Only the translations decide whether the app can start, and they read the language the console stored
     const [translateSuccess] = await Promise.all([
