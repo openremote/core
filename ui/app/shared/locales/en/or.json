@@ -322,6 +322,7 @@
   "linkedUsers": "Linked users",
   "setup": "Setup",
   "selectFile": "Select file",
+  "selectAgent": "Select an agent",
   "file": "File",
   "discoverAssets": "Discover assets",
   "discovering": "Discovering",
@@ -1305,6 +1306,9 @@
               },
               "writeValueFilters": {
                 "description": "Similar to valueFilter but will be applied to outgoing values allowing for inverse filtering."
+              },
+              "id": {
+                "label": "Agent ID"
               }
             }
           }
@@ -1332,6 +1336,13 @@
                 }
               }
             }
+          },
+          "modbus": {
+            "ModbusAgentLink": {
+              "unitId": {
+                "label": "Unit ID"
+              }
+            }
           }
         }
       }
@@ -1356,6 +1367,10 @@
     "back": "Back",
     "next": "Next",
     "json": "JSON",
+    "parametersDescription": "Choose which Agent Link parameter values to use",
+    "parametersHeading": "{{type}} parameters",
+    "unknownAgent": "The template's agent does not exist here. Pick another one.",
+    "noAgentOfType": "There is no agent for a {{type}} yet. Add one to continue; this list updates once it exists.",
     "forbidden": "You are not allowed to import a configuration template into this asset.",
     "failure": {
       "INVALID_JSON": "The selected file does not hold valid JSON.",

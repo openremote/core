@@ -23,12 +23,21 @@ import manager, { Util } from "@openremote/core";
 import {
   AssetModelUtil,
   WellknownMetaItems,
+  WellknownValueTypes,
+  type Agent,
+  type AgentDescriptor,
   type Asset,
   type Attribute,
   type ConfigurationTemplateImportPreview,
   type ValueConstraint,
   type ValueFormat,
 } from "@openremote/model";
+import {
+  addAgentsChangedListener,
+  getAgentOptions,
+  jsonFormsAttributeRenderers,
+  loadAgents,
+} from "@openremote/or-attribute-input";
 import { i18next } from "@openremote/or-translate";
 import "@openremote/or-icon";
 import "@openremote/or-translate";
@@ -37,6 +46,7 @@ import "@openremote/or-vaadin-components/or-vaadin-badge";
 import "@openremote/or-vaadin-components/or-vaadin-button";
 import "@openremote/or-vaadin-components/or-vaadin-checkbox";
 import "@openremote/or-vaadin-components/or-vaadin-dialog";
+import "@openremote/or-vaadin-components/or-vaadin-select";
 import "@openremote/or-vaadin-components/or-vaadin-text-field";
 import type { OrVaadinButton } from "@openremote/or-vaadin-components/or-vaadin-button";
 import type { OrVaadinCheckbox } from "@openremote/or-vaadin-components/or-vaadin-checkbox";
@@ -58,6 +68,39 @@ interface ConfigurationItem {
   value?: string;
   /** The value as formatted JSON, for a value that is an object. */
   json?: string;
+}
+
+/** The part of a JSON schema that the dialogs read. */
+interface ParameterSchema {
+  title?: string;
+  i18n?: string;
+  required?: string[];
+  properties?: { [property: string]: ParameterSchema & { templateParameter?: boolean } };
+  definitions?: { [name: string]: ParameterSchema };
+}
+
+/**
+ * A field of an agent link that the agent link schema marks as a template parameter. Fields of the same agent link
+ * type holding the same value share one parameter, which applies its value to all of their attributes.
+ */
+interface SharedParameter {
+  property: string;
+  schema: ParameterSchema;
+  required: boolean;
+  /** The value the template holds, which the parameter starts with. */
+  templateValue: unknown;
+  value: unknown;
+  valid: boolean;
+  attributes: Attribute<any>[];
+  /** The data of the JSON Forms input, kept so that a dialog update does not reset it. */
+  data?: { [property: string]: unknown };
+}
+
+/** The shared parameters of one agent link type. */
+interface ParameterGroup {
+  linkType: string;
+  title: string;
+  parameters: SharedParameter[];
 }
 
 const DIALOG_WIDTH = "550px";
@@ -220,6 +263,47 @@ const dialogStyle = html`
       align-items: center;
       justify-content: space-between;
       width: 100%;
+    }
+    .ac-group {
+      display: flex;
+      flex-direction: column;
+      gap: var(--lumo-space-m);
+      background-color: var(--lumo-contrast-5pct);
+      border-radius: var(--lumo-border-radius-l);
+      padding: var(--lumo-space-m);
+    }
+    .ac-group-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: var(--lumo-font-size-l);
+      font-weight: 600;
+      color: var(--lumo-body-text-color);
+      cursor: pointer;
+    }
+    .ac-group-details {
+      display: none;
+      flex-direction: column;
+      gap: var(--lumo-space-s);
+    }
+    .ac-expanded > .ac-group-details {
+      display: flex;
+    }
+    .ac-parameter {
+      display: flex;
+      flex-direction: column;
+      gap: var(--lumo-space-s);
+      background-color: var(--lumo-base-color);
+      border-radius: var(--lumo-border-radius-m);
+      padding: var(--lumo-space-m);
+    }
+    .ac-parameter or-vaadin-select {
+      width: 100%;
+    }
+    .ac-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--lumo-space-xs);
     }
   </style>
 `;
@@ -456,19 +540,24 @@ async function previewImport(
       draft: asset,
       document: configuration,
     });
-    showImportPreviewDialog(host, asset, fileName, configuration, response.data, onImported, onBack);
+    const parameters = await getParameterGroups(asset, response.data);
+    showImportPreviewDialog(host, asset, fileName, configuration, response.data, parameters, onImported, onBack);
   } catch (error) {
     showImportFailureDialog(host, asset, configuration, error);
   }
 }
 
-/** Reports what the import would change and warns that it overwrites the metadata of matched attributes. */
+/**
+ * Reports what the import would change and warns that it overwrites the metadata of matched attributes. With
+ * parameters, the import continues on the parameter step.
+ */
 function showImportPreviewDialog(
   host: Node,
   asset: Asset,
   fileName: string,
   configuration: string,
   preview: ConfigurationTemplateImportPreview,
+  parameters: ParameterGroup[],
   onImported: (attributes: AssetAttributes) => void,
   onBack: () => void
 ) {
@@ -526,7 +615,122 @@ function showImportPreviewDialog(
                 theme="primary"
                 @click=${() => {
                   dialog?.close();
-                  onImported(patchedAttributes);
+                  if (parameters.length > 0) {
+                    showImportParametersDialog(host, asset, fileName, preview, parameters, onImported, () =>
+                      showImportPreviewDialog(
+                        host,
+                        asset,
+                        fileName,
+                        configuration,
+                        preview,
+                        parameters,
+                        onImported,
+                        onBack
+                      )
+                    );
+                  } else {
+                    onImported(patchedAttributes);
+                  }
+                }}
+              >
+                <or-translate
+                  value=${parameters.length > 0 ? "configurationTemplate.next" : "configurationTemplate.import"}
+                ></or-translate>
+              </or-vaadin-button>
+            </div>
+          `
+        )}
+      ></or-vaadin-dialog>
+    `
+  );
+}
+
+/**
+ * Asks for the value of each shared parameter, prefilled from the template, and applies them to the patched
+ * attributes. Agent ids only offer agents of their link type, and the import is blocked while a value is missing or
+ * invalid, including while no agent of a needed type exists.
+ */
+function showImportParametersDialog(
+  host: Node,
+  asset: Asset,
+  fileName: string,
+  preview: ConfigurationTemplateImportPreview,
+  groups: ParameterGroup[],
+  onImported: (attributes: AssetAttributes) => void,
+  onBack: () => void
+) {
+  const parameters = groups.flatMap((group) => group.parameters);
+  const importBtn: Ref<OrVaadinButton> = createRef();
+  let agents: Agent[] | undefined;
+
+  const updateImportBtn = () => {
+    if (importBtn.value) {
+      importBtn.value.disabled = !agents || !parameters.every((parameter) => parameter.valid);
+    }
+  };
+
+  const refreshAgents = async () => {
+    agents = [...(await loadAgents())];
+    groups.forEach((group) =>
+      group.parameters
+        .filter((parameter) => isAgentIdParameter(parameter))
+        .forEach((parameter) => resolveAgentId(parameter, getAgentsOfLinkType(agents!, group.linkType)))
+    );
+    dialog?.requestContentUpdate();
+    updateImportBtn();
+  };
+
+  const dialog = showDialog(
+    host,
+    html`
+      <or-vaadin-dialog
+        width=${DIALOG_WIDTH}
+        ${dialogHeaderRenderer(() => getHeaderTemplate("configurationTemplate.importHeading", () => dialog?.close()))}
+        ${dialogRenderer(
+          () => html`
+            ${dialogStyle}
+            <div class="ac-body">
+              <span class="ac-file-name">${fileName}</span>
+              <or-translate value="configurationTemplate.parametersDescription"></or-translate>
+              ${groups.map(
+                (group) => html`
+                  <div class="ac-group ac-expanded">
+                    <div class="ac-group-header" @click=${toggleExpanded}>
+                      <span>${i18next.t("configurationTemplate.parametersHeading", { type: group.title })}</span>
+                      <or-vaadin-button class="ac-expander" theme="tertiary icon">
+                        <or-icon icon="chevron-up"></or-icon>
+                      </or-vaadin-button>
+                    </div>
+                    <div class="ac-group-details">
+                      ${group.parameters.map((parameter) =>
+                        getParameterTemplate(asset, group, parameter, agents, updateImportBtn)
+                      )}
+                    </div>
+                  </div>
+                `
+              )}
+            </div>
+          `
+        )}
+        ${dialogFooterRenderer(
+          () => html`
+            <div class="ac-dialog-actions">
+              <or-vaadin-button
+                theme="tertiary contrast"
+                @click=${() => {
+                  dialog?.close();
+                  onBack();
+                }}
+              >
+                <or-translate value="configurationTemplate.back"></or-translate>
+              </or-vaadin-button>
+              <or-vaadin-button
+                theme="primary"
+                ?disabled=${!agents || !parameters.every((parameter) => parameter.valid)}
+                ${ref(importBtn)}
+                @click=${() => {
+                  dialog?.close();
+                  onImported(applyParameters((preview.patchedAttributes || {}) as AssetAttributes, parameters));
                 }}
               >
                 <or-translate value="configurationTemplate.import"></or-translate>
@@ -537,6 +741,209 @@ function showImportPreviewDialog(
       ></or-vaadin-dialog>
     `
   );
+
+  // Agents added or removed elsewhere, such as in another tab, update the options while the step is open
+  const removeListener = addAgentsChangedListener(() => refreshAgents());
+  dialog?.addEventListener("closed", () => removeListener());
+  refreshAgents();
+}
+
+/** The input of a shared parameter, with the attributes it applies to. */
+function getParameterTemplate(
+  asset: Asset,
+  group: ParameterGroup,
+  parameter: SharedParameter,
+  agents: Agent[] | undefined,
+  onChange: () => void
+): TemplateResult {
+  const label = fieldLabel(parameter.property, parameter.schema);
+
+  return html`
+    <div class="ac-parameter">
+      <div class="ac-badges">
+        ${parameter.attributes.map((attribute) => html`<or-vaadin-badge>${attributeLabel(asset, attribute)}</or-vaadin-badge>`)}
+      </div>
+      ${
+        isAgentIdParameter(parameter)
+          ? getAgentIdTemplate(group, parameter, label, agents, onChange)
+          : getJsonFormsTemplate(parameter, label, onChange)
+      }
+    </div>
+  `;
+}
+
+/** Picks one of the agents of the link type, the only agents that can resolve the other fields of the link. */
+function getAgentIdTemplate(
+  group: ParameterGroup,
+  parameter: SharedParameter,
+  label: string,
+  agents: Agent[] | undefined,
+  onChange: () => void
+): TemplateResult {
+  const options = agents ? getAgentOptions(getAgentsOfLinkType(agents, group.linkType)) : [];
+  const noAgentOfType = !!agents && options.length === 0;
+  // Only while no agent is picked, as the field is required
+  const unknownAgent =
+    !!agents &&
+    parameter.templateValue !== undefined &&
+    !options.some(([id]) => id === parameter.templateValue || id === parameter.value);
+  let errorMessage = "";
+
+  if (noAgentOfType) {
+    errorMessage = i18next.t("configurationTemplate.noAgentOfType", { type: group.title });
+  } else if (unknownAgent) {
+    errorMessage = i18next.t("configurationTemplate.unknownAgent");
+  }
+
+  return html`
+    <or-vaadin-select
+      label=${label}
+      required
+      placeholder=${i18next.t("selectAgent")}
+      ?disabled=${!agents || noAgentOfType}
+      .invalid=${!!errorMessage}
+      .errorMessage=${errorMessage}
+      .items=${options.map(([value, optionLabel]) => ({ value, label: optionLabel }))}
+      .value=${live((parameter.value as string | undefined) ?? "")}
+      @value-changed=${(ev: CustomEvent<{ value: string }>) => {
+        parameter.value = ev.detail.value || undefined;
+        parameter.valid = options.some(([id]) => id === parameter.value);
+        onChange();
+      }}
+    ></or-vaadin-select>
+  `;
+}
+
+/** Renders the field with JSON Forms from its schema, which also validates the value. */
+function getJsonFormsTemplate(parameter: SharedParameter, label: string, onChange: () => void): TemplateResult {
+  parameter.data ??= parameter.value === undefined ? {} : { [parameter.property]: parameter.value };
+
+  return html`
+    <or-json-forms
+      .renderers=${jsonFormsAttributeRenderers}
+      .schema=${{
+        type: "object",
+        properties: { [parameter.property]: parameter.schema },
+        required: parameter.required ? [parameter.property] : [],
+      }}
+      .uischema=${{ type: "Control", scope: `#/properties/${parameter.property}`, label }}
+      .data=${parameter.data}
+      .onChange=${({ data, errors }: { data?: { [property: string]: unknown }; errors?: unknown[] }) => {
+        parameter.data = data;
+        parameter.value = data?.[parameter.property];
+        parameter.valid = !errors?.length;
+        onChange();
+      }}
+    ></or-json-forms>
+  `;
+}
+
+/**
+ * The shared parameters of the agent links of the importable attributes, grouped by agent link type in order of
+ * appearance. Every field the agent link schema marks as a template parameter becomes one, and fields of the same type
+ * holding the same value share it.
+ */
+async function getParameterGroups(
+  asset: Asset,
+  preview: ConfigurationTemplateImportPreview
+): Promise<ParameterGroup[]> {
+  const patchedAttributes = (preview.patchedAttributes || {}) as AssetAttributes;
+  const links = (preview.importableAttributes || [])
+    .map((summary) => ({ ...patchedAttributes[summary.name!], name: summary.name }))
+    .map((attribute) => ({ attribute, link: attribute.meta?.[WellknownMetaItems.AGENTLINK] }))
+    .filter(({ link }) => typeof link?.type === "string");
+
+  if (links.length === 0) {
+    return [];
+  }
+
+  const definitions = await getAgentLinkSchemas();
+  const groups = new Map<string, ParameterGroup>();
+  const parameters = new Map<string, SharedParameter>();
+
+  links.forEach(({ attribute, link }) => {
+    const definition = definitions[link.type];
+
+    Object.entries(definition?.properties || {})
+      .filter(([property, schema]) => schema.templateParameter && property !== "type")
+      .forEach(([property, schema]) => {
+        const value = link[property] ?? undefined;
+        const key = JSON.stringify([link.type, property, value ?? null]);
+        let parameter = parameters.get(key);
+
+        if (!parameter) {
+          parameter = {
+            property,
+            schema,
+            required: property === "id" || !!definition!.required?.includes(property),
+            templateValue: value,
+            value,
+            valid: true,
+            attributes: [],
+          };
+          parameters.set(key, parameter);
+
+          let group = groups.get(link.type);
+          if (!group) {
+            group = { linkType: link.type, title: fieldLabel(link.type, definition), parameters: [] };
+            groups.set(link.type, group);
+          }
+          group.parameters.push(parameter);
+        }
+
+        parameter.attributes.push(attribute);
+      });
+  });
+
+  // Agent ids before the other fields, as the agent decides what the other fields mean
+  groups.forEach((group) =>
+    group.parameters.sort((a, b) => Number(isAgentIdParameter(b)) - Number(isAgentIdParameter(a)))
+  );
+  return [...groups.values()];
+}
+
+/** The patched attributes with the value of every shared parameter applied to the agent links holding it. */
+function applyParameters(patchedAttributes: AssetAttributes, parameters: SharedParameter[]): AssetAttributes {
+  const attributes = JSON.parse(JSON.stringify(patchedAttributes)) as AssetAttributes;
+
+  parameters.forEach((parameter) =>
+    parameter.attributes.forEach((attribute) => {
+      const link = attributes[attribute.name!]?.meta?.[WellknownMetaItems.AGENTLINK];
+
+      if (!link) {
+        return;
+      }
+      if (parameter.value === undefined || parameter.value === null || parameter.value === "") {
+        delete link[parameter.property];
+      } else {
+        link[parameter.property] = parameter.value;
+      }
+    })
+  );
+
+  return attributes;
+}
+
+function isAgentIdParameter(parameter: SharedParameter): boolean {
+  return parameter.property === "id";
+}
+
+/** The agents whose agent links have the given type. */
+function getAgentsOfLinkType(agents: Agent[], linkType: string): Agent[] {
+  return agents.filter(
+    (agent) =>
+      (AssetModelUtil.getAssetDescriptor(agent.type) as AgentDescriptor | undefined)?.agentLinkType === linkType
+  );
+}
+
+/** Keeps the picked agent while it is one of the given agents, and otherwise falls back to the template's agent. */
+function resolveAgentId(parameter: SharedParameter, agents: Agent[]) {
+  const isOption = (id: unknown) => agents.some((agent) => agent.id === id);
+
+  if (!isOption(parameter.value)) {
+    parameter.value = isOption(parameter.templateValue) ? parameter.templateValue : undefined;
+  }
+  parameter.valid = isOption(parameter.value);
 }
 
 /** Reports a document that cannot be imported, with whatever the server could tell about it. */
@@ -776,4 +1183,19 @@ function getNames(names: string[]): string {
 /** Shows or hides the formatted JSON of a configuration item. */
 function toggleJson(ev: Event) {
   (ev.currentTarget as HTMLElement).closest(".ac-item")?.classList.toggle("ac-json-shown");
+}
+
+/** The label of a schema field, translated through the i18n key its JSON Schema annotations give it. */
+function fieldLabel(property: string, schema?: ParameterSchema): string {
+  const defaultValue = schema?.title || Util.camelCaseToSentenceCase(property);
+  const key = schema?.i18n ? `${schema.i18n}.label` : undefined;
+  return (key && (i18next.t(key, { defaultValue }) || i18next.t(key, { defaultValue, lng: "en" }))) || defaultValue;
+}
+
+/** The JSON schema of every agent link type, keyed by link type. */
+async function getAgentLinkSchemas(): Promise<{ [linkType: string]: ParameterSchema }> {
+  const response = await manager.rest.api.AssetModelResource.getValueDescriptorSchema({
+    name: WellknownValueTypes.AGENTLINK,
+  });
+  return (response.data as ParameterSchema).definitions || {};
 }
