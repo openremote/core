@@ -2,7 +2,7 @@ plugins {
   id 'java-library'
 }
 
-var setupJar = project.hasProperty("SETUP_JAR") ? project.property("SETUP_JAR") : ""
+var setupJar = project.hasProperty("SETUP_JAR") ? project.property("SETUP_JAR") : "config-template"
 
 base {
   archivesName = "openremote-${setupJar}-${project.name}"
