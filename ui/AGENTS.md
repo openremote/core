@@ -9,6 +9,10 @@ Every package writes its output to its own `build/` dir, so a single Gradle `cle
 The UI build applies the `base` plugin to all UI projects, supplying `clean`, `assemble`, `check`, and `build`. Do not register another `clean`. UI `npmBuild` and `npmAnalyze` tasks participate in `assemble`, and `npmTest` tasks participate in `check`. Use `installDist` only to copy application resources into the manager distribution.
 
 Run all UI tests with `./gradlew testUi`, component tests with `./gradlew testUiComponent`, or app end-to-end tests with `./gradlew testUiApp`. Individual module tasks retain `npmTest`, alongside `npmBuild`; for example, `./gradlew :ui:component:or-element:npmTest` runs one component package's tests.
+App test tasks automatically prepare the Manager, Manager UI, and shared UI distributions.
+Component test tasks prepare only generated TypeScript sources and shared icon fonts.
+Pass `-PreuseUiTestArtifacts=true` to reuse outputs that were built or downloaded earlier, as in CI.
+Preparation is enabled by default in every environment, including GitHub Actions.
 
 Anything a package references relative to its own emitted files must survive the extra `build/lib` nesting. Reach assets through a package self-reference resolved by an `exports` subpath, not a path relative to the output dir, so the same specifier works from `src` and from the compiled output.
 
@@ -116,7 +120,7 @@ Stories call `getORStorybookHelpers(tagName)` (from `ui/component/storybook-util
 
 ### App tests
 
-- **Compilation:** Run `./gradlew clean installDist` after making changes to the UI source code to ensure they are applied before testing.
+- **Compilation:** Gradle `npmTest` tasks prepare the required distributions automatically unless `-PreuseUiTestArtifacts=true` is set. When invoking tests directly through Yarn or npm, run `./gradlew installDist` first.
 - **Location:** Define tests in `ui/app/<app-name>/test/`. Define fixtures in `ui/app/<app-name>/test/fixtures/`.
 - **Comments:** Add scenario comments above tests (`@given`, `@when`, `@then`, `@and`) based on the acceptance criteria.
 - **Auth State:** Select correct `storageState` for the task to be tested. Use `adminStatePath` for master/admin tasks. Use `userStatePath` for regular realm user tasks.

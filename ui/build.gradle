@@ -9,6 +9,10 @@ plugins {
 abstract class TypeScriptOutputLock implements BuildService<BuildServiceParameters.None> {}
 
 def generatedUiSources = [':ui:component:model:generateTypeScript', ':ui:component:rest:generateTypeScript']
+def uiTestDistTasks = [':manager:installDist', ':ui:app:manager:installDist', ':ui:app:shared:installDist']
+def reuseUiTestArtifacts = providers.gradleProperty('reuseUiTestArtifacts').map {
+  it.toBoolean()
+}.getOrElse(false)
 
 // Each tsc -b or ts-loader process builds its own reference graph. For example,
 // core can compile model while model's own npmBuild runs tsc -b --force.
@@ -66,12 +70,19 @@ subprojects { uiProject ->
   def npmTestTasks = tasks.matching { it.name == 'npmTest' }
   npmTestTasks.configureEach {
     mustRunAfter generatedUiSources
+    mustRunAfter uiTestDistTasks
+    // CI can reuse outputs downloaded or built earlier in the job.
+    if (!reuseUiTestArtifacts) {
+      if (uiProject.path.startsWith(':ui:component:')) {
+        dependsOn generatedUiSources, ':ui:component:or-icon:prepareFonts'
+      } else if (uiProject.path.startsWith(':ui:app:')) {
+        dependsOn uiTestDistTasks
+      }
+    }
   }
 
   tasks.named('check') {
     dependsOn npmTestTasks
-    // Standalone test tasks can reuse CI artifacts; check also prepares generated sources.
-    dependsOn { npmTestTasks.empty ? [] : generatedUiSources }
   }
 }
 

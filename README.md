@@ -112,7 +112,10 @@ For targeted test runs:
 
 UI modules retain `npmTest`, alongside `npmBuild`, for individual package tests, e.g. `./gradlew :ui:component:or-element:npmTest`.
 Backend integration tests and UI app tests require the PostgreSQL and Keycloak stack described above.
-UI tests also require the Playwright browser. Before standalone UI tests, prepare the runnable distribution with `./gradlew installDist` if it is not already available.
+UI tests also require the Playwright browser.
+Gradle app test tasks automatically prepare the Manager, Manager UI, and shared UI distributions.
+Component test tasks prepare generated TypeScript sources and shared icon fonts without building the Manager application.
+CI jobs that already have build outputs pass `-PreuseUiTestArtifacts=true` to skip this preparation and reuse those outputs.
 Both `check` and `build` include the complete test sequence as well as the other verification checks.
 
 UI compiler tasks coordinate access to shared TypeScript outputs, and Knip waits for scheduled writers to finish. See [Parallel UI tasks](ui/AGENTS.md#parallel-ui-tasks) for the reasons and concurrency limits. Run `./gradlew :ui:testUiLocks` or `yarn test:ui-locks` to verify this coordination without starting backend services or a browser.

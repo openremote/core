@@ -53,7 +53,10 @@ UI module tasks retain the `npmTest` name alongside `npmBuild`; for example, `./
 
 Backend integration tests and UI app tests require PostgreSQL and Keycloak. Start them with `docker compose -f profile/dev-testing.yml -p openremote up -d --no-build`.
 
-The same stack is required for `check` and `build`. Install the Playwright browser once with `./gradlew :ui:test:installBrowsers` before running UI tests. The verification lifecycle prepares the manager and UI distribution required by UI app tests; before standalone UI tests, run `./gradlew installDist` if the distribution is not already available.
+The same stack is required for `check` and `build`. Install the Playwright browser once with `./gradlew :ui:test:installBrowsers` before running UI tests.
+Gradle app test tasks, including individual `npmTest` tasks, automatically prepare the Manager, Manager UI, and shared UI distributions.
+Component test tasks prepare generated TypeScript sources and shared icon fonts without building the Manager application.
+Pass `-PreuseUiTestArtifacts=true` only when the required outputs have already been built or downloaded, as in the CI jobs that reuse Install Dist artifacts.
 
 Spock snapshots are stored under `model/src/test/resources/snapshots`. Rewrite them with `./gradlew :model:test -PupdateSnapshots` and review the resulting diff, since a mismatch is only reported as a test failure otherwise.
 

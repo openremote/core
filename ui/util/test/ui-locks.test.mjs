@@ -65,14 +65,16 @@ tasks.register('npmBuild') {
 }
 `;
 
-function fixture(t, modules, writers, expectDeclaration = false) {
+function fixture(t, modules, writers, { expectDeclaration = false, environment = {} } = {}) {
   const root = mkdtempSync(join(tmpdir(), "openremote-ui-locks-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const projects = { model: {}, rest: {}, ...modules };
+  const projects = { model: {}, rest: {}, "or-icon": { script: "tasks.register('prepareFonts')" }, ...modules };
   write(
     root,
     "settings.gradle",
-    `rootProject.name = 'ui-concurrency-tests'\ninclude ':ui'\n${Object.keys(projects)
+    `rootProject.name = 'ui-concurrency-tests'\ninclude ':ui', ':manager', ':ui:app:manager', ':ui:app:shared'\n${Object.keys(
+      projects
+    )
       .map((name) => `include ':ui:component:${name}'`)
       .join("\n")}\n`
   );
@@ -96,6 +98,14 @@ project(':ui') {
   );
   mkdirSync(join(root, "ui"));
   copyFileSync(join(repository, "ui/build.gradle"), join(root, "ui/build.gradle"));
+  for (const path of ["manager", "ui/app/shared"]) {
+    write(root, `${path}/build.gradle`, "tasks.register('installDist')\n");
+  }
+  write(
+    root,
+    "ui/app/manager/build.gradle",
+    "tasks.register('npmBuild')\ntasks.register('installDist') { dependsOn 'npmBuild' }\ntasks.register('npmTest')\n"
+  );
   for (const [name, { references = [], script = "" }] of Object.entries(projects)) {
     write(
       root,
@@ -138,7 +148,12 @@ writeFileSync('knip-ran', 'checked');
       const result = spawnSync(
         process.platform === "win32" ? "cmd.exe" : wrapper,
         process.platform === "win32" ? ["/c", wrapper, ...args] : args,
-        { cwd: repository, encoding: "utf8", timeout: 120_000 }
+        {
+          cwd: repository,
+          encoding: "utf8",
+          timeout: 120_000,
+          env: { ...process.env, GITHUB_ACTIONS: "false", ...environment },
+        }
       );
       assert.ifError(result.error);
       assert.equal(result.status, 0, result.stdout + result.stderr);
@@ -162,7 +177,7 @@ test("should serialize overlapping compiler outputs while allowing independent b
   assert.equal(existsSync(join(project.root, "independent-overlap")), true);
 });
 
-test("should serialize test compilers with shared transitive references without scheduling builds", (t) => {
+test("should serialize test compilers with shared transitive references while reusing artifacts", (t) => {
   const project = fixture(
     t,
     {
@@ -172,7 +187,7 @@ test("should serialize test compilers with shared transitive references without 
     },
     [":ui:component:alpha:npmTest", ":ui:component:beta:npmTest"]
   );
-  const output = project.run("writers");
+  const output = project.run("writers", "-PreuseUiTestArtifacts=true");
   assert.doesNotMatch(output, /:npmBuild/);
 });
 
@@ -184,10 +199,76 @@ test("should run Knip after scheduled declaration writers", (t) => {
       core: { references: ["model"], script: compiler("npmTest") },
     },
     [":ui:component:model:npmBuild", ":ui:component:core:npmTest", ":ui:knip"],
-    true
+    { expectDeclaration: true }
   );
   project.run("writers");
   assert.equal(existsSync(join(project.root, "knip-ran")), true);
+});
+
+test("should prepare component test sources and fonts without building Manager distributions", (t) => {
+  const task = ":ui:component:element:npmTest";
+  const project = fixture(t, { element: { script: "tasks.register('npmTest')" } }, [task]);
+  const output = project.run("writers");
+  // Component tests previously pulled in backend packaging and the Manager UI bundle.
+  assert.doesNotMatch(output, /:(installDist|npmBuild|npmAnalyze)\b/);
+  for (const prerequisite of [
+    ":ui:component:model:generateTypeScript",
+    ":ui:component:rest:generateTypeScript",
+    ":ui:component:or-icon:prepareFonts",
+  ]) {
+    const preparation = output.indexOf(`> Task ${prerequisite}`);
+    assert.notEqual(preparation, -1, output);
+    assert.ok(output.indexOf(`> Task ${task}`) > preparation, output);
+  }
+});
+
+for (const { githubActions, target } of [
+  { githubActions: false, target: "npmTest" },
+  { githubActions: true, target: "check" },
+]) {
+  test(`should prepare app distributions for ${target} with GITHUB_ACTIONS=${githubActions}`, (t) => {
+    const project = fixture(t, {}, [], { environment: { GITHUB_ACTIONS: String(githubActions) } });
+    const output = project.run(`:ui:app:manager:${target}`);
+    for (const distribution of [":manager:installDist", ":ui:app:manager:installDist", ":ui:app:shared:installDist"]) {
+      const preparation = output.indexOf(`> Task ${distribution}`);
+      // Running on GitHub Actions alone previously disabled required app preparation.
+      assert.notEqual(preparation, -1, output);
+      assert.ok(output.indexOf("> Task :ui:app:manager:npmTest") > preparation, output);
+    }
+  });
+}
+
+test("should reuse artifacts for standalone tests and checks only when explicitly requested", (t) => {
+  const project = fixture(t, { element: { script: "tasks.register('npmTest')" } }, [
+    ":ui:component:element:npmTest",
+    ":ui:app:manager:npmTest",
+  ]);
+  for (const targets of [["writers"], [":ui:component:element:check", ":ui:app:manager:check"]]) {
+    const output = project.run(...targets, "-PreuseUiTestArtifacts=true");
+    assert.match(output, /> Task :ui:component:element:npmTest/);
+    assert.match(output, /> Task :ui:app:manager:npmTest/);
+    assert.doesNotMatch(output, /:(installDist|npmBuild|generateTypeScript|prepareFonts)\b/);
+  }
+});
+
+test("should track the artifact reuse property with the configuration cache enabled", (t) => {
+  const project = fixture(t, { element: { script: "tasks.register('npmTest')" } }, [
+    ":ui:component:element:npmTest",
+    ":ui:app:manager:npmTest",
+  ]);
+  const localOutput = project.run("writers", "--configuration-cache", "-PreuseUiTestArtifacts=false");
+  assert.match(localOutput, /> Task :manager:installDist/);
+  assert.match(localOutput, /> Task :ui:component:or-icon:prepareFonts/);
+  assert.match(
+    project.run("writers", "--configuration-cache", "-PreuseUiTestArtifacts=false"),
+    /Reusing configuration cache/
+  );
+  const reuseOutput = project.run("writers", "--configuration-cache", "-PreuseUiTestArtifacts=true");
+  assert.match(reuseOutput, /configuration cache cannot be reused/i);
+  assert.doesNotMatch(reuseOutput, /:(installDist|npmBuild|generateTypeScript|prepareFonts)\b/);
+  const cachedOutput = project.run("writers", "--configuration-cache", "-PreuseUiTestArtifacts=true");
+  assert.match(cachedOutput, /Reusing configuration cache/);
+  assert.doesNotMatch(cachedOutput, /:(installDist|npmBuild|generateTypeScript|prepareFonts)\b/);
 });
 
 test("should run standalone Knip without generating sources or compiling projects", (t) => {

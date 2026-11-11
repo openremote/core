@@ -476,11 +476,11 @@ jobs:
       - name: Define UI component test command
         id: test-ui-components-command
         if: ${{ steps.skip-ui-component-tests.outputs.value != 'true' }}
-        run: echo "value=./gradlew testUiComponent" >> $GITHUB_OUTPUT
+        run: echo "value=./gradlew testUiComponent -PreuseUiTestArtifacts=true" >> $GITHUB_OUTPUT
 
       - name: Define UI app test command
         id: test-ui-apps-command
-        run: echo "value=./gradlew testUiApp" >> $GITHUB_OUTPUT
+        run: echo "value=./gradlew testUiApp -PreuseUiTestArtifacts=true" >> $GITHUB_OUTPUT
 
       - name: Define manager docker build command
         id: manager-docker-command

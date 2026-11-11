@@ -19,7 +19,7 @@ tasks.register('publishUi') {
 }
 
 tasks.register('prepareFonts', Copy) {
-  dependsOn copyMdiFont, npmAnalyze
+  dependsOn copyMdiFont
   from "${layout.buildDirectory.get()}/Material Design Icons"
   into "${project(':ui:app:shared').projectDir}/fonts/Material Design Icons"
 }
