@@ -231,6 +231,8 @@ export class BaseMap {
 
     const options: MapOptions = {
       attributionControl: false,
+      // Overscale all zoom levels past the source's maxzoom, as splitting them loads each parent tile once per child
+      zoomLevelsToOverscale: undefined,
       container: this._mapContainer,
       style: settings as StyleSpecification,
       transformRequest: (url, resourceType) => {

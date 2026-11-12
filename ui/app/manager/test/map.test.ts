@@ -1183,6 +1183,33 @@ test.describe("Geolocate control", () => {
   });
 });
 
+/**
+ * @given The "smartcity" map view zooms in past the highest zoom level of the map tiles
+ * @when Logging in to OpenRemote "smartcity" realm as "smartcity"
+ * @and The map has loaded
+ * @then Each map tile is requested once
+ *
+ * @skip This test is skipped on Firefox because headless mode does not support WebGL required by maplibre
+ */
+test("should request each map tile once", async ({ page, manager, browserName }) => {
+  test.skip(browserName === "firefox", "firefox headless mode does not support webgl required by maplibre");
+
+  const tiles: string[] = [];
+  page.on("request", (request) => {
+    const { pathname } = new URL(request.url());
+    if (pathname.includes("/map/tile/")) tiles.push(pathname);
+  });
+
+  await manager.setup("smartcity");
+  await manager.goToRealmStartPage("smartcity");
+  type MapElement = HTMLElement & { _map?: { _map?: { loaded(): boolean } } };
+  await expect.poll(() => page.locator("or-map").evaluate((el: MapElement) => el._map?._map?.loaded())).toBe(true);
+
+  expect(tiles.length).toBeGreaterThan(0);
+  // Splitting the zoom levels past the tiles' highest one loaded each tile again for every split tile
+  expect(tiles).toEqual([...new Set(tiles)]);
+});
+
 test.afterEach(async ({ manager }) => {
   await manager.cleanUp();
 });
