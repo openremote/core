@@ -340,3 +340,71 @@ test("should update compiler locks when TypeScript references change with the co
   const cachedOutput = project.run("writers", "--configuration-cache");
   assert.match(cachedOutput, /Reusing configuration cache/);
 });
+
+for (const [target, packaging] of [
+  ["prepareUi", "npmPrepare"],
+  ["publishUi", "npmPublish"],
+]) {
+  test(`should retain compiled modules when running ${target}`, (t) => {
+    const project = fixture(
+      t,
+      {
+        rest: {
+          script: `
+def compiledModule = layout.buildDirectory.file('lib/index.js')
+tasks.register('npmBuild') {
+  doLast {
+    def output = compiledModule.get().asFile
+    output.parentFile.mkdirs()
+    output.text = 'complete'
+  }
+}
+tasks.register('${packaging}') {
+  doLast {
+    // Clean previously ran after compilation and removed the module before packaging.
+    assert compiledModule.get().asFile.text == 'complete'
+  }
+}
+tasks.register('${target}') {
+  dependsOn 'clean', 'assemble', '${packaging}'
+}
+`,
+        },
+      },
+      []
+    );
+    project.run(`:ui:component:rest:${target}`);
+    assert.ok(existsSync(join(project.root, "ui/component/rest/build/lib/index.js")));
+  });
+}
+
+test("should coordinate compilers through commented TypeScript references with trailing commas", (t) => {
+  const project = fixture(
+    t,
+    {
+      model: { script: compiler("npmBuild") },
+      rest: { references: ["model"] },
+      core: { references: ["rest"], script: compiler("npmBuild") },
+    },
+    [":ui:component:model:npmBuild", ":ui:component:core:npmBuild"]
+  );
+  for (const [name, reference] of [
+    ["core", "rest"],
+    ["rest", "model"],
+  ]) {
+    write(
+      project.root,
+      `ui/component/${name}/tsconfig.json`,
+      `{
+  // References can include comments and trailing commas.
+  "references": [
+    /* Follow transitive references too. */
+    { "path": "../${reference}" },
+  ],
+}`
+    );
+  }
+  // Strict JSON parsing previously failed before the compiler locks could be configured.
+  project.run("writers", "--configuration-cache");
+  assert.match(project.run("writers", "--configuration-cache"), /Reusing configuration cache/);
+});

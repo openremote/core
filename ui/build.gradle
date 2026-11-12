@@ -1,3 +1,4 @@
+import groovy.json.JsonParserType
 import groovy.json.JsonSlurper
 import org.gradle.api.services.BuildService
 import org.gradle.api.services.BuildServiceParameters
@@ -31,8 +32,9 @@ collectTypeScriptProjects = { File target ->
     def projects = [configFile] as Set
     typeScriptProjects[configFile] = projects
     // Track the file read so reference changes invalidate the configuration cache.
-    def config = new JsonSlurper().parseText(configFile.getText('UTF-8'))
-    config.references?.each { reference ->
+    def config = new JsonSlurper().setType(JsonParserType.LAX).parseText(configFile.getText('UTF-8'))
+    // The LAX parser can produce string entries for trailing commas in arrays.
+    config.references?.findAll { it instanceof Map }?.each { reference ->
       projects.addAll(collectTypeScriptProjects(new File(configFile.parentFile, reference.path)))
     }
   }
@@ -49,6 +51,16 @@ rootProject.allprojects {
 
 subprojects { uiProject ->
   apply plugin: 'base'
+
+  tasks.matching {
+    it.name in ['assemble', 'npmBuild', 'npmAnalyze', 'npmPrepare', 'npmPublish']
+  }.configureEach {
+    mustRunAfter tasks.named('clean')
+  }
+
+  tasks.matching { it.name in ['npmPrepare', 'npmPublish'] }.configureEach {
+    mustRunAfter tasks.named('assemble')
+  }
 
   // npmTest also compiles TypeScript before running Playwright. Gradle cannot
   // infer these shared outputs from Exec commands, so declare exclusive resources
