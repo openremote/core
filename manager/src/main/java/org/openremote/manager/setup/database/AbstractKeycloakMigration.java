@@ -18,7 +18,6 @@
  */
 package org.openremote.manager.setup.database;
 
-import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.UriBuilder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -35,17 +34,25 @@ import org.openremote.manager.security.ManagerKeycloakIdentityProvider;
 import org.openremote.model.Constants;
 import org.openremote.model.auth.OAuthGrant;
 import org.openremote.model.auth.OAuthPasswordGrant;
+import org.openremote.model.util.Config;
 import org.openremote.model.util.TextUtil;
 import org.openremote.model.util.ValueUtil;
 
 /**
  * Base class for Flyway Java migrations that need to interact with the Keycloak Admin API. Provides
- * shared credential resolution ({@link #resolveCredentials()}), a pre-authenticated {@link
- * Keycloak} client ({@link #openKeycloak()}), and the identity-provider guard ({@link
- * #isKeycloakDeployment()}).
+ * a pre-authenticated {@link Keycloak} client ({@link #openKeycloak()}) and the identity-provider
+ * guard ({@link #isKeycloakDeployment()}).
  *
  * <p>All subclasses talk to Keycloak over HTTP rather than through the migration's DB connection,
  * so {@link #canExecuteInTransaction()} returns {@code false}.
+ *
+ * <p>All configuration is read through {@link Config} rather than {@link System#getenv()} so that
+ * migrations resolve it exactly like the rest of the container: {@link Config#init} is called by
+ * the {@code Container} constructor, long before {@code PersistenceService} runs Flyway, so any
+ * runtime overlay (tests, embedded deployments) is already merged over the environment by the time
+ * a migration executes. Reading the environment directly would make a migration disagree with
+ * {@code PersistenceService} about, for example, {@code OR_STORAGE_DIR} and load the wrong
+ * credentials.
  *
  * <p>Subclasses must stay Java migrations and not be converted to {@code .sql} files: Flyway
  * records a {@code BaseJavaMigration} as type JDBC with a null checksum, whereas a {@code .sql}
@@ -59,70 +66,61 @@ public abstract class AbstractKeycloakMigration extends BaseJavaMigration {
 
   protected boolean isKeycloakDeployment() {
     String identityProvider =
-        System.getenv()
-            .getOrDefault(
-                IdentityService.OR_IDENTITY_PROVIDER, IdentityService.OR_IDENTITY_PROVIDER_DEFAULT);
+        Config.getString(
+            IdentityService.OR_IDENTITY_PROVIDER, IdentityService.OR_IDENTITY_PROVIDER_DEFAULT);
     return IdentityService.OR_IDENTITY_PROVIDER_DEFAULT.equals(identityProvider);
   }
 
+  /**
+   * Opens a Keycloak client using the stored manager grant when it is present and still valid,
+   * otherwise using {@code OR_ADMIN_PASSWORD}.
+   *
+   * <p>The stored grant is verified by fetching a token rather than trusted blindly, because it can
+   * be stale through no fault of this deployment: the identity provider rotates the {@code
+   * manager-keycloak} password every time it starts without a grant file, and a keycloak whose
+   * database has been reset loses the user altogether. In both cases the file on disk still parses
+   * but no longer authenticates. {@link KeycloakIdentityProvider#start} recovers from exactly this
+   * by falling back to the admin user, and a migration that runs before it must do the same or
+   * startup dies on a stale file with no way back.
+   */
   protected Keycloak openKeycloak() {
-    OAuthPasswordGrant credentials = resolveCredentials();
-    Keycloak keycloak =
-        Keycloak.getInstance(
-            buildKeycloakUrl(),
-            Constants.MASTER_REALM,
-            credentials.getUsername(),
-            credentials.getPassword(),
-            KeycloakIdentityProvider.ADMIN_CLI_CLIENT_ID);
+    OAuthPasswordGrant stored = loadStoredCredentials();
 
-    try {
-      keycloak.tokenManager().grantToken();
-    } catch (WebApplicationException e) {
-      String msg = "Unknown error";
-      if (e.getResponse().hasEntity()) {
-        msg = e.getResponse().readEntity(String.class);
-        e.getResponse().close();
+    if (stored != null) {
+      Keycloak keycloak = buildKeycloak(stored);
+      try {
+        keycloak.tokenManager().getAccessToken();
+        return keycloak;
+      } catch (Exception e) {
+        LOG.warning(
+            "Stored keycloak credentials were rejected ("
+                + e.getMessage()
+                + "); falling back to "
+                + IdentityProvider.OR_ADMIN_PASSWORD);
+        keycloak.close();
       }
-      LOG.warning("Failed to connect to Keycloak: error=" + msg);
-      keycloak.close();
-
-      // Falling back to admin credentials
-      LOG.warning("Falling back to admin credentials");
-      credentials = loadAdminFallbackCredentials();
-
-      keycloak =
-          Keycloak.getInstance(
-              buildKeycloakUrl(),
-              Constants.MASTER_REALM,
-              credentials.getUsername(),
-              credentials.getPassword(),
-              KeycloakIdentityProvider.ADMIN_CLI_CLIENT_ID);
     }
 
-    return keycloak;
+    return buildKeycloak(loadAdminFallbackCredentials());
   }
 
-  /**
-   * Resolves the credentials used to authenticate against Keycloak: prefers the stored manager
-   * grant written by the identity provider on first startup, falls back to {@code
-   * OR_ADMIN_PASSWORD} (or the default admin password when that env var is unset), so a clean
-   * install can still complete the migration.
-   */
-  protected OAuthPasswordGrant resolveCredentials() {
-    OAuthPasswordGrant stored = loadStoredCredentials();
-    return stored != null ? stored : loadAdminFallbackCredentials();
+  private Keycloak buildKeycloak(OAuthPasswordGrant credentials) {
+    return Keycloak.getInstance(
+        buildKeycloakUrl(),
+        Constants.MASTER_REALM,
+        credentials.getUsername(),
+        credentials.getPassword(),
+        KeycloakIdentityProvider.ADMIN_CLI_CLIENT_ID);
   }
 
   private OAuthPasswordGrant loadStoredCredentials() {
     String storageDir =
-        System.getenv()
-            .getOrDefault(
-                PersistenceService.OR_STORAGE_DIR, PersistenceService.OR_STORAGE_DIR_DEFAULT);
+        Config.getString(
+            PersistenceService.OR_STORAGE_DIR, PersistenceService.OR_STORAGE_DIR_DEFAULT);
     String grantFile =
-        System.getenv()
-            .getOrDefault(
-                ManagerKeycloakIdentityProvider.OR_KEYCLOAK_GRANT_FILE,
-                ManagerKeycloakIdentityProvider.OR_KEYCLOAK_GRANT_FILE_DEFAULT);
+        Config.getString(
+            ManagerKeycloakIdentityProvider.OR_KEYCLOAK_GRANT_FILE,
+            ManagerKeycloakIdentityProvider.OR_KEYCLOAK_GRANT_FILE_DEFAULT);
 
     if (grantFile == null || grantFile.isBlank()) {
       return null;
@@ -150,9 +148,9 @@ public abstract class AbstractKeycloakMigration extends BaseJavaMigration {
   }
 
   private OAuthPasswordGrant loadAdminFallbackCredentials() {
-    // Blank values are treated as absent, matching Config.init which filters them from the runtime
-    // config
-    String adminPassword = System.getenv(IdentityProvider.OR_ADMIN_PASSWORD);
+    // Config.init already filters blank values from the runtime config; the check below also covers
+    // the key being absent entirely
+    String adminPassword = Config.getString(IdentityProvider.OR_ADMIN_PASSWORD, null);
     if (TextUtil.isNullOrEmpty(adminPassword)) {
       adminPassword = IdentityProvider.OR_ADMIN_PASSWORD_DEFAULT;
       LOG.warning(
@@ -179,22 +177,18 @@ public abstract class AbstractKeycloakMigration extends BaseJavaMigration {
         UriBuilder.fromPath("/")
             .scheme("http")
             .host(
-                System.getenv()
-                    .getOrDefault(
-                        KeycloakIdentityProvider.OR_KEYCLOAK_HOST,
-                        KeycloakIdentityProvider.OR_KEYCLOAK_HOST_DEFAULT))
+                Config.getString(
+                    KeycloakIdentityProvider.OR_KEYCLOAK_HOST,
+                    KeycloakIdentityProvider.OR_KEYCLOAK_HOST_DEFAULT))
             .port(
-                Integer.parseInt(
-                    System.getenv()
-                        .getOrDefault(
-                            KeycloakIdentityProvider.OR_KEYCLOAK_PORT,
-                            String.valueOf(KeycloakIdentityProvider.OR_KEYCLOAK_PORT_DEFAULT))));
+                Config.getInt(
+                    KeycloakIdentityProvider.OR_KEYCLOAK_PORT,
+                    KeycloakIdentityProvider.OR_KEYCLOAK_PORT_DEFAULT));
 
     String path =
-        System.getenv()
-            .getOrDefault(
-                KeycloakIdentityProvider.OR_KEYCLOAK_PATH,
-                KeycloakIdentityProvider.OR_KEYCLOAK_PATH_DEFAULT);
+        Config.getString(
+            KeycloakIdentityProvider.OR_KEYCLOAK_PATH,
+            KeycloakIdentityProvider.OR_KEYCLOAK_PATH_DEFAULT);
     if (path != null && !path.isBlank()) {
       uriBuilder.path(path);
     }

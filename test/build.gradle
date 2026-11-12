@@ -36,7 +36,9 @@ dependencies {
   testImplementation libs.niftyModbusApi
   testImplementation libs.niftyModbusCore
 
-  testImplementation libs.moquette
+  testImplementation(libs.moquette) {
+    exclude group: 'io.netty', module: 'netty-tcnative-boringssl-static'
+  }
   testImplementation libs.hiveMqttClient
 
   testImplementation libs.grpcNettyShaded
