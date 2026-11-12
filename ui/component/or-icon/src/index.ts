@@ -26,6 +26,9 @@ import mdiFontStyle from "@mdi/font/css/materialdesignicons.min.css";
 import OrIconSet from "./or-icon-set";
 export { OrIconSet };
 
+// createMdiIconSet declares the font on the document, the bundled @font-face would load it relative to the page
+const mdiIconStyle = mdiFontStyle.replace(/@font-face\{[^}]*\}/, "");
+
 export class IconSetAddedEvent extends CustomEvent<void> {
   public static readonly NAME = "or-iconset-added";
 
@@ -201,7 +204,7 @@ export class OrIcon extends OrElement {
         }
       `,
       css`
-        ${unsafeCSS(mdiFontStyle)}
+        ${unsafeCSS(mdiIconStyle)}
       `,
     ];
   }
