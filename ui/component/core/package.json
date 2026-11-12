@@ -16,7 +16,7 @@
   ],
   "scripts": {
     "build": "npx tsc -b",
-    "test": "echo \"No tests\" && exit 0",
+    "test": "npx tsc -b && npx playwright test",
     "prepack": "npx rspack"
   },
   "author": "OpenRemote",
