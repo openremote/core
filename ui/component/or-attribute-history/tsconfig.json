@@ -12,6 +12,7 @@
     { "path": "../or-components" },
     { "path": "../or-mwc-components" },
     { "path": "../or-vaadin-components" },
-    { "path": "../or-translate" }
+    { "path": "../or-translate" },
+    { "path": "../or-chart" }
   ]
 }

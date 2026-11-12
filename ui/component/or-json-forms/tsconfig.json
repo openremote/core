@@ -13,6 +13,8 @@
     { "path": "../model" },
     { "path": "../or-translate" },
     { "path": "../or-mwc-components" },
-    { "path": "../or-icon" }
+    { "path": "../or-icon" },
+    { "path": "../or-components" },
+    { "path": "../or-vaadin-components" }
   ]
 }

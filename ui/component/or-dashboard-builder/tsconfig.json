@@ -6,5 +6,22 @@
     "rootDir": "src"
   },
   "include": ["./src"],
-  "references": [{ "path": "../or-element" }, { "path": "../core" }, { "path": "../rest" }, { "path": "../model" }]
+  "references": [
+    { "path": "../or-element" },
+    { "path": "../core" },
+    { "path": "../rest" },
+    { "path": "../model" },
+    { "path": "../or-translate" },
+    { "path": "../or-components" },
+    { "path": "../or-mwc-components" },
+    { "path": "../or-vaadin-components" },
+    { "path": "../or-map" },
+    { "path": "../or-asset-tree" },
+    { "path": "../or-attribute-picker" },
+    { "path": "../or-chart" },
+    { "path": "../or-attribute-card" },
+    { "path": "../or-attribute-input" },
+    { "path": "../or-attribute-barchart" },
+    { "path": "../or-gauge" }
+  ]
 }

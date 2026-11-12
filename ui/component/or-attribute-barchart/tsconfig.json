@@ -5,5 +5,15 @@
     "outDir": "./build/lib",
     "rootDir": "src"
   },
-  "include": ["./src"]
+  "include": ["./src"],
+  "references": [
+    { "path": "../model" },
+    { "path": "../rest" },
+    { "path": "../or-element" },
+    { "path": "../or-icon" },
+    { "path": "../core" },
+    { "path": "../or-translate" },
+    { "path": "../or-mwc-components" },
+    { "path": "../or-vaadin-components" }
+  ]
 }
