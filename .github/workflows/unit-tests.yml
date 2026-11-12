@@ -32,7 +32,7 @@ jobs:
           if [ "${{ steps.is_core_repo.outputs.value }}" = "true" ]; then
             ./gradlew testBackendUnit unitTestReport
           else
-            ./gradlew test -x :test:test
+            ./gradlew testBackendUnit
           fi
 
       - name: Archive unit test results
