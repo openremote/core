@@ -657,6 +657,10 @@ export class Manager implements EventProviderFactory {
   }
 
   protected async getConsoleAppConfig(): Promise<boolean> {
+    // Only console app deployments provide this file
+    if (!this.isMobile()) {
+      return true;
+    }
     try {
       const response = await fetch((manager.managerUrl ?? "") + "/consoleappconfig/" + manager.displayRealm + ".json");
       this._consoleAppConfig = (await response.json()) as ConsoleAppConfig;
