@@ -177,6 +177,25 @@ test.describe("Sign in", () => {
 
   /**
    * @given The user is signed in
+   * @and The manager is opened from another page
+   * @when The user goes back
+   * @then The other page is shown
+   */
+  test("should return to the previous page when going back", async ({ page, manager, baseURL }) => {
+    await page.route("**/previous-page", (route) =>
+      route.fulfill({ contentType: "text/html", body: "<p>Previous page</p>" })
+    );
+    await page.goto(new URL("/previous-page", baseURL).href);
+    await manager.goToRealmStartPage("master");
+    await expect(page.locator("#desktop-left").getByRole("link", { name: "Assets" })).toBeVisible();
+
+    await page.goBack();
+    // Back used to return to the page that redirected to Keycloak, which WebKit showed frozen mid-redirect
+    await expect(page.getByText("Previous page")).toBeVisible();
+  });
+
+  /**
+   * @given The user is signed in
    * @when The manager is opened
    * @then The translations, the asset model and the console app config are requested together
    */

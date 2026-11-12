@@ -882,6 +882,17 @@ export class Manager implements EventProviderFactory {
         realm: this._config.realm!,
         url: this._config.keycloakUrl,
       });
+      // A redirect the user didn't click replaces the page in the history, so going back skips pages that only redirected
+      this._keycloak.login = (options) => {
+        const loginUrl = this._keycloak!.createLoginUrl(options);
+        if (navigator.userActivation?.isActive) {
+          window.location.assign(loginUrl);
+        } else {
+          window.location.replace(loginUrl);
+        }
+        // Never settles, as the page is leaving
+        return new Promise<void>(() => {});
+      };
 
       // Try to use a stored offline refresh token if defined
       const offlineToken = await this._getNativeOfflineRefreshToken();
