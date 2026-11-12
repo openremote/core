@@ -22,18 +22,9 @@ jobs:
           java-version: "21"
           cache: "gradle"
 
-      - name: Check if core repo
-        id: is_core_repo
-        uses: openremote/core/.github/actions/check-if-core-repo@357f1387fbc99e7a59752a62064f0bdade57612d
-
       - name: Run unit tests
         timeout-minutes: 20
-        run: |
-          if [ "${{ steps.is_core_repo.outputs.value }}" = "true" ]; then
-            ./gradlew testBackendUnit unitTestReport
-          else
-            ./gradlew testBackendUnit
-          fi
+        run: ./gradlew testBackendUnit unitTestReport
 
       - name: Archive unit test results
         if: always()
