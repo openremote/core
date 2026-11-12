@@ -45,7 +45,6 @@ dependencies {
 
   dependencies {
     testImplementation libs.groovy
-    testImplementation libs.jsonassert
     testImplementation platform(libs.spockBom)
     testImplementation libs.spockCore
     testRuntimeOnly libs.jakartaEl
@@ -57,7 +56,11 @@ tasks.withType(Test) {
   environment("OR_LOGGING_CONFIG_FILE", "logging-dev.properties")
 }
 
-test {}
+test {
+  systemProperty("spock.snapshots.rootPath", layout.projectDirectory.dir("src/test/resources/snapshots").asFile.path)
+  // Run with -PupdateSnapshots to rewrite the Spock snapshots
+  systemProperty("spock.snapshots.updateSnapshots", project.hasProperty("updateSnapshots"))
+}
 
 base {
   archivesName = "openremote-${project.name}"
