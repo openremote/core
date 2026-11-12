@@ -83,6 +83,7 @@ tasks.register('npmBuild', Exec) {
 
 tasks.register('npmTest', Exec) {
   dependsOn ":ui:test:installTestDeps", ":ui:test:clean"
+  dependsOn rootProject.tasks.named('verifyTestServices')
   commandLine npmCommand("yarn"), "run", "test"
   args((findProperty('args')?.toString()?.tokenize()) ?: [])
 }

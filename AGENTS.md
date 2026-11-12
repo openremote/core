@@ -53,7 +53,7 @@ UI module tasks retain the `npmTest` name alongside `npmBuild`; for example, `./
 
 Backend integration tests and UI app tests require PostgreSQL and Keycloak. Start them with `docker compose -f profile/dev-testing.yml -p openremote up -d --no-build`.
 
-The same stack is required for `check` and `build`. Install the Playwright browser once with `./gradlew :ui:test:installBrowsers` before running UI tests.
+The same stack is required for `check` and `build`. Gradle waits up to 30 seconds for PostgreSQL and Keycloak before backend integration tests and Manager UI app tests. Gradle also checks that Playwright can launch Chromium before browser-backed test tasks; install it with `./gradlew :ui:test:installBrowsers` if needed.
 Gradle app test tasks, including individual `npmTest` tasks, automatically prepare the Manager, Manager UI, and shared UI distributions.
 Component test tasks prepare generated TypeScript sources and shared icon fonts without building the Manager application.
 Pass `-PreuseUiTestArtifacts=true` only when the required outputs have already been built or downloaded, as in the CI jobs that reuse Install Dist artifacts.

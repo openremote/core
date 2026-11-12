@@ -65,14 +65,19 @@ tasks.register('npmBuild') {
 }
 `;
 
-function fixture(t, modules, writers, { expectDeclaration = false, environment = {} } = {}) {
+function fixture(
+  t,
+  modules,
+  writers,
+  { expectDeclaration = false, requireBrowserInstall = false, environment = {} } = {}
+) {
   const root = mkdtempSync(join(tmpdir(), "openremote-ui-locks-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const projects = { model: {}, rest: {}, "or-icon": { script: "tasks.register('prepareFonts')" }, ...modules };
   write(
     root,
     "settings.gradle",
-    `rootProject.name = 'ui-concurrency-tests'\ninclude ':ui', ':manager', ':ui:app:manager', ':ui:app:shared'\n${Object.keys(
+    `rootProject.name = 'ui-concurrency-tests'\ninclude ':ui', ':manager', ':deployment', ':ui:test', ':ui:app:manager', ':ui:app:shared'\n${Object.keys(
       projects
     )
       .map((name) => `include ':ui:component:${name}'`)
@@ -94,10 +99,37 @@ project(':ui') {
     }
   }
 }
+project(':ui:test') {
+  afterEvaluate {
+    [installBrowsers: 'install-browser.mjs', verifyBrowsersInstalled: 'check-browser.mjs'].each { name, script ->
+      tasks.named(name, Exec) {
+        workingDir rootProject.projectDir
+        commandLine ${JSON.stringify(process.execPath)}, rootProject.file(script).absolutePath
+      }
+    }
+  }
+}
 `
   );
-  mkdirSync(join(root, "ui"));
-  copyFileSync(join(repository, "ui/build.gradle"), join(root, "ui/build.gradle"));
+  mkdirSync(join(root, "ui/test"), { recursive: true });
+  for (const path of ["ui/build.gradle", "ui/test/build.gradle"]) {
+    copyFileSync(join(repository, path), join(root, path));
+  }
+  write(root, "deployment/build.gradle", "tasks.register('installDist') { dependsOn ':ui:app:manager:installDist' }\n");
+  write(
+    root,
+    "install-browser.mjs",
+    "import { writeFileSync } from 'node:fs';\nwriteFileSync('browser-installed', 'installed');\n"
+  );
+  write(
+    root,
+    "check-browser.mjs",
+    `import assert from 'node:assert/strict';
+import { existsSync, writeFileSync } from 'node:fs';
+if (${requireBrowserInstall}) assert.ok(existsSync('browser-installed'), 'Browser installation must run before verification');
+writeFileSync('browser-checked', 'checked');
+`
+  );
   for (const path of ["manager", "ui/app/shared"]) {
     write(root, `${path}/build.gradle`, "tasks.register('installDist')\n");
   }
@@ -161,6 +193,19 @@ writeFileSync('knip-ran', 'checked');
     },
   };
 }
+
+test("should install browsers before verification and build preparation when explicitly requested", (t) => {
+  const task = ":ui:component:element:npmTest";
+  const project = fixture(t, { element: { script: "tasks.register('npmTest')" } }, [], { requireBrowserInstall: true });
+  const output = project.run(":deployment:installDist", ":ui:test:installBrowsers", task);
+  const install = output.indexOf("> Task :ui:test:installBrowsers");
+  const verify = output.indexOf("> Task :ui:test:verifyBrowsersInstalled");
+  // The preflight order previously prevented the requested installer from preparing the browser.
+  assert.ok(install !== -1 && verify > install, output);
+  assert.ok(output.indexOf("> Task :deployment:installDist") > verify, output);
+  assert.ok(output.indexOf(`> Task ${task}`) > verify, output);
+  assert.equal(existsSync(join(project.root, "browser-checked")), true);
+});
 
 test("should serialize overlapping compiler outputs while allowing independent builds in parallel", (t) => {
   const project = fixture(

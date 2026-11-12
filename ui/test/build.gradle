@@ -2,12 +2,34 @@ tasks.named('clean') {
   delete "tmp"
 }
 
-tasks.register("installBrowsers", Exec) {
+def installBrowsers = tasks.register("installBrowsers", Exec) {
   dependsOn getYarnInstallTask()
-  mustRunAfter ":deployment:installDist"
   commandLine npmCommand("yarn"), "run", "playwright", "install", "chromium"
 }
 
 tasks.register('installTestDeps') {
   dependsOn getYarnInstallTask()
+}
+
+def verifyBrowsersInstalled = tasks.register('verifyBrowsersInstalled', Exec) {
+  group = 'verification'
+  description = 'Verifies that Playwright can launch the installed Chromium browser'
+  dependsOn getYarnInstallTask()
+  mustRunAfter installBrowsers
+  workingDir projectDir
+  commandLine npmCommand('yarn'), 'node', 'verify-browser.mjs'
+}
+
+// Run scheduled environment checks before test preparation, allowing explicit browser setup first.
+// Custom project roots can provide their own service checks.
+def preflightTasks = [verifyBrowsersInstalled.get(), rootProject.tasks.findByName('verifyTestServices')].findAll()
+def tasksBeforeChecks = [':yarnInstall', installBrowsers.get().path] + preflightTasks.collect {
+  it.path
+}
+rootProject.allprojects.each { p ->
+  p.tasks.configureEach { task ->
+    if (!tasksBeforeChecks.contains(task.path)) {
+      preflightTasks.each { preflightTask -> task.mustRunAfter preflightTask }
+    }
+  }
 }

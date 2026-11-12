@@ -69,6 +69,7 @@ subprojects { uiProject ->
 
   def npmTestTasks = tasks.matching { it.name == 'npmTest' }
   npmTestTasks.configureEach {
+    dependsOn ':ui:test:verifyBrowsersInstalled'
     mustRunAfter generatedUiSources
     mustRunAfter uiTestDistTasks
     // CI can reuse outputs downloaded or built earlier in the job.

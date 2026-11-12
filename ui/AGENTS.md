@@ -121,6 +121,8 @@ Stories call `getORStorybookHelpers(tagName)` (from `ui/component/storybook-util
 ### App tests
 
 - **Compilation:** Gradle `npmTest` tasks prepare the required distributions automatically unless `-PreuseUiTestArtifacts=true` is set. When invoking tests directly through Yarn or npm, run `./gradlew installDist` first.
+- **Services:** The Manager app tests require PostgreSQL and Keycloak. Gradle checks readiness for these tests; see the root README for the startup command.
+- **Browser:** Gradle `npmTest` tasks check that Playwright can launch Chromium before running. Install it with `./gradlew :ui:test:installBrowsers` if needed.
 - **Location:** Define tests in `ui/app/<app-name>/test/`. Define fixtures in `ui/app/<app-name>/test/fixtures/`.
 - **Comments:** Add scenario comments above tests (`@given`, `@when`, `@then`, `@and`) based on the acceptance criteria.
 - **Auth State:** Select correct `storageState` for the task to be tested. Use `adminStatePath` for master/admin tasks. Use `userStatePath` for regular realm user tasks.
