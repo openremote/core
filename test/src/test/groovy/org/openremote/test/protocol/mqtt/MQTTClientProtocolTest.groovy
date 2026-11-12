@@ -23,16 +23,6 @@ import com.hivemq.client.internal.mqtt.handler.disconnect.MqttDisconnectUtil
 import com.hivemq.client.internal.mqtt.mqtt3.Mqtt3AsyncClientView
 import com.hivemq.client.internal.mqtt.mqtt3.Mqtt3ClientConfigView
 import com.hivemq.client.mqtt.MqttClientConfig
-import org.bouncycastle.asn1.x500.X500Name
-import org.bouncycastle.cert.X509v3CertificateBuilder
-import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
-import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder
-import org.bouncycastle.operator.ContentSigner
-import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
-import org.bouncycastle.pkcs.PKCS10CertificationRequest
-import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder
-import org.bouncycastle.util.io.pem.PemObject
-import org.bouncycastle.util.io.pem.PemWriter
 import org.openremote.agent.protocol.mqtt.*
 import org.openremote.agent.protocol.simulator.SimulatorProtocol
 import org.openremote.manager.agent.AgentService
@@ -40,7 +30,6 @@ import org.openremote.manager.asset.AssetProcessingService
 import org.openremote.manager.asset.AssetStorageService
 import org.openremote.manager.mqtt.DefaultMQTTHandler
 import org.openremote.manager.mqtt.MQTTBrokerService
-import org.openremote.manager.security.KeyStoreServiceImpl
 import org.openremote.manager.setup.SetupService
 import org.openremote.model.Constants
 import org.openremote.model.asset.Asset
@@ -60,21 +49,9 @@ import org.openremote.model.value.ValueFilter
 import org.openremote.setup.integration.KeycloakTestSetup
 import org.openremote.setup.integration.ManagerTestSetup
 import org.openremote.test.ManagerContainerTrait
-import org.opentest4j.TestAbortedException
-import spock.lang.Ignore
 import spock.lang.Specification
 import spock.util.concurrent.PollingConditions
 
-import java.net.http.HttpClient
-import java.net.http.HttpRequest
-import java.net.http.HttpResponse
-import java.nio.charset.StandardCharsets
-import java.security.KeyPairGenerator
-import java.security.KeyStore
-import java.security.PrivateKey
-import java.security.cert.Certificate
-import java.security.cert.CertificateFactory
-import java.security.cert.X509Certificate
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.function.Consumer
 
@@ -851,203 +828,6 @@ class MQTTClientProtocolTest extends Specification implements ManagerContainerTr
     }
     conditions.eventually {
       assert mqttBrokerService.getUserConnections(keycloakTestSetup.serviceUser.id).isEmpty()
-    }
-  }
-
-  /**
-   * This test is not fully done right now, as a non-internet-requiring test would require mTLS functionality within the
-   * OpenRemote broker, something that will eventually be done.
-   *
-   * For now, we will use test.mosquitto.org, an open broker that is provided by the creators of mosquitto. They provide
-   * multiple ways of accessing the broker, including one that requires a client certificate and TLS. Using that broker,
-   * we will test the mTLS and TLS functionalities.
-   *
-   * To access the broker, we need them to sign our certificate. To do that, we can request
-   *
-   * If the test cannot reach the host, then the test is passed.
-   * */
-  @Ignore
-  @SuppressWarnings("GroovyAccessibility")
-  def "Check MQTT client protocol mTLS support"() {
-
-    given: "expected conditions"
-    def conditions = new PollingConditions(timeout: 100, delay: 0.2)
-
-    when:
-    Socket webSocket = new Socket("test.mosquitto.org", 443)
-    Socket mqttSocket = new Socket("test.mosquitto.org", 8884)
-    HttpClient testClient = HttpClient.newHttpClient()
-    HttpRequest testRequest = HttpRequest.newBuilder()
-            .GET()
-            .uri(new URI("https://test.mosquitto.org/ssl/index.php"))
-            .build()
-
-    HttpResponse<String> testResponse = testClient.send(testRequest, HttpResponse.BodyHandlers.ofString())
-
-    then:
-    if(webSocket == null) throw new TestAbortedException("Mosquitto web server unavailable")
-    if(mqttSocket == null) throw new TestAbortedException("Mosquitto MQTT broker unavailable")
-    if(testResponse.statusCode() != 200) throw new TestAbortedException("Mosquitto signing service unavailable")
-
-    and: "the container starts"
-    def container = startContainer(defaultConfig(), defaultServices())
-    def assetStorageService = container.getService(AssetStorageService.class)
-    def keyStoreService = container.getService(KeyStoreServiceImpl.class)
-    def mqttHost = "test.mosquitto.org"
-    def mqttPort = 8884
-    def keystorePassword = "secret"
-    def keyPassword = "secret"
-    def aliasName = "testalias"
-    def keyAlias = Constants.MASTER_REALM + "." + aliasName
-
-    when:
-    KeyStore clientKeystore = keyStoreService.getKeyStore()
-    KeyStore clientTruststore = keyStoreService.getTrustStore()
-
-    // Create keystore and keypair
-    clientKeystore = createKeystore(clientKeystore, keyAlias, keyPassword)
-
-    // Get SSL certificate of test.mosquitto.org:8884
-    def cert = getCertificate("https://test.mosquitto.org/ssl/mosquitto.org.crt")
-
-    // Import X509 Certificate into the truststore
-    clientTruststore.setCertificateEntry(keyAlias, cert)
-
-    // Generate the CSR, to be sent to the Mosquitto server for signing, URLEncode it
-    String csrPem = generateCSR(clientKeystore, keyAlias, keyPassword)
-    csrPem = URLEncoder.encode(csrPem, StandardCharsets.UTF_8.toString())
-
-    //Send the CSR to their webserver that automatically signs the certificate
-    HttpClient client = HttpClient.newHttpClient()
-    HttpRequest request = HttpRequest.newBuilder()
-            .uri(new URI("https://test.mosquitto.org/ssl/index.php"))
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .POST(HttpRequest.BodyPublishers.ofString("csr="+csrPem))
-            .build()
-
-    // Take the response,
-    HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString())
-
-    String signedCertPem = response.body()
-
-    if (response.statusCode() != 200) throw new Exception("Signing request failed")
-
-    clientKeystore = importCertificate(clientKeystore, keyAlias, signedCertPem, keystorePassword.toCharArray())
-
-    keyStoreService.storeKeyStore(clientKeystore)
-    keyStoreService.storeTrustStore(clientTruststore)
-
-    and: "an MQTT client agent is created to connect to this tests manager"
-    def clientId = UniqueIdentifierGenerator.generateId()
-    def agent = new MQTTAgent("Test agent")
-            .setRealm(Constants.MASTER_REALM)
-            .setClientId(clientId)
-            .setPort(mqttPort)
-            .setHost(mqttHost)
-            .setSecureMode(true)
-            .setCertificateAlias(aliasName)
-    //                .setUsernamePassword(new UsernamePassword(keycloakTestSetup.realmBuilding.name + ":" + keycloakTestSetup.serviceUser.username, keycloakTestSetup.serviceUser.secret))
-
-    and: "the agent is added to the asset service"
-    agent = assetStorageService.merge(agent)
-
-    then: "the protocol should authenticate and the agent status should become CONNECTED"
-    conditions.eventually {
-      agent = assetStorageService.find(agent.id, Agent.class)
-      assert agent.getAgentStatus().orElse(null) == ConnectionStatus.CONNECTED
-    }
-
-    when: "the agent is connected, show the SSL certificates used"
-    def protocol = agent.getProtocolInstance() as MQTTProtocol
-    then: "test"
-    protocol.properties
-  }
-
-
-  KeyStore createKeystore(KeyStore keyStore, String alias, String keyPassword) {
-    // Create a new keypair
-    KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA")
-    keyGen.initialize(2048)
-    def keyPair = keyGen.generateKeyPair()
-
-    /// Generate a self-signed certificate
-    X500Name subject = new X500Name("CN=mTLS Test,OU=OpenRemote,O=OpenRemote,L=Eindhoven,ST=Noord-Brabant,C=NL")
-    long now = System.currentTimeMillis()
-    Date startDate = new Date(now)
-    Date endDate = new Date(now + 365 * 86400000L)
-    X509v3CertificateBuilder certBuilder = new JcaX509v3CertificateBuilder(
-            subject,
-            BigInteger.valueOf(now),
-            startDate,
-            endDate,
-            subject,
-            keyPair.getPublic()
-    )
-
-
-    ContentSigner contentSigner = new JcaContentSignerBuilder("SHA256WithRSA").build(keyPair.getPrivate())
-    X509Certificate cert = new JcaX509CertificateConverter().getCertificate(certBuilder.build(contentSigner))
-
-    keyStore.setKeyEntry(alias, keyPair.getPrivate(), keyPassword.toCharArray(), new X509Certificate[] {
-              cert
-            })
-
-    // Store the keystore
-    return keyStore
-  }
-
-  X509Certificate getCertificate(String url) {
-    URL pemUrl = new URL(url)
-    CertificateFactory cf = CertificateFactory.getInstance("X.509")
-    X509Certificate cert = (X509Certificate) cf.generateCertificate(pemUrl.openStream())
-
-    return cert
-  }
-
-  String generateCSR(KeyStore keyStore, String alias, String keyPassword) {
-
-    // Retrieve the Private Key and Certificate
-    PrivateKey privateKey = (PrivateKey) keyStore.getKey(alias, keyPassword.toCharArray())
-    Certificate cert = keyStore.getCertificate(alias)
-    X509Certificate x509Cert = (X509Certificate) cert
-
-    // Build X500Name from the Certificate's Subject
-    X500Name x500Name = new X500Name(x509Cert.getSubjectX500Principal().getName())
-
-    // Build ContentSigner
-    ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA").build(privateKey)
-
-    // Build PKCS10CertificationRequest
-    JcaPKCS10CertificationRequestBuilder csrBuilder = new JcaPKCS10CertificationRequestBuilder(x500Name, x509Cert.getPublicKey())
-    PKCS10CertificationRequest csr = csrBuilder.build(signer)
-
-    String csrPEM
-    try (StringWriter stringWriter = new StringWriter()
-    PemWriter pemWriter = new PemWriter(stringWriter)) {
-      pemWriter.writeObject(new PemObject("CERTIFICATE REQUEST", csr.getEncoded()))
-      pemWriter.flush()
-      csrPEM = stringWriter.toString()
-    }
-    return csrPEM
-  }
-
-  KeyStore importCertificate(KeyStore keyStore, String alias, String signedCertPem, char[] keystorePassword) {
-    try {
-      // Convert PEM to X509Certificate
-      byte[] certBytes = Base64.decoder.decode(signedCertPem
-              .replace("-----BEGIN CERTIFICATE-----", "")
-              .replace("-----END CERTIFICATE-----", "")
-              .replaceAll("\\s", ""))
-      CertificateFactory certFactory = CertificateFactory.getInstance("X.509")
-      X509Certificate signedCert = certFactory.generateCertificate(new ByteArrayInputStream(certBytes))
-
-      // Set the certificate chain
-      Certificate[] certChain = [signedCert] as Certificate[]
-      keyStore.setKeyEntry(alias, keyStore.getKey(alias, keystorePassword), keystorePassword, certChain)
-
-      return keyStore
-    } catch (Exception e) {
-      e.printStackTrace()
     }
   }
 }

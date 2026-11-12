@@ -18,11 +18,17 @@
  */
 package org.openremote.manager.mqtt;
 
+import static org.apache.activemq.artemis.utils.CertificateUtil.getCertsFromConnection;
 import static org.openremote.manager.mqtt.MQTTBrokerService.connectionToString;
+import static org.openremote.manager.mqtt.UserAssetProvisioningMQTTHandler.PROVISIONING_USER_PREFIX;
+import static org.openremote.model.security.User.SERVICE_ACCOUNT_PREFIX;
 
 import jakarta.security.enterprise.AuthenticationException;
 import java.security.Principal;
+import java.security.cert.CertificateParsingException;
+import java.security.cert.X509Certificate;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -44,8 +50,11 @@ import org.openremote.container.security.IdentityProvider;
 import org.openremote.container.security.IdentityService;
 import org.openremote.container.security.OIDCTokenResponse;
 import org.openremote.container.security.TokenPrincipal;
+import org.openremote.manager.security.ManagerIdentityProvider;
 import org.openremote.manager.security.RemotingConnectionPrincipal;
 import org.openremote.model.protocol.mqtt.Topic;
+import org.openremote.model.provisioning.ProvisioningUtil;
+import org.openremote.model.security.User;
 import org.openremote.model.syslog.SyslogCategory;
 import org.openremote.model.util.TextUtil;
 
@@ -57,18 +66,22 @@ public class ActiveMQORSecurityManager implements ActiveMQSecurityManager5 {
   protected static final Logger LOG =
       SyslogCategory.getLogger(SyslogCategory.API, ActiveMQORSecurityManager.class.getName());
   public static final String ANONYMOUS_USERNAME = "anonymous";
+  public static final String CLIENT_AUTH_EKU_OID = "1.3.6.1.5.5.7.3.2";
   protected static final long TOKEN_TIMEOUT_MILLIS = 10000;
   protected final MQTTBrokerService brokerService;
   protected final ExecutorService executorService;
   protected final IdentityService identityService;
+  protected final ManagerIdentityProvider identityProvider;
 
   public ActiveMQORSecurityManager(
       MQTTBrokerService brokerService,
       ExecutorService executorService,
-      IdentityService identityService) {
+      IdentityService identityService,
+      ManagerIdentityProvider identityProvider) {
     this.brokerService = brokerService;
     this.executorService = executorService;
     this.identityService = identityService;
+    this.identityProvider = identityProvider;
   }
 
   protected static Topic fromAddress(String address, WildcardConfiguration wildcardConfiguration)
@@ -89,31 +102,97 @@ public class ActiveMQORSecurityManager implements ActiveMQSecurityManager5 {
     // Create a connection principal to track the remoting connection associated with this subject
     principals.add(new RemotingConnectionPrincipal(remotingConnection));
 
-    if (TextUtil.isNullOrEmpty(password)) {
-      // Replicate anonymous guest user
-      principals.add(new UserPrincipal(ANONYMOUS_USERNAME));
-      principals.add(new RolePrincipal(ANONYMOUS_USERNAME));
+    X509Certificate[] certs = getCertsFromConnection(remotingConnection);
+    final String originalUsername = user;
+    String realm = null;
 
-      LOG.finer(
-          "Anonymous user authenticated: "
-              + MQTTBrokerService.connectionToString(remotingConnection));
-    } else {
-      String realm = null;
+    // TODO: Add support for bearer token authentication
+    // https://github.com/openremote/core/issues/2534
+    if (user != null) {
+      int delimIndex = user.indexOf(':');
+      if (delimIndex > 0) {
+        realm = user.substring(0, delimIndex);
+        user = user.substring(delimIndex + 1);
+      }
+    }
 
-      try {
-        // TODO: Add support for bearer token authentication
-        // https://github.com/openremote/core/issues/2534
-        // Login service user
-        if (user != null) {
-          int delimIndex = user.indexOf(':');
-          if (delimIndex > 0) {
-            realm = user.substring(0, delimIndex);
-            user = user.substring(delimIndex + 1);
-          }
+    if (certs != null && certs.length > 0) {
+      // Getting here means Artemis completed the handshake and validated the chain against the
+      // acceptor's truststore, so nothing is verified here; the job is to map an already accepted
+      // certificate onto a service user. Which certificate carries the identity still matters
+      // though: the handshake only proves possession of the private key of the first one, so that
+      // is the only subject that may be treated as an identity. The rest of the chain is just what
+      // the client sent along to build a path.
+      X509Certificate leaf = certs[0];
+
+      // the JDK's trust manager already requires this of a client certificate,
+      // but a deployment can substitute its own trust manager factory
+      if (!isClientAuthCertificate(leaf)) {
+        LOG.log(
+            Level.WARNING,
+            "Presented certificate has no Client Authentication extended key usage: "
+                + connectionToString(remotingConnection));
+        return null;
+      }
+
+      String dnUser = ProvisioningUtil.getSubjectCN(leaf.getSubjectX500Principal());
+      if (!TextUtil.isNullOrEmpty(dnUser)) {
+        user = dnUser;
+      }
+      String dnRealm = ProvisioningUtil.getSubjectOU(leaf.getSubjectX500Principal());
+      if (!TextUtil.isNullOrEmpty(dnRealm)) {
+        realm = dnRealm;
+      }
+
+      // An explicit username wins over the subject OU when it names a realm, which is how a device
+      // whose certificate carries no OU says which realm it belongs to
+      if (!TextUtil.isNullOrEmpty(originalUsername)
+          && identityProvider.realmExists(originalUsername)) {
+        realm = originalUsername;
+      }
+
+      if (TextUtil.isNullOrEmpty(realm)) {
+        LOG.log(
+            Level.INFO,
+            "Client certificate provided but no realm found in certificate subject or username field. "
+                + connectionToString(remotingConnection));
+        return null;
+      }
+
+      if (!TextUtil.isNullOrEmpty(user)) {
+        // Devices created by the auto-provisioning flow are named with a prefix, so look for that
+        // before the bare CN, which is how a service user created by hand is named. The lookup is
+        // scoped to the realm because service user names are only unique within one.
+        String clientId = PROVISIONING_USER_PREFIX + user;
+        User serviceUser =
+            identityProvider.getUserByUsername(realm, SERVICE_ACCOUNT_PREFIX + clientId);
+
+        if (serviceUser == null) {
+          clientId = user;
+          serviceUser =
+              identityProvider.getUserByUsername(realm, SERVICE_ACCOUNT_PREFIX + clientId);
         }
 
-        if (realm == null) {
-          LOG.info("Invalid user format: " + user);
+        if (serviceUser != null) {
+          // Keycloak authenticates a service account by its client id, not by the username the
+          // service account user carries
+          user = clientId;
+          password = serviceUser.getSecret();
+        } else {
+          LOG.log(
+              Level.FINE, "No service user found for certificate CN, allowing anonymous: " + user);
+        }
+      }
+    }
+
+    if (TextUtil.isNullOrEmpty(password)) {
+      principals.add(new UserPrincipal(ANONYMOUS_USERNAME));
+      principals.add(new RolePrincipal(ANONYMOUS_USERNAME));
+      LOG.finer("Anonymous user authenticated: " + connectionToString(remotingConnection));
+    } else {
+      try {
+        if (TextUtil.isNullOrEmpty(realm)) {
+          LOG.info("Invalid user format - no realm: " + user);
           return null;
         }
 
@@ -147,6 +226,20 @@ public class ActiveMQORSecurityManager implements ActiveMQSecurityManager5 {
     remotingConnection.setSubject(subject);
 
     return subject;
+  }
+
+  /**
+   * Whether the certificate is one its issuer intended to be used to authenticate a client, rather
+   * than a CA or a server certificate that happens to be presented.
+   */
+  protected static boolean isClientAuthCertificate(X509Certificate certificate) {
+    try {
+      List<String> extendedKeyUsages = certificate.getExtendedKeyUsage();
+      return extendedKeyUsages != null && extendedKeyUsages.contains(CLIENT_AUTH_EKU_OID);
+    } catch (CertificateParsingException e) {
+      LOG.log(Level.FINE, "Failed to parse extended key usage from the presented certificate", e);
+      return false;
+    }
   }
 
   @Override

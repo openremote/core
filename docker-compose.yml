@@ -73,6 +73,7 @@ services:
       OR_EMAIL_X_HEADERS:
       OR_EMAIL_FROM:
       OR_EMAIL_ADMIN:
+      OR_MQTT_MTLS_DISABLED:
       OR_METRICS_ENABLED: ${OR_METRICS_ENABLED:-true}
       OR_HOSTNAME: ${OR_HOSTNAME:-localhost}
       OR_ADDITIONAL_HOSTNAMES:
@@ -96,3 +97,4 @@ services:
       OR_SETUP_IMPORT_DEMO_AGENT_VELBUS:
     volumes:
       - manager-data:/storage
+      - proxy-data:/storage/proxy:ro
