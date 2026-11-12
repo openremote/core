@@ -219,6 +219,8 @@ function getAppConfig(mode, isDevServer, dirname, managerUrl, keycloakUrl, port)
         to: "maplibre",
         toType: "dir",
         info: { minimized: true },
+        // Their source maps aren't copied, so drop the comment pointing to them
+        transform: (input) => input.toString().replace(/\n\/\/# sourceMappingURL=\S+\s*$/, "\n"),
       });
     }
   }

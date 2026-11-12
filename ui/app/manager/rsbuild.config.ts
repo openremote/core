@@ -29,6 +29,8 @@ export default defineConfig({
       from: join(maplibreDist, file),
       to: "maplibre",
       info: { minimized: true },
+      // Their source maps aren't copied, so drop the comment pointing to them
+      transform: (input: Buffer) => input.toString().replace(/\n\/\/# sourceMappingURL=\S+\s*$/, "\n"),
     })),
   },
   dev: {

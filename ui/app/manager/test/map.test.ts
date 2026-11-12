@@ -36,6 +36,19 @@ import { type Asset, WellknownMetaItems } from "@openremote/model";
 
 test.use({ storageState: userStatePath });
 
+/**
+ * @when Requesting the MapLibre worker and the shared module it imports
+ * @then Neither links to a source map, as the source maps aren't deployed
+ */
+test("should serve the MapLibre worker modules without source map links", async ({ request, manager }) => {
+  for (const file of ["maplibre-gl-worker.mjs", "maplibre-gl-shared.mjs"]) {
+    const response = await request.get(new URL(`maplibre/${file}`, manager.getAppUrl("smartcity")).href);
+    expect(response.ok()).toBe(true);
+    // The link made WebKit's inspector request the missing source map, which it reported as an error
+    expect(await response.text()).not.toContain("sourceMappingURL");
+  }
+});
+
 test.describe("Map markers", () => {
   /**
    * @given Assets with location are set up in the "smartcity" realm
