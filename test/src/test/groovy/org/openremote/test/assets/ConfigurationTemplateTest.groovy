@@ -34,6 +34,7 @@ import org.openremote.model.value.ValueType
 import org.openremote.setup.integration.KeycloakTestSetup
 import org.openremote.setup.integration.ManagerTestSetup
 import org.openremote.test.ManagerContainerTrait
+import spock.lang.Shared
 import spock.lang.Specification
 
 import static jakarta.ws.rs.core.Response.Status.BAD_REQUEST
@@ -48,25 +49,64 @@ import static org.openremote.model.util.MapAccess.getString
 
 class ConfigurationTemplateTest extends Specification implements ManagerContainerTrait {
 
-  def "Export and import a configuration template as superuser"() {
-    given: "the server container is started"
-    def container = startContainer(defaultConfig(), defaultServices())
-    def keycloakTestSetup = container.getService(SetupService.class).getTaskOfType(KeycloakTestSetup.class)
+  @Shared
+  static KeycloakTestSetup keycloakTestSetup
 
-    and: "an authenticated admin user"
-    def accessToken = authenticate(
+  @Shared
+  static ManagerTestSetup managerTestSetup
+
+  @Shared
+  static AssetResource adminResource
+
+  @Shared
+  static AssetResource readOnlyUserResource
+
+  @Shared
+  static AssetResource masterUserResource
+
+  @Shared
+  static AssetResource restrictedUserResource
+
+  /** Assets created by a feature, removed again in cleanup. */
+  List<String> createdAssetIds = []
+
+  def setupSpec() {
+    def container = startContainer(defaultConfig(), defaultServices())
+    keycloakTestSetup = container.getService(SetupService.class).getTaskOfType(KeycloakTestSetup.class)
+    managerTestSetup = container.getService(SetupService.class).getTaskOfType(ManagerTestSetup.class)
+    def buildingRealm = keycloakTestSetup.realmBuilding.name
+
+    def adminAccessToken = authenticate(
             container,
             MASTER_REALM,
             KEYCLOAK_CLIENT_ID,
             MASTER_REALM_ADMIN_USER,
             getString(container.getConfig(), OR_ADMIN_PASSWORD, OR_ADMIN_PASSWORD_DEFAULT)
     )
+    adminResource = getClientApiTarget(serverUri(serverPort), MASTER_REALM, adminAccessToken).proxy(AssetResource.class)
 
-    and: "the asset resource"
-    def assetResource = getClientApiTarget(serverUri(serverPort), MASTER_REALM, accessToken).proxy(AssetResource.class)
+    // A building realm user that can read but not write assets
+    def readOnlyUserToken = authenticate(container, buildingRealm, KEYCLOAK_CLIENT_ID, "testuser2", "testuser2")
+    readOnlyUserResource = getClientApiTarget(serverUri(serverPort), buildingRealm, readOnlyUserToken).proxy(AssetResource.class)
 
-    and: "a configured source asset and a target asset of the same type"
-    def source = assetResource.create(null, new ThingAsset("Configuration source")
+    // A master realm user that can write assets
+    def masterUserToken = authenticate(container, MASTER_REALM, KEYCLOAK_CLIENT_ID, "testuser1", "testuser1")
+    masterUserResource = getClientApiTarget(serverUri(serverPort), MASTER_REALM, masterUserToken).proxy(AssetResource.class)
+
+    // A restricted building realm user that can write the assets linked to it
+    def restrictedUserToken = authenticate(container, buildingRealm, KEYCLOAK_CLIENT_ID, "testuser3", "testuser3")
+    restrictedUserResource = getClientApiTarget(serverUri(serverPort), buildingRealm, restrictedUserToken).proxy(AssetResource.class)
+  }
+
+  def cleanup() {
+    if (!createdAssetIds.isEmpty()) {
+      adminResource.delete(null, createdAssetIds)
+    }
+  }
+
+  def "Export and import a configuration template as superuser"() {
+    given: "a configured source asset and a target asset of the same type"
+    def source = adminResource.create(null, new ThingAsset("Configuration source")
             .setRealm(keycloakTestSetup.realmMaster.name)
             .addOrReplaceAttributes(
                     new Attribute<>("temperature", ValueType.NUMBER)
@@ -76,7 +116,7 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
                     .addMeta(new MetaItem<>(MetaItemType.LABEL, "Source custom value")),
                     new Attribute<>("plain", ValueType.TEXT)
             ))
-    def target = assetResource.create(null, new ThingAsset("Configuration target")
+    def target = adminResource.create(null, new ThingAsset("Configuration target")
             .setRealm(keycloakTestSetup.realmMaster.name)
             .addOrReplaceAttributes(
                     new Attribute<>("temperature", ValueType.NUMBER, 21.5d)
@@ -84,9 +124,10 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
                     new Attribute<>("customValue", ValueType.NUMBER),
                     new Attribute<>("plain", ValueType.TEXT)
             ))
+    createdAssetIds.addAll([source.id, target.id])
 
     when: "a configuration template of the source asset is exported"
-    def document = assetResource.exportConfigurationTemplate(null, source.id, [])
+    def document = adminResource.exportConfigurationTemplate(null, source.id, [])
 
     then: "only the attributes holding metadata are exported, with their type and metadata"
     document.version == 1
@@ -97,13 +138,13 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
     document.attributes.temperature.getMetaValue(MetaItemType.READ_ONLY).orElse(false)
 
     when: "a subset of the attributes is exported"
-    def subset = assetResource.exportConfigurationTemplate(null, source.id, ["temperature"])
+    def subset = adminResource.exportConfigurationTemplate(null, source.id, ["temperature"])
 
     then: "only the requested attribute is exported"
     subset.attributes.keySet() == ["temperature"] as Set
 
     when: "only an attribute without metadata is selected"
-    assetResource.exportConfigurationTemplate(null, source.id, ["plain"])
+    adminResource.exportConfigurationTemplate(null, source.id, ["plain"])
 
     then: "the export is rejected as there is nothing to export"
     WebApplicationException nothingToExport = thrown()
@@ -113,7 +154,7 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
     }
 
     when: "the exported document is imported into the target asset"
-    def preview = assetResource.previewConfigurationTemplateImport(null, target.id,
+    def preview = adminResource.previewConfigurationTemplateImport(null, target.id,
             new ConfigurationTemplateImportRequest(target, ValueUtil.asJSON(document).orElseThrow()))
 
     then: "the attribute with a matching type is importable and the one with another type is reported"
@@ -133,11 +174,11 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
     preview.patchedAttributes.get("customValue").get().type == ValueType.NUMBER
 
     and: "the target asset is not stored by the preview"
-    assetResource.get(null, target.id).getAttribute("temperature").get().getMeta()
+    adminResource.get(null, target.id).getAttribute("temperature").get().getMeta()
             .getValue(MetaItemType.LABEL.name, String.class).orElse(null) == "Target temperature"
 
     when: "a document of an unsupported version is imported"
-    assetResource.previewConfigurationTemplateImport(null, target.id,
+    adminResource.previewConfigurationTemplateImport(null, target.id,
             new ConfigurationTemplateImportRequest(target, '{"version": 2, "assetType": "ThingAsset", "attributes": {}}'))
 
     then: "the import is rejected with the reason"
@@ -149,7 +190,7 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
     }
 
     when: "a document holding no attribute of the target asset is imported"
-    assetResource.previewConfigurationTemplateImport(null, target.id,
+    adminResource.previewConfigurationTemplateImport(null, target.id,
             new ConfigurationTemplateImportRequest(target, '{"version": 1, "assetType": "ThingAsset", "attributes": {"absent": {"type": "text", "meta": {"label": "Absent"}}}}'))
 
     then: "the import is rejected and the skipped attribute is reported"
@@ -163,7 +204,7 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
     }
 
     when: "the draft of another asset is submitted"
-    assetResource.previewConfigurationTemplateImport(null, target.id,
+    adminResource.previewConfigurationTemplateImport(null, target.id,
             new ConfigurationTemplateImportRequest(source, ValueUtil.asJSON(document).orElseThrow()))
 
     then: "the import conflicts with the target asset"
@@ -175,7 +216,7 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
     }
 
     when: "no draft is submitted"
-    assetResource.previewConfigurationTemplateImport(null, target.id,
+    adminResource.previewConfigurationTemplateImport(null, target.id,
             new ConfigurationTemplateImportRequest(null, ValueUtil.asJSON(document).orElseThrow()))
 
     then: "the request is rejected as invalid rather than as a conflict"
@@ -187,35 +228,17 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
   }
 
   def "Configuration template import requires asset write access"() {
-    given: "the server container is started"
-    def container = startContainer(defaultConfig(), defaultServices())
-    def managerTestSetup = container.getService(SetupService.class).getTaskOfType(ManagerTestSetup.class)
-    def keycloakTestSetup = container.getService(SetupService.class).getTaskOfType(KeycloakTestSetup.class)
-
-    and: "an authenticated user that can read but not write assets"
-    def accessToken = authenticate(
-            container,
-            keycloakTestSetup.realmBuilding.name,
-            KEYCLOAK_CLIENT_ID,
-            "testuser2",
-            "testuser2"
-    )
-
-    and: "the asset resource"
-    def assetResource = getClientApiTarget(serverUri(serverPort), keycloakTestSetup.realmBuilding.name, accessToken)
-            .proxy(AssetResource.class)
-
-    when: "a configuration template of an asset of the authenticated realm is exported"
-    def document = assetResource.exportConfigurationTemplate(null, managerTestSetup.apartment1LivingroomId, [])
+    when: "a user that can read but not write assets exports a configuration template of an asset of its realm"
+    def document = readOnlyUserResource.exportConfigurationTemplate(null, managerTestSetup.apartment1LivingroomId, [])
 
     then: "the configuration is returned"
     document.version == 1
     !document.attributes.isEmpty()
 
     when: "the same user previews an import"
-    assetResource.previewConfigurationTemplateImport(null, managerTestSetup.apartment1LivingroomId,
+    readOnlyUserResource.previewConfigurationTemplateImport(null, managerTestSetup.apartment1LivingroomId,
             new ConfigurationTemplateImportRequest(
-                    assetResource.get(null, managerTestSetup.apartment1LivingroomId),
+                    readOnlyUserResource.get(null, managerTestSetup.apartment1LivingroomId),
                     ValueUtil.asJSON(document).orElseThrow()))
 
     then: "access is forbidden"
@@ -227,38 +250,11 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
   }
 
   def "Configuration template import is rejected for assets the user cannot access"() {
-    given: "the server container is started"
-    def container = startContainer(defaultConfig(), defaultServices())
-    def managerTestSetup = container.getService(SetupService.class).getTaskOfType(ManagerTestSetup.class)
-    def keycloakTestSetup = container.getService(SetupService.class).getTaskOfType(KeycloakTestSetup.class)
+    given: "a document, which is never read as access is checked first"
+    def document = '{"version": 1, "assetType": "RoomAsset", "attributes": {}}'
     def buildingRealm = keycloakTestSetup.realmBuilding.name
 
-    and: "a document, which is never read as access is checked first"
-    def document = '{"version": 1, "assetType": "RoomAsset", "attributes": {}}'
-
-    and: "a master realm user that can write assets"
-    def masterUserToken = authenticate(
-            container,
-            MASTER_REALM,
-            KEYCLOAK_CLIENT_ID,
-            "testuser1",
-            "testuser1"
-    )
-    def masterUserResource = getClientApiTarget(serverUri(serverPort), MASTER_REALM, masterUserToken)
-            .proxy(AssetResource.class)
-
-    and: "a restricted building realm user that can write the assets linked to it"
-    def restrictedUserToken = authenticate(
-            container,
-            buildingRealm,
-            KEYCLOAK_CLIENT_ID,
-            "testuser3",
-            "testuser3"
-    )
-    def restrictedUserResource = getClientApiTarget(serverUri(serverPort), buildingRealm, restrictedUserToken)
-            .proxy(AssetResource.class)
-
-    when: "the master realm user previews an import into an asset of the building realm"
+    when: "a master realm user previews an import into an asset of the building realm"
     def otherRealmAssetId = managerTestSetup.apartment1LivingroomId
     masterUserResource.previewConfigurationTemplateImport(null, otherRealmAssetId,
             new ConfigurationTemplateImportRequest(draft(otherRealmAssetId, buildingRealm), document))
@@ -270,7 +266,7 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
       return true
     }
 
-    when: "the restricted user previews an import into an asset that is not linked to it"
+    when: "a restricted user previews an import into an asset that is not linked to it"
     def unlinkedAssetId = managerTestSetup.apartment2LivingroomId
     restrictedUserResource.previewConfigurationTemplateImport(null, unlinkedAssetId,
             new ConfigurationTemplateImportRequest(draft(unlinkedAssetId, buildingRealm), document))
