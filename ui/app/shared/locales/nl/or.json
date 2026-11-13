@@ -1349,15 +1349,16 @@
       "MISSING_REQUIRED_FIELD": "In het geselecteerde bestand ontbreekt een verplicht veld.",
       "MALFORMED_ATTRIBUTE_ENTRY": "Het geselecteerde bestand bevat een ongeldige attribuutvermelding.",
       "INVALID_META_ITEM": "Het geselecteerde bestand bevat een configuratie item waarvan de waarde niet bij het type past.",
+      "VALUE_VIOLATES_CONSTRAINTS": "De huidige waarde van een attribuut voldoet niet aan de beperkingen in het geselecteerde bestand.",
       "NO_IMPORTABLE_ATTRIBUTES": "Geen van de attributen in het geselecteerde bestand kan in dit asset worden geïmporteerd.",
       "DRAFT_MISMATCH": "Dit asset is gewijzigd sinds je het opende; ververs het en probeer het opnieuw."
     },
     "failureLocation": {
-      "field": "Bij veld '{{parameter}}'.",
-      "attribute": "Bij attribuut '{{attribute}}'.",
-      "attributeField": "Bij veld '{{parameter}}' van attribuut '{{attribute}}'.",
-      "configurationItem": "Bij configuratie item '{{item}}' van attribuut '{{attribute}}'.",
-      "configurationItemParameter": "Bij parameter '{{parameter}}' van configuratie item '{{item}}' van attribuut '{{attribute}}'."
+      "attribute": "attribuut '{{name}}'",
+      "configurationItem": "configuratie item '{{name}}'",
+      "field": "veld '{{name}}'",
+      "parameter": "parameter '{{name}}'",
+      "entry_ordinal_other": "{{count}}e element"
     }
   }
 }

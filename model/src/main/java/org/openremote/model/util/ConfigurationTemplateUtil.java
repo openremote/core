@@ -24,6 +24,8 @@ import static org.openremote.model.value.MetaItemType.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import jakarta.validation.ConstraintViolation;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -33,6 +35,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.openremote.model.asset.Asset;
 import org.openremote.model.asset.AttributeConfiguration;
 import org.openremote.model.asset.AttributeConfigurationSummary;
@@ -63,6 +67,10 @@ public final class ConfigurationTemplateUtil {
           ACCESS_RESTRICTED_READ.getName(),
           ACCESS_RESTRICTED_WRITE.getName(),
           ATTRIBUTE_LINKS.getName());
+
+  /** A violation path on an attribute: its name, then the metadata item and the rest, if any. */
+  private static final Pattern ATTRIBUTE_VIOLATION_PATH =
+      Pattern.compile("attributes\\[([^\\]]+)\\](?:\\.meta\\[([^\\]]+)\\])?(?:\\.(.*))?");
 
   private ConfigurationTemplateUtil() {}
 
@@ -99,10 +107,12 @@ public final class ConfigurationTemplateUtil {
    * changing the draft. The returned {@link
    * ConfigurationTemplateImportPreview#getPatchedAttributes()} holds the draft attributes with the
    * metadata of every importable attribute replaced, except for {@link #ASSET_BOUND_META_ITEMS},
-   * which keep the values of the draft.
+   * which keep the values of the draft. A document that the patched draft would fail validation on
+   * when saved is rejected too.
    *
-   * <p>The document is read as a JSON tree, as binding it cannot tell a malformed entry from an
-   * invalid metadata item.
+   * <p>The document is read as a JSON tree, so that its fields are checked as written: binding
+   * reads a version of 1.5 as 1, and an agent link of a type that is not installed as a default
+   * agent link.
    */
   public static ConfigurationTemplateImportPreview preview(Asset<?> draft, String document) {
     JsonNode root;
@@ -195,10 +205,10 @@ public final class ConfigurationTemplateUtil {
           NO_IMPORTABLE_ATTRIBUTES, null, importable, missing, typeMismatches, null);
     }
 
-    AttributeMap patchedAttributes = ValueUtil.clone(targetAttributes);
+    Asset<?> patchedDraft = ValueUtil.clone(draft);
     importable.forEach(
         summary -> {
-          Attribute<?> patched = patchedAttributes.get(summary.getName()).orElseThrow();
+          Attribute<?> patched = patchedDraft.getAttributes().get(summary.getName()).orElseThrow();
           MetaMap meta = imported.get(summary.getName()).getMeta();
 
           if (patched.getMeta() != null) {
@@ -208,8 +218,48 @@ public final class ConfigurationTemplateUtil {
           patched.setMeta(meta);
         });
 
-    return new ConfigurationTemplateImportPreview(
-        null, null, importable, missing, typeMismatches, patchedAttributes);
+    Set<String> importableNames =
+        importable.stream().map(AttributeConfigurationSummary::getName).collect(Collectors.toSet());
+    Optional<ConfigurationTemplateImportPreview> rejected =
+        rejectedOnSave(draft, patchedDraft, importableNames);
+
+    return rejected.orElseGet(
+        () ->
+            new ConfigurationTemplateImportPreview(
+                null, null, importable, missing, typeMismatches, patchedDraft.getAttributes()));
+  }
+
+  /**
+   * The rejection for a violation that patching adds to an importable attribute, as saving the
+   * patched draft would fail on it. Violations the draft already has are not the document's.
+   */
+  private static Optional<ConfigurationTemplateImportPreview> rejectedOnSave(
+      Asset<?> draft, Asset<?> patchedDraft, Set<String> importableNames) {
+    Set<String> existing =
+        ValueUtil.validate(draft).stream()
+            .map(ConfigurationTemplateUtil::describe)
+            .collect(Collectors.toSet());
+
+    return ValueUtil.validate(patchedDraft).stream()
+        .filter(violation -> !existing.contains(describe(violation)))
+        .map(violation -> violation.getPropertyPath().toString())
+        .sorted()
+        .map(ATTRIBUTE_VIOLATION_PATH::matcher)
+        .filter(matcher -> matcher.matches() && importableNames.contains(matcher.group(1)))
+        .findFirst()
+        .map(
+            matcher ->
+                matcher.group(2) != null
+                    ? failed(
+                        INVALID_META_ITEM,
+                        matcher.group(1),
+                        matcher.group(2),
+                        valueParameter(matcher.group(3)))
+                    : failed(VALUE_VIOLATES_CONSTRAINTS, matcher.group(1), null, null));
+  }
+
+  private static String describe(ConstraintViolation<?> violation) {
+    return violation.getPropertyPath() + " " + violation.getMessageTemplate();
   }
 
   private static ConfigurationTemplateImportPreview failed(
@@ -232,61 +282,68 @@ public final class ConfigurationTemplateUtil {
   }
 
   /**
-   * Reads the metadata of a document entry without the {@link #ASSET_BOUND_META_ITEMS}. An item
-   * with a known descriptor must hold a value of its type that meets the bean constraints of that
-   * type; unknown metadata items are taken as they are.
+   * Reads the metadata of a document entry without the {@link #ASSET_BOUND_META_ITEMS}. Each item
+   * must pass bean validation as it does when an asset is saved, so an item with a known descriptor
+   * must hold a value of its type that meets the constraints of that type.
    */
   private static MetaMap readMeta(JsonNode node) throws InvalidMetaItemException {
-    MetaMap meta = new MetaMap();
+    ObjectNode items = node.deepCopy();
+    items.remove(ASSET_BOUND_META_ITEMS);
+    MetaMap meta;
 
-    for (Map.Entry<String, JsonNode> entry : node.properties()) {
-      String name = entry.getKey();
+    try {
+      meta = ValueUtil.JSON.treeToValue(items, MetaMap.class);
+    } catch (JsonMappingException e) {
+      // The path starts at the item, the rest lies within its value
+      List<JsonMappingException.Reference> path = e.getPath();
+      throw new InvalidMetaItemException(
+          path.isEmpty() ? null : path.get(0).getFieldName(),
+          path.isEmpty() ? null : path(path.subList(1, path.size())));
+    } catch (JsonProcessingException | IllegalArgumentException e) {
+      throw new InvalidMetaItemException(null, null);
+    }
 
-      if (ASSET_BOUND_META_ITEMS.contains(name)) {
-        continue;
+    for (MetaItem<?> item : meta.values()) {
+      Optional<String> violation =
+          ValueUtil.validate(item).stream()
+              .map(constraintViolation -> constraintViolation.getPropertyPath().toString())
+              .sorted()
+              .findFirst();
+
+      if (violation.isPresent()) {
+        throw new InvalidMetaItemException(item.getName(), valueParameter(violation.get()));
       }
 
-      // One item at a time, so that a failure names its item
-      MetaMap read;
-      try {
-        read =
-            ValueUtil.JSON.treeToValue(
-                ValueUtil.JSON.createObjectNode().set(name, entry.getValue()), MetaMap.class);
-      } catch (JsonMappingException e) {
-        throw new InvalidMetaItemException(name, path(e));
-      } catch (JsonProcessingException | IllegalArgumentException e) {
-        throw new InvalidMetaItemException(name, null);
-      }
+      Object value = item.getValue().orElse(null);
 
-      for (MetaItem<?> item : read.values()) {
-        Object value = item.getValue().orElse(null);
-
-        if (item.getType() != null && value != null) {
-          Optional<String> violation =
-              ValueUtil.validate(value).stream()
-                  .map(constraintViolation -> constraintViolation.getPropertyPath().toString())
-                  .sorted()
-                  .findFirst();
-
-          if (violation.isPresent()) {
-            throw new InvalidMetaItemException(
-                name, violation.get().isEmpty() ? null : violation.get());
-          }
-          if (changesType(entry.getValue(), value)) {
-            throw new InvalidMetaItemException(name, "type");
-          }
-        }
-        meta.addOrReplace(item);
+      if (item.getType() != null
+          && value != null
+          && changesType(items.get(item.getName()), value)) {
+        throw new InvalidMetaItemException(item.getName(), "type");
       }
     }
     return meta;
   }
 
+  /**
+   * The parameter that the violation path of a metadata item names within its value, e.g. pastCount
+   * for value.pastCount; null when the path names the item or its value as a whole.
+   */
+  private static String valueParameter(String path) {
+    if (path != null && path.startsWith("value.")) {
+      return path.substring("value.".length());
+    }
+    if (path != null && path.startsWith("value[")) {
+      return path.substring("value".length());
+    }
+    return null;
+  }
+
   /** The path of a binding failure within the value read, or null for the value itself. */
-  private static String path(JsonMappingException e) {
+  private static String path(List<JsonMappingException.Reference> references) {
     StringBuilder path = new StringBuilder();
 
-    for (JsonMappingException.Reference reference : e.getPath()) {
+    for (JsonMappingException.Reference reference : references) {
       if (reference.getFieldName() != null) {
         path.append(path.isEmpty() ? "" : ".").append(reference.getFieldName());
       } else if (reference.getIndex() >= 0) {

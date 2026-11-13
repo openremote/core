@@ -205,6 +205,20 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
       return true
     }
 
+    when: "a document holding a minimum above the current value of the target attribute is imported"
+    adminResource.previewConfigurationTemplateImport(null, target.id,
+            new ConfigurationTemplateImportRequest(target, '{"version": 1, "assetType": "ThingAsset", "attributes": {"temperature": {"type": "number", "meta": {"constraints": [{"type": "min", "min": 30}]}}}}'))
+
+    then: "the import is rejected, as saving the asset would fail"
+    WebApplicationException valueViolatesConstraints = thrown()
+    valueViolatesConstraints.response.withCloseable { r ->
+      assert r.status == BAD_REQUEST.statusCode
+      def rejected = r.readEntity(ConfigurationTemplateImportPreview.class)
+      assert rejected.failure == VALUE_VIOLATES_CONSTRAINTS
+      assert rejected.failureLocation.attribute == "temperature"
+      return true
+    }
+
     when: "a document holding no attribute of the target asset is imported"
     adminResource.previewConfigurationTemplateImport(null, target.id,
             new ConfigurationTemplateImportRequest(target, '{"version": 1, "assetType": "ThingAsset", "attributes": {"absent": {"type": "text", "meta": {"label": "Absent"}}}}'))

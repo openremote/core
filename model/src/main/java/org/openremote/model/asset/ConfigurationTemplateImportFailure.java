@@ -36,6 +36,9 @@ public enum ConfigurationTemplateImportFailure {
   /** A metadata item does not hold a value of its type, or the value breaks its constraints. */
   INVALID_META_ITEM,
 
+  /** The current value of an importable attribute does not meet the imported metadata. */
+  VALUE_VIOLATES_CONSTRAINTS,
+
   /** No attribute of the document exists on the target asset with the same type. */
   NO_IMPORTABLE_ATTRIBUTES,
 

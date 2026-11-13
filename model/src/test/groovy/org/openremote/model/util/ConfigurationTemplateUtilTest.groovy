@@ -24,6 +24,7 @@ import org.openremote.model.asset.impl.ThingAsset
 import org.openremote.model.attribute.Attribute
 import org.openremote.model.attribute.MetaItem
 import org.openremote.model.value.MetaItemType
+import org.openremote.model.value.ValueConstraint
 import org.openremote.model.value.ValueDescriptor
 import org.openremote.model.value.ValueType
 import spock.lang.Specification
@@ -123,7 +124,40 @@ class ConfigurationTemplateUtilTest extends Specification {
     INVALID_META_ITEM | document(ThingAsset.DESCRIPTOR.name, [temperature: '{"type": "number", "meta": {"constraints": [{"type": "noSuchConstraint"}]}}'])
     INVALID_META_ITEM | document(ThingAsset.DESCRIPTOR.name, [temperature: '{"type": "number", "meta": {"agentLink": {"type": "NoSuchAgentLink", "id": "agentId"}}}'])
     INVALID_META_ITEM | document(ThingAsset.DESCRIPTOR.name, [temperature: forecastEntry("0")])
+    INVALID_META_ITEM | document(ThingAsset.DESCRIPTOR.name, [temperature: '{"type": "number", "meta": {"my-item": 1}}'])
     NO_IMPORTABLE_ATTRIBUTES | document(ThingAsset.DESCRIPTOR.name, [:])
+  }
+
+  def "a document whose constraints the current value breaks is rejected"() {
+    given: "an asset whose attribute holds a value"
+    def asset = thingAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature"])])
+    asset.getAttributes().get("temperature").get().setValue(21.5d)
+
+    when: "a document holding a minimum above that value is previewed"
+    def preview = ConfigurationTemplateUtil.preview(asset, document(ThingAsset.DESCRIPTOR.name, [
+      temperature: '{"type": "number", "meta": {"constraints": [{"type": "min", "min": 30}]}}'
+    ]))
+
+    then: "the import is rejected for that attribute, as saving the asset would fail"
+    preview.failure == VALUE_VIOLATES_CONSTRAINTS
+    preview.failureLocation.attribute == "temperature"
+    preview.failureLocation.metaItem == null
+    preview.patchedAttributes == null
+  }
+
+  def "a value that already breaks its constraints does not reject an import that keeps them"() {
+    given: "an asset whose attribute value already breaks its minimum"
+    def asset = thingAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.CONSTRAINTS.name): [new ValueConstraint.Min(30)] as ValueConstraint[]])])
+    asset.getAttributes().get("temperature").get().setValue(21.5d)
+
+    when: "a document holding the same minimum and a label is previewed"
+    def preview = ConfigurationTemplateUtil.preview(asset, document(ThingAsset.DESCRIPTOR.name, [
+      temperature: '{"type": "number", "meta": {"label": "Imported", "constraints": [{"type": "min", "min": 30}]}}'
+    ]))
+
+    then: "the import is not rejected, as the violation is not the document's"
+    preview.failure == null
+    preview.importableAttributes*.name == ["temperature"]
   }
 
   def "a rejected document names where it fails: #attribute, #metaItem, #parameter"() {
@@ -151,6 +185,7 @@ class ConfigurationTemplateUtilTest extends Specification {
     document(ThingAsset.DESCRIPTOR.name, [temperature: '{"type": "number", "meta": {"agentLink": {"type": "NoSuchAgentLink", "id": "agentId"}}}']) | "temperature" | "agentLink" | "type"
     document(ThingAsset.DESCRIPTOR.name, [temperature: forecastEntry('"many"')]) | "temperature" | "forecast" | "pastCount"
     document(ThingAsset.DESCRIPTOR.name, [temperature: forecastEntry("0")]) | "temperature" | "forecast" | "pastCount"
+    document(ThingAsset.DESCRIPTOR.name, [temperature: '{"type": "number", "meta": {"my-item": 1}}']) | "temperature" | "my-item" | null
   }
 
   def "a document rejected as a whole has no location"() {

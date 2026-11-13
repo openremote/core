@@ -561,7 +561,10 @@ function showImportFailureDialog(host: Node, asset: Asset, configuration: string
   );
 }
 
-/** Where a rejected template fails, from the attribute down to the parameter, or nothing if that is not known. */
+/**
+ * Where a rejected template fails, as its parts from the attribute down to the parameter, with list positions counted
+ * from one, or nothing if that is not known.
+ */
 function getFailureLocation(
   asset: Asset,
   location: ConfigurationTemplateImportFailureLocation | undefined
@@ -569,29 +572,27 @@ function getFailureLocation(
   if (!location?.attribute && !location?.parameter) {
     return undefined;
   }
-  const values = {
-    attribute: location.attribute ? attributeName(asset, { name: location.attribute }) : undefined,
-    item: location.metaItem ? Util.getMetaLabel(undefined, location.metaItem, asset.type, false) : undefined,
-    parameter: location.parameter,
-  };
+  const parts: string[] = [];
 
-  if (!location.attribute) {
-    return i18next.t("configurationTemplate.failureLocation.field", values);
+  if (location.attribute) {
+    const name = attributeName(asset, { name: location.attribute });
+    parts.push(i18next.t("configurationTemplate.failureLocation.attribute", { name }));
   }
-  if (!location.metaItem) {
-    return i18next.t(
-      location.parameter
-        ? "configurationTemplate.failureLocation.attributeField"
-        : "configurationTemplate.failureLocation.attribute",
-      values
-    );
+  if (location.metaItem) {
+    const name = Util.getMetaLabel(undefined, location.metaItem, asset.type, false);
+    parts.push(i18next.t("configurationTemplate.failureLocation.configurationItem", { name }));
   }
-  return i18next.t(
-    location.parameter
-      ? "configurationTemplate.failureLocation.configurationItemParameter"
-      : "configurationTemplate.failureLocation.configurationItem",
-    values
-  );
+  // A parameter path holds names and list positions, e.g. valueFilters[1].path
+  for (const [, name, index] of (location.parameter ?? "").matchAll(/([^.[\]]+)|\[(\d+)]/g)) {
+    if (index !== undefined) {
+      parts.push(i18next.t("configurationTemplate.failureLocation.entry", { count: Number(index) + 1, ordinal: true }));
+    } else if (location.metaItem) {
+      parts.push(i18next.t("configurationTemplate.failureLocation.parameter", { name }));
+    } else {
+      parts.push(i18next.t("configurationTemplate.failureLocation.field", { name }));
+    }
+  }
+  return `${Util.capitaliseFirstLetter(parts.join(", "))}.`;
 }
 
 function getHeaderTemplate(titleKey: string, onClose: () => void): TemplateResult {
