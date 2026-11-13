@@ -61,7 +61,7 @@ class OrDemo extends subscribe(manager)(LitElement) {
     return html`
       <p><b>Message:</b> ${manager.authenticated ? this.loggedInTemplate(manager) : this.loggedOutTemplate(manager)}</p>
       <br />
-      <p><b>Initialised: </b> ${manager.ready}</p>
+      <p><b>Initialized: </b> ${manager.ready}</p>
       <p><b>Manager Version: </b> ${manager.managerVersion}</p>
       <p><b>Authenticated: </b> ${manager.authenticated}</p>
       <p><b>Username: </b> ${manager.username}</p>

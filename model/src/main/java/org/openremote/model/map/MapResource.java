@@ -64,7 +64,7 @@ public interface MapResource {
           MapConfig mapConfig);
 
   /**
-   * Returns style used to initialise MapLibre GL
+   * Returns style used to initialize MapLibre GL
    *
    * @return
    */

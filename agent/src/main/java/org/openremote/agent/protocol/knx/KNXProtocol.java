@@ -284,7 +284,7 @@ public class KNXProtocol extends AbstractProtocol<KNXAgent, KNXAgentLink>
             String xsd = IOUtils.toString(inputStream, StandardCharsets.UTF_8);
             xsd =
                 xsd.trim()
-                    .replaceFirst("^([\\W]+)<", "<"); // Get weird behaviour sometimes without this
+                    .replaceFirst("^([\\W]+)<", "<"); // Get weird behavior sometimes without this
             Transformer transformer =
                 createSecureTransformerFactory()
                     .newTransformer(new StreamSource(new StringReader(xsd)));
@@ -296,7 +296,7 @@ public class KNXProtocol extends AbstractProtocol<KNXAgent, KNXAgentLink>
             String xml = IOUtils.toString(zin, StandardCharsets.UTF_8);
             xml =
                 xml.trim()
-                    .replaceFirst("^([\\W]+)<", "<"); // Get weird behaviour sometimes without this
+                    .replaceFirst("^([\\W]+)<", "<"); // Get weird behavior sometimes without this
             StringWriter writer = new StringWriter();
             StringReader reader = new StringReader(xml);
             transformer.transform(new StreamSource(reader), new StreamResult(writer));

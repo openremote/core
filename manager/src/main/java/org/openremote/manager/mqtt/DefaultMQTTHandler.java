@@ -71,7 +71,7 @@ public class DefaultMQTTHandler extends MQTTHandler {
   private static final Logger LOG = SyslogCategory.getLogger(API, DefaultMQTTHandler.class);
   protected final Map<String, Map<String, Consumer<? extends Event>>> sessionSubscriptionConsumers =
       new ConcurrentHashMap<>();
-  // An authorisation cache for publishing
+  // An authorization cache for publishing
   // TODO: Switch to caffeine library once ActiveMQ has migrated
   protected final Cache<String, ConcurrentHashSet<String>> authorizationCache =
       CacheBuilder.newBuilder()
@@ -288,7 +288,7 @@ public class DefaultMQTTHandler extends MQTTHandler {
     return true;
   }
 
-  // We make heavy use of authorisation caching as clients can hit this a lot and it is currently
+  // We make heavy use of authorization caching as clients can hit this a lot and it is currently
   // quite slow with DB calls
   @Override
   public boolean canPublish(RemotingConnection connection, AuthContext authContext, Topic topic) {
@@ -335,7 +335,7 @@ public class DefaultMQTTHandler extends MQTTHandler {
     if (!clientEventService.authorizeEventWrite(
         topicRealm(topic), authContext, buildAttributeEvent(topic.getTokens(), null, null))) {
       LOG.fine(
-          "Publish was not authorised for this user and topic: topic="
+          "Publish was not authorized for this user and topic: topic="
               + topic
               + ", subject="
               + authContext);

@@ -20,20 +20,20 @@ package org.openremote.agent.protocol.tradfri.util;
 
 import org.openremote.model.value.impl.ColourRGB;
 
-/** The class that contains XY values that make up a colour */
+/** The class that contains XY values that make up a color */
 public class ColourXY {
 
-  /** The X value of the colour */
+  /** The X value of the color */
   private Integer X;
 
-  /** The Y value of the colour */
+  /** The Y value of the color */
   private Integer Y;
 
   /**
    * Construct the ColourXY class
    *
-   * @param X The X value of the colour
-   * @param Y The Y value of the colour
+   * @param X The X value of the color
+   * @param Y The Y value of the color
    */
   public ColourXY(Integer X, Integer Y) {
     this.X = X;
@@ -44,36 +44,36 @@ public class ColourXY {
   public ColourXY() {}
 
   /**
-   * Get the X value of the colour
+   * Get the X value of the color
    *
-   * @return The X value of the colour
+   * @return The X value of the color
    */
   public Integer getX() {
     return this.X;
   }
 
   /**
-   * Get the Y value of the colour
+   * Get the Y value of the color
    *
-   * @return The Y value of the colour
+   * @return The Y value of the color
    */
   public Integer getY() {
     return this.Y;
   }
 
   /**
-   * Set the X value of the colour
+   * Set the X value of the color
    *
-   * @param X The new X value of the colour
+   * @param X The new X value of the color
    */
   public void setX(Integer X) {
     this.X = X;
   }
 
   /**
-   * Set the Y value of the colour
+   * Set the Y value of the color
    *
-   * @param Y The new Y value of the colour
+   * @param Y The new Y value of the color
    */
   public void setY(Integer Y) {
     this.Y = Y;

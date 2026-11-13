@@ -485,7 +485,7 @@ public class AssetResourceImpl extends ManagerWebResource implements AssetResour
 
     AttributeEvent event = new AttributeEvent(assetId, attributeName, value, timestamp);
 
-    // Check authorisation
+    // Check authorization
     if (!clientEventService.authorizeEventWrite(getRequestRealmName(), getAuthContext(), event)) {
       throw new ForbiddenException("Cannot write specified attribute: " + event);
     }

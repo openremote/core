@@ -117,7 +117,7 @@ public class ClientEventService extends RouteBuilder implements ContainerService
   public static final int PRIORITY = ManagerWebService.PRIORITY - 200;
   protected static final int MAX_QUEUE_SIZE = 100;
   protected static final String WEBSOCKET_URI =
-      "undertow://ws://0.0.0.0/websocket/events?fireWebSocketChannelEvents=true&sendTimeout=15000"; // Host is not used as existing undertow instance is utilised
+      "undertow://ws://0.0.0.0/websocket/events?fireWebSocketChannelEvents=true&sendTimeout=15000"; // Host is not used as existing undertow instance is utilized
   protected static final System.Logger LOG = System.getLogger(ClientEventService.class.getName());
   protected static final String PUBLISH_QUEUE = "direct://ClientPublishQueue";
 
@@ -574,7 +574,7 @@ public class ClientEventService extends RouteBuilder implements ContainerService
       LOG.log(
           TRACE,
           () ->
-              "Cancelling subscription for session '"
+              "Canceling subscription for session '"
                   + sessionKey
                   + "': "
                   + cancelEventSubscription);
@@ -680,7 +680,7 @@ public class ClientEventService extends RouteBuilder implements ContainerService
   }
 
   /**
-   * Authorisation must be done before adding the subscription and is the responsibility of
+   * Authorization must be done before adding the subscription and is the responsibility of
    * subscription creators.
    */
   public void addSubscription(
@@ -724,7 +724,7 @@ public class ClientEventService extends RouteBuilder implements ContainerService
   }
 
   /**
-   * This handles basic authorisation checks for clients that want to subscribe to events in the
+   * This handles basic authorization checks for clients that want to subscribe to events in the
    * system
    */
   public boolean authorizeEventSubscription(
@@ -737,7 +737,7 @@ public class ClientEventService extends RouteBuilder implements ContainerService
       if (authContext != null) {
         LOG.log(
             DEBUG,
-            "Client not authorised to subscribe: subscription="
+            "Client not authorized to subscribe: subscription="
                 + subscription
                 + ", requestRealm="
                 + realm
@@ -748,7 +748,7 @@ public class ClientEventService extends RouteBuilder implements ContainerService
       } else {
         LOG.log(
             DEBUG,
-            "Client not authorised to subscribe: subscription="
+            "Client not authorized to subscribe: subscription="
                 + subscription
                 + ", requestRealm="
                 + realm
@@ -760,7 +760,7 @@ public class ClientEventService extends RouteBuilder implements ContainerService
   }
 
   /**
-   * This handles basic authorisation checks for clients that want to write an event to the system;
+   * This handles basic authorization checks for clients that want to write an event to the system;
    * this gets hit a lot so should be as performant as possible
    */
   // TODO: Implement auth cache in OR that covers HTTP, WS and MQTT (ActiveMQ Authorization cache
@@ -776,7 +776,7 @@ public class ClientEventService extends RouteBuilder implements ContainerService
         LOG.log(
             DEBUG,
             () ->
-                "Client not authorised to send event: type="
+                "Client not authorized to send event: type="
                     + event.getEventType()
                     + ", requestRealm="
                     + realm
@@ -788,7 +788,7 @@ public class ClientEventService extends RouteBuilder implements ContainerService
         LOG.log(
             DEBUG,
             () ->
-                "Client not authorised to send event: type="
+                "Client not authorized to send event: type="
                     + event.getEventType()
                     + ", requestRealm="
                     + realm

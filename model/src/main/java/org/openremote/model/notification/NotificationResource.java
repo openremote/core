@@ -166,7 +166,7 @@ public interface NotificationResource {
           Long notificationId);
 
   /**
-   * Send a notification to one or more targets; the authorisation of the requesting user will
+   * Send a notification to one or more targets; the authorization of the requesting user will
    * determine whether or not the targets can be contacted; if one or more targets are not
    * accessible due to permissions then the entire request will fail with a 403 response.
    */

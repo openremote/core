@@ -23,7 +23,7 @@ import java.util.Arrays;
 import org.openremote.model.event.shared.SharedEvent;
 
 /**
- * Indicates that the gateway has connected and the central manager wants to begin synchronisation
+ * Indicates that the gateway has connected and the central manager wants to begin synchronization
  */
 public class GatewayInitStartEvent extends SharedEvent {
   public static final String TYPE = "gateway-init-start";

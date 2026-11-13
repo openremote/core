@@ -1705,7 +1705,7 @@ export class OrAssetViewer extends subscribe(manager)(translate(i18next)(OrEleme
         (asset.version !== this._assetInfo.asset?.version && // Version is different from what is loaded
           !this._saveInProgress); // And save isn't in progress
       if (reloadAsset && this.editMode && this._assetInfo?.modified) {
-        // Asset has changed whilst we're editing it so inform the user and reload
+        // Asset has changed while we're editing it so inform the user and reload
         showConfirmDialog(
           this.shadowRoot!,
           html`

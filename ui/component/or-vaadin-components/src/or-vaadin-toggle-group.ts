@@ -21,7 +21,7 @@ import { OrVaadinCheckboxGroup } from "./or-vaadin-checkbox-group";
 import "./or-vaadin-toggle";
 
 /*
- * A checkbox-group specialised for `<or-vaadin-toggle>` children. It exists only to give the toggle
+ * A checkbox-group specialized for `<or-vaadin-toggle>` children. It exists only to give the toggle
  * group its own tag so the spacing between toggles can be set (in the theme) without committing the
  * shared `<or-vaadin-checkbox-group>` to a gap value (still undecided for checkboxes).
  */

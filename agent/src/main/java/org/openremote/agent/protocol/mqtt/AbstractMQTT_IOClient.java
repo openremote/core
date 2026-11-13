@@ -613,7 +613,7 @@ public abstract class AbstractMQTT_IOClient<S> implements IOClient<MQTTMessage<S
           } else if (throwable != null) {
             if (getConnectionStatus() != ConnectionStatus.DISCONNECTED) {
               if (throwable instanceof CancellationException) {
-                LOG.info("Connection cancelled uri=" + getClientUri());
+                LOG.info("Connection canceled uri=" + getClientUri());
               } else {
                 LOG.info(
                     "Connection failed uri="

@@ -33,7 +33,7 @@ import org.openremote.model.value.MetaItemDescriptor;
 @JsonDeserialize(using = MetaMap.MetaObjectDeserializer.class)
 public class MetaMap extends NamedMap<String, MetaItem<?>> {
   /**
-   * Deserialise a {@link MetaMap} that is represented as a JSON object where each key is the name
+   * Deserialize a {@link MetaMap} that is represented as a JSON object where each key is the name
    * of a {@link MetaItemDescriptor}
    */
   public static class MetaObjectDeserializer extends StdDeserializer<MetaMap> {

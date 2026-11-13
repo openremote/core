@@ -23,7 +23,7 @@ import org.openremote.agent.protocol.tradfri.device.LightProperties;
 import org.openremote.agent.protocol.tradfri.util.ColourXY;
 import org.openremote.model.value.impl.ColourRGB;
 
-/** The class that represents a light colour changed event that occurred to an IKEA TRÅDFRI light */
+/** The class that represents a light color changed event that occurred to an IKEA TRÅDFRI light */
 public class LightChangeColourEvent extends LightChangeEvent {
 
   /**
@@ -75,63 +75,63 @@ public class LightChangeColourEvent extends LightChangeEvent {
   }
 
   /**
-   * Get the old X value of the colour of the light (from before the event occurred)
+   * Get the old X value of the color of the light (from before the event occurred)
    *
-   * @return The old X value of the colour of the light
+   * @return The old X value of the color of the light
    */
   public int getOldColourX() {
     return getOldProperties().getColourX();
   }
 
   /**
-   * Get the new X value of the colour of the light (from after the event occurred)
+   * Get the new X value of the color of the light (from after the event occurred)
    *
-   * @return The new X value of the colour of the light
+   * @return The new X value of the color of the light
    */
   public int getNewColourX() {
     return getNewProperties().getColourX();
   }
 
   /**
-   * Get the old Y value of the colour of the light (from before the event occurred)
+   * Get the old Y value of the color of the light (from before the event occurred)
    *
-   * @return The old Y value of the colour of the light
+   * @return The old Y value of the color of the light
    */
   public int getOldColourY() {
     return getOldProperties().getColourY();
   }
 
   /**
-   * Get the new Y value of the colour of the light (from after the event occurred)
+   * Get the new Y value of the color of the light (from after the event occurred)
    *
-   * @return The new Y value of the colour of the light
+   * @return The new Y value of the color of the light
    */
   public int getNewColourY() {
     return getNewProperties().getColourY();
   }
 
   /**
-   * Get the old XY colour of the light (from before the event occurred)
+   * Get the old XY color of the light (from before the event occurred)
    *
-   * @return The old XY colour of the light
+   * @return The old XY color of the light
    */
   public ColourXY getOldColourXY() {
     return new ColourXY(getOldProperties().getColourX(), getOldProperties().getColourY());
   }
 
   /**
-   * Get the new XY colour of the light (from after the event occurred)
+   * Get the new XY color of the light (from after the event occurred)
    *
-   * @return The new XY colour of the light
+   * @return The new XY color of the light
    */
   public ColourXY getNewColourXY() {
     return new ColourXY(getNewProperties().getColourX(), getNewProperties().getColourY());
   }
 
   /**
-   * Get the old RGB colour of the light (from before the event occurred)
+   * Get the old RGB color of the light (from before the event occurred)
    *
-   * @return The old RGB colour of the light
+   * @return The old RGB color of the light
    */
   public ColourRGB getOldColourRGB() {
     return ColourRGB.fromHS(
@@ -140,9 +140,9 @@ public class LightChangeColourEvent extends LightChangeEvent {
   }
 
   /**
-   * Get the new RGB colour of the light (from after the event occurred)
+   * Get the new RGB color of the light (from after the event occurred)
    *
-   * @return The new RGB colour of the light
+   * @return The new RGB color of the light
    */
   public ColourRGB getNewColourRGB() {
     return ColourRGB.fromHS(

@@ -113,7 +113,7 @@ public class PushNotificationHandler extends RouteBuilder implements Notificatio
       FirebaseApp.initializeApp(options);
       valid = true;
     } catch (Exception ex) {
-      LOG.severe("Exception occurred whilst initialising FCM");
+      LOG.severe("Exception occurred while initializing FCM");
     }
   }
 
@@ -417,7 +417,7 @@ public class PushNotificationHandler extends RouteBuilder implements Notificatio
     }
 
     if (devMode && mappedTargets.isEmpty() && targets != null && !targets.isEmpty()) {
-      // Keep the no-targets behaviour identical to production but make the dropped notification
+      // Keep the no-targets behavior identical to production but make the dropped notification
       // visible
       LOG.info(
           "Dev mode: no console asset targets mapped for push notification, original targets=["
@@ -627,7 +627,7 @@ public class PushNotificationHandler extends RouteBuilder implements Notificatio
     apnsConfigBuilder.putHeader(
         "apns-priority", !dataOnly ? "10" : "5"); // Don't use 10 for data only
 
-    // set the following APNS flag to allow console to customise the notification before delivery
+    // set the following APNS flag to allow console to customize the notification before delivery
     // and to ensure delivery
     apsBuilder.setMutableContent(true);
 

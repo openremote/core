@@ -81,7 +81,7 @@ public final class MetaItemType {
 
   /**
    * Marks the attribute as read-only for UI purposes only; this does not offer any
-   * authorisation/security.
+   * authorization/security.
    */
   public static final MetaItemDescriptor<Boolean> READ_ONLY =
       new MetaItemDescriptor<>("readOnly", ValueType.BOOLEAN);
@@ -160,7 +160,7 @@ public final class MetaItemType {
   /**
    * Indicates the units associated with the value, there's some special handling for {@link
    * Boolean} and {@link Date} values but otherwise the value type should be numeric. Units are
-   * intended for UI usage and should support internationalisation, custom unit types can be
+   * intended for UI usage and should support internationalization, custom unit types can be
    * composed e.g. ["kilo", "metre", "per", "hour"] => "km/h" see {@link
    * org.openremote.model.Constants} for well known units that UIs should support as a minimum.
    * Currencies get special handling and should be represented using the upper case 3 letter

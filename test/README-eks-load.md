@@ -143,7 +143,7 @@ The existing cluster must have the OpenRemote add-ons and managed ExternalDNS.
 For an independently sized cluster, choose a new `CLUSTER_NAME` too and use
 `up`; the helper derives a separate DNS role and ownership ID.
 
-### Customise component values
+### Customize component values
 
 The standard profile requires no YAML copying. To change dataset parameters,
 resource limits, or image tags, prepare an editable copy:

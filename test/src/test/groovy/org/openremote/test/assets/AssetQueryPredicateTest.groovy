@@ -313,7 +313,7 @@ class AssetQueryPredicateTest extends Specification {
     assert !coordinatePredicate.test(new Coordinate(12.50, 41.90))
   }
 
-  def "GeoJSON centre point calculation test"() {
+  def "GeoJSON center point calculation test"() {
     given: "A polygon geofence"
     def polygonGeoJSON = '''
         {
@@ -331,10 +331,10 @@ class AssetQueryPredicateTest extends Specification {
         '''
     GeofencePredicate geofencePredicate = new GeoJSONGeofencePredicate(polygonGeoJSON)
 
-    when: "Getting the centre point"
+    when: "Getting the center point"
     def centrePoint = geofencePredicate.getCentrePoint()
 
-    then: "The centre point should be approximately at the centroid"
+    then: "The center point should be approximately at the centroid"
     assert centrePoint != null
     assert centrePoint.length == 2
     assert Math.abs(centrePoint[0] - 16.5) < 0.1 // longitude

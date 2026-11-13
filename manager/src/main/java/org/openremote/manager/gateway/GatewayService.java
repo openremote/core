@@ -75,7 +75,7 @@ import org.openremote.model.value.MetaItemType;
  * Manages {@link org.openremote.model.asset.impl.GatewayAsset}s in the local instance by creating
  * Keycloak clients for them and handles the connection logic of gateways; it is the gateways
  * responsibility to connect to this instance, it is then up to this instance to authenticate the
- * gateway and to initiate synchronisation of gateway assets.
+ * gateway and to initiate synchronization of gateway assets.
  *
  * <p>Also adds an {@link AttributeEventInterceptor} to consume any {@link AttributeEvent} destined
  * for a {@link GatewayAsset} descendant {@link Asset} and routes them to the underlying gateway for
@@ -659,12 +659,12 @@ public class GatewayService extends RouteBuilder implements ContainerService {
     } catch (ExecutionException e) {
       if (e.getCause() instanceof TimeoutException) {
         String msg =
-            "Failed to start tunnel: A timeout occurred whilst waiting for the tunnel to be started: id="
+            "Failed to start tunnel: A timeout occurred while waiting for the tunnel to be started: id="
                 + gatewayId;
         LOG.log(Level.WARNING, msg);
       } else {
         String msg =
-            "Failed to start tunnel: An error occurred whilst waiting for the tunnel to be started: id="
+            "Failed to start tunnel: An error occurred while waiting for the tunnel to be started: id="
                 + gatewayId
                 + ", error="
                 + e.getCause().getMessage();
@@ -724,13 +724,13 @@ public class GatewayService extends RouteBuilder implements ContainerService {
       stopFuture.get(20, TimeUnit.SECONDS);
     } catch (ExecutionException e) {
       String msg =
-          "Failed to stop tunnel: An error occurred whilst waiting for the tunnel to be stopped: id="
+          "Failed to stop tunnel: An error occurred while waiting for the tunnel to be stopped: id="
               + tunnelInfo.getGatewayId();
       LOG.log(Level.WARNING, msg, e.getCause());
       throw new RuntimeException(msg, e.getCause());
     } catch (InterruptedException | TimeoutException e) {
       String msg =
-          "Failed to stop tunnel: An error occurred whilst waiting for the tunnel to be stopped: id="
+          "Failed to stop tunnel: An error occurred while waiting for the tunnel to be stopped: id="
               + tunnelInfo.getGatewayId();
       LOG.warning(msg);
       throw new RuntimeException(msg);
@@ -746,7 +746,7 @@ public class GatewayService extends RouteBuilder implements ContainerService {
 
   /** Check if the specified asset ID or parent ID is a known gateway or descendant of a gateway. */
   public String getLocallyRegisteredGatewayId(String assetId, String parentId) {
-    // ConcurrentHashMap rejects null keys so preserve HashMap behaviour of mapping to null
+    // ConcurrentHashMap rejects null keys so preserve HashMap behavior of mapping to null
     String gatewayId = assetId != null ? assetIdGatewayIdMap.get(assetId) : null;
 
     if (gatewayId != null) {
@@ -772,7 +772,7 @@ public class GatewayService extends RouteBuilder implements ContainerService {
 
     if (connector == null) {
       LOG.warning(
-          "Gateway connected but not recognised which shouldn't happen: GatewayID=" + gatewayId);
+          "Gateway connected but not recognized which shouldn't happen: GatewayID=" + gatewayId);
       clientEventService.sendToWebsocketSession(
           sessionId, new GatewayDisconnectEvent(GatewayDisconnectEvent.Reason.UNRECOGNISED));
       clientEventService.closeWebsocketSession(sessionId);

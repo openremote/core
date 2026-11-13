@@ -228,7 +228,7 @@ public class WebsocketAgentProtocol
   protected void onConnected() {
     // Look for any subscriptions that need to be processed
     if (protocolConnectedTasks != null) {
-      // Execute after a delay to ensure connection is properly initialised
+      // Execute after a delay to ensure connection is properly initialized
       scheduledExecutorService.schedule(
           () -> protocolConnectedTasks.forEach(Runnable::run),
           CONNECTED_SEND_DELAY_MILLIS,
@@ -236,7 +236,7 @@ public class WebsocketAgentProtocol
     }
 
     if (attributeConnectedTasks != null) {
-      // Execute after a delay to ensure connection is properly initialised
+      // Execute after a delay to ensure connection is properly initialized
       scheduledExecutorService.schedule(
           () -> attributeConnectedTasks.forEach((ref, task) -> task.run()),
           CONNECTED_SEND_DELAY_MILLIS,

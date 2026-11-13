@@ -96,7 +96,7 @@ public class ZWaveNetwork {
       controller.disconnect();
     } catch (ConnectionException e) {
       ZWaveProtocol.LOG.log(
-          Level.WARNING, "Exception thrown whilst disconnecting the controller", e);
+          Level.WARNING, "Exception thrown while disconnecting the controller", e);
     } finally {
       disposeClient();
       ioClient = null;

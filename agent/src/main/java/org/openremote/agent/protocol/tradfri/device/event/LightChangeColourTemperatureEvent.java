@@ -22,7 +22,7 @@ import org.openremote.agent.protocol.tradfri.device.Light;
 import org.openremote.agent.protocol.tradfri.device.LightProperties;
 
 /**
- * The class that represents a light colour temperature changed event that occurred to an IKEA
+ * The class that represents a light color temperature changed event that occurred to an IKEA
  * TRÅDFRI light
  */
 public class LightChangeColourTemperatureEvent extends LightChangeEvent {
@@ -40,18 +40,18 @@ public class LightChangeColourTemperatureEvent extends LightChangeEvent {
   }
 
   /**
-   * Get the old colour temperature of the light (from before the event occurred)
+   * Get the old color temperature of the light (from before the event occurred)
    *
-   * @return The old colour temperature of the light
+   * @return The old color temperature of the light
    */
   public int getOldColourTemperature() {
     return getOldProperties().getColourTemperature();
   }
 
   /**
-   * Get the new colour temperature of the light (from after the event occurred)
+   * Get the new color temperature of the light (from after the event occurred)
    *
-   * @return The new colour temperature of the light
+   * @return The new color temperature of the light
    */
   public int getNewColourTemperature() {
     return getNewProperties().getColourTemperature();

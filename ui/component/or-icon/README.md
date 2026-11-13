@@ -17,7 +17,7 @@ For a full list of properties, methods and options refer to the TypeDoc generate
 
 Icons are defined in iconsets, there are two iconsets provided by default and new ones can be created as required (see
 [demo-core](../../demo/demo-core)), The `mdi` iconset is quite large and it is possible to prevent loading of this
-when initialising the OpenRemote `Manager` via the `ManagerConfig`:
+when initializing the OpenRemote `Manager` via the `ManagerConfig`:
 
 - `mdi` - [Material Design Icons](https://materialdesignicons.com/)
 - `or` - OpenRemote icons (see [here](./or-iconset.ts))

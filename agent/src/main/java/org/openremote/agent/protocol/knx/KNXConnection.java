@@ -129,7 +129,7 @@ public class KNXConnection implements NetworkLinkListener, ProcessListener {
         onConnectionStatusChanged(ConnectionStatus.CONNECTED);
 
         // Get the values of all registered group addresses
-        LOG.finest("Initialising group address values");
+        LOG.finest("Initializing group address values");
         synchronized (groupAddressConsumerMap) {
           groupAddressConsumerMap.forEach(
               (groupAddress, datapointConsumerList) -> {

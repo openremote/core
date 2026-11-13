@@ -189,7 +189,7 @@ public class ConsoleResourceImpl extends ManagerWebResource implements ConsoleRe
     return new ConsoleAsset(consoleRegistration.getName());
   }
 
-  /** This is synchronised to ensure only a single parent is created. */
+  /** This is synchronized to ensure only a single parent is created. */
   public synchronized String getConsoleParentAssetId(String realm) {
 
     String id = realmConsoleParentMap.get(realm);

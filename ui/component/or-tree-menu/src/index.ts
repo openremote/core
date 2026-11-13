@@ -572,7 +572,7 @@ export class OrTreeMenu extends OrElement {
   }
 
   /**
-   * Dispatches a cancellable tree drag event.
+   * Dispatches a cancelable tree drag event.
    */
   protected _dispatchCancellableDragEvent(
     nodes: TreeNode[],
@@ -600,7 +600,7 @@ export class OrTreeMenu extends OrElement {
         const selected = [...this._findSelectedTreeNodes()];
         const treeNode = this._getTreeNodeFromTree(node);
         if (treeNode) selected.push(treeNode);
-        const success = this._dispatchSelectEvent(selected); // Dispatch a "select" event, and return when cancelled by a consumer
+        const success = this._dispatchSelectEvent(selected); // Dispatch a "select" event, and return when canceled by a consumer
         if (!success) return;
       }
       node.selected = true;
@@ -626,7 +626,7 @@ export class OrTreeMenu extends OrElement {
         selectedNodes.push(nodes[x]);
       }
     }
-    // Dispatch a "select" event with the new nodes. If cancelled, we will not select the nodes.
+    // Dispatch a "select" event with the new nodes. If canceled, we will not select the nodes.
     if (notify) {
       const nodes = selectedNodes.map((n) => this._getTreeNodeFromTree(n)).filter((n) => n) as TreeNode[];
       const success = this._notifyNodesSelect(nodes);
@@ -639,7 +639,7 @@ export class OrTreeMenu extends OrElement {
   /**
    * Function that notifies parent HTMLElements that a tree node got selected.
    * It dispatches the OrTreeSelectEvent, which includes a list of the selected nodes.
-   * @returns a 'success' boolean whether the event was cancelled or not
+   * @returns a 'success' boolean whether the event was canceled or not
    */
   protected async _notifyNodesSelect(selectedNodes?: TreeNode[]) {
     await this.getUpdateComplete(); // await render to include the latest changes.
@@ -694,7 +694,7 @@ export class OrTreeMenu extends OrElement {
   /**
    * Utility function for sending a "select" event, so consumers of this component are aware a new node has been selected.
    * @param selectedNodes - List of selected nodes to include in the event payload.
-   * @returns a 'success' boolean whether the event was cancelled or not.
+   * @returns a 'success' boolean whether the event was canceled or not.
    */
   protected _dispatchSelectEvent(selectedNodes?: TreeNode[]): boolean {
     return this.dispatchEvent(new OrTreeSelectEvent(selectedNodes || []));

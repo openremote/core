@@ -196,7 +196,7 @@ DISCONNECT_DELAY: Delay before closing the MQTT connection after publishing loop
 
 Connects up to THREAD_COUNT accounts to the system.  
 Once connected, it does 1 single publish every MILLIS_BETWEEN_PUBLISHES (defaults to 300s).  
-Goal is to measure the time it takes for the system to allow that many connections and stabilise.
+Goal is to measure the time it takes for the system to allow that many connections and stabilize.
 
 The parameters are:  
 MANAGER_HOSTNAME: Hostname of the manager to be tested. Default is 127.0.0.1.  

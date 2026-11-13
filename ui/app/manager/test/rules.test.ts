@@ -419,10 +419,10 @@ test("Create a When-Then rule for an asset with a alarm action", async ({ page, 
 /**
  * @given A When-Then rule with an alarm action
  * @when Setting the alarm severity, which sits outside the settings dialog
- * @and Editing the alarm title inside the dialog and cancelling
- * @then The severity should be kept, and the saved rule should not contain the cancelled edit
+ * @and Editing the alarm title inside the dialog and canceling
+ * @then The severity should be kept, and the saved rule should not contain the canceled edit
  */
-test("Cancelling the alarm settings dialog discards only the changes made inside it", async ({
+test("Canceling the alarm settings dialog discards only the changes made inside it", async ({
   page,
   manager,
   rulesPage,

@@ -155,7 +155,7 @@ public class ConnectionMonitorHandler extends MQTTHandler {
     // Don't block start
     executorService.submit(
         () -> {
-          // Get all assets that have attributes with user connected meta and initialise them
+          // Get all assets that have attributes with user connected meta and initialize them
           List<Asset<?>> assets =
               assetStorageService.findAll(
                   new AssetQuery()

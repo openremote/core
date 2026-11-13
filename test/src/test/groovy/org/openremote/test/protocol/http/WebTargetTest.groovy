@@ -215,7 +215,7 @@ class WebTargetTest extends Specification {
   ResteasyClient client
 
   def setupSpec() {
-    // Initialise the web target builder and load in the mock 'server'
+    // Initialize the web target builder and load in the mock 'server'
     client = WebTargetBuilder.createClient(null)
     client.register(mockServer, Integer.MAX_VALUE)
   }
@@ -228,7 +228,7 @@ class WebTargetTest extends Specification {
     mockServer.refreshTokenCount = 0
   }
 
-  def "OAuth grant serialisation and deserialisation"() {
+  def "OAuth grant serialization and deserialization"() {
 
     given: "a grant object"
     OAuthPasswordGrant grant = new OAuthPasswordGrant("https://mockapi/token",
@@ -238,10 +238,10 @@ class WebTargetTest extends Specification {
             "testuser",
             "password")
 
-    when: "it is serialised"
+    when: "it is serialized"
     String grantStr = ValueUtil.asJSON(grant).orElse(null)
 
-    and: "deserialised again"
+    and: "deserialized again"
     OAuthGrant grant2 = ValueUtil.JSON.readValue(grantStr, OAuthGrant.class)
 
     then: "the two grant objects should be the same"
@@ -253,13 +253,13 @@ class WebTargetTest extends Specification {
     assert ((OAuthPasswordGrant)grant2).username == grant.username
     assert ((OAuthPasswordGrant)grant2).password == grant.password
 
-    when: "serialised"
+    when: "serialized"
     Map<String, Object> map = new HashMap<>()
     String v = "{\"test\": 123}"
     map.put("value", v)
     String mapStr = ValueUtil.JSON.writeValueAsString(map)
 
-    and: "deserialised"
+    and: "deserialized"
     def newMap = ValueUtil.JSON.readValue(mapStr, Map.class)
 
     then: "should work"

@@ -102,7 +102,7 @@ public class GeoJSONGeofencePredicate extends GeofencePredicate {
         return new double[] {centroid.getX(), centroid.getY()};
       }
     } catch (Exception e) {
-      LOG.log(Level.WARNING, "Failed to get centre point from GeoJSON", e);
+      LOG.log(Level.WARNING, "Failed to get center point from GeoJSON", e);
     }
     return new double[] {0, 0};
   }

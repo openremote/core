@@ -238,7 +238,7 @@ or:
 
   # !! WARNING: This will wipe your database !!
   # Force a full clean and setup on startup irrespective of whether there is existing data
-  # Default behaviour is false unless OR_DEV_MODE = true or openremote database doesn't already exist
+  # Default behavior is false unless OR_DEV_MODE = true or openremote database doesn't already exist
   setupRunOnRestart: false
 
   # Location of built in web content.
@@ -255,7 +255,7 @@ or:
   mapTilesPath: /deployment/map/mapdata.mbtiles
 
   # Override the map settings such as center location and zoom when opening the
-  # manager's map, as well as other style details and colours.
+  # manager's map, as well as other style details and colors.
   mapSettingsPath: /deployment/map/mapsettings.json
 
   # The identity provider implementation to use for managing user identities, roles, and

@@ -95,9 +95,9 @@ public class Light extends Device {
   }
 
   /**
-   * Get the colour of the light in hexadecimals
+   * Get the color of the light in hexadecimals
    *
-   * @return The colour of the light in hexadecimals
+   * @return The color of the light in hexadecimals
    */
   public String getColourHex() {
     return properties.getColourHex();
@@ -122,36 +122,36 @@ public class Light extends Device {
   }
 
   /**
-   * Get the X value of the colour of the light
+   * Get the X value of the color of the light
    *
-   * @return The X value of the colour of the light
+   * @return The X value of the color of the light
    */
   public Integer getColourX() {
     return properties.getColourX();
   }
 
   /**
-   * Get the Y value of the colour of the light
+   * Get the Y value of the color of the light
    *
-   * @return The Y value of the colour of the light
+   * @return The Y value of the color of the light
    */
   public Integer getColourY() {
     return properties.getColourY();
   }
 
   /**
-   * Get the XY values of the colour of the light
+   * Get the XY values of the color of the light
    *
-   * @return The XY values of the colour of the light
+   * @return The XY values of the color of the light
    */
   public ColourXY getColourXY() {
     return new ColourXY(properties.getColourX(), properties.getColourY());
   }
 
   /**
-   * Get the RGB values of the colour of the light
+   * Get the RGB values of the color of the light
    *
-   * @return The RGB values of the colour of the light
+   * @return The RGB values of the color of the light
    */
   public ColourRGB getColourRGB() {
     return ColourRGB.fromHS(
@@ -160,9 +160,9 @@ public class Light extends Device {
   }
 
   /**
-   * Get the colour temperature of the light
+   * Get the color temperature of the light
    *
-   * @return The colour temperature of the light
+   * @return The color temperature of the light
    */
   public Integer getColourTemperature() {
     return properties.getColourTemperature();
@@ -187,9 +187,9 @@ public class Light extends Device {
   }
 
   /**
-   * Update the colour of the light in the update queue to a predefined hexadecimal colour
+   * Update the color of the light in the update queue to a predefined hexadecimal color
    *
-   * @param colourHex The new colour for the light
+   * @param colourHex The new color for the light
    */
   public void updateColourHex(String colourHex) {
     newProperties.setColourHex(colourHex);
@@ -227,10 +227,10 @@ public class Light extends Device {
   }
 
   /**
-   * Update the colour of the light in the update queue
+   * Update the color of the light in the update queue
    *
-   * @param colourX The X value of the new colour for the light
-   * @param colourY The Y value of the new colour for the light
+   * @param colourX The X value of the new color for the light
+   * @param colourY The Y value of the new color for the light
    */
   public void updateColourXY(Integer colourX, Integer colourY) {
     newProperties.setColourX(colourX);
@@ -242,9 +242,9 @@ public class Light extends Device {
   }
 
   /**
-   * Update the colour of the light in the update queue
+   * Update the color of the light in the update queue
    *
-   * @param colourXY The new colour for the light
+   * @param colourXY The new color for the light
    */
   public void updateColour(ColourXY colourXY) {
     newProperties.setColourX(colourXY.getX());
@@ -256,29 +256,29 @@ public class Light extends Device {
   }
 
   /**
-   * Update the colour of the light in the update queue
+   * Update the color of the light in the update queue
    *
-   * @param colourRGB The new colour for the light
+   * @param colourRGB The new color for the light
    */
   public void updateColour(ColourRGB colourRGB) {
     updateColour(ColourXY.fromRGB(colourRGB));
   }
 
   /**
-   * Update the colour of the light in the update queue
+   * Update the color of the light in the update queue
    *
-   * @param colourRed The red value of the new colour for the light
-   * @param colourGreen The green value of the new colour for the light
-   * @param colourBlue The blue value of the new colour for the light
+   * @param colourRed The red value of the new color for the light
+   * @param colourGreen The green value of the new color for the light
+   * @param colourBlue The blue value of the new color for the light
    */
   public void updateColourRGB(int colourRed, int colourGreen, int colourBlue) {
     updateColour(new ColourRGB(colourRed, colourGreen, colourBlue));
   }
 
   /**
-   * Update the colour temperature of the light in the update queue
+   * Update the color temperature of the light in the update queue
    *
-   * @param colourTemperature The new colour temperature for the light
+   * @param colourTemperature The new color temperature for the light
    */
   public void updateColourTemperature(Integer colourTemperature) {
     newProperties.setColourTemperature(colourTemperature);
@@ -347,11 +347,11 @@ public class Light extends Device {
   }
 
   /**
-   * Set the colour of the light to a predefined hexadecimal colour
+   * Set the color of the light to a predefined hexadecimal color
    *
-   * @param colourHex The new colour for the light
+   * @param colourHex The new color for the light
    * @param transitionTime The transition time for updating the light
-   * @return True if successfully updated the colour of the light, false if not
+   * @return True if successfully updated the color of the light, false if not
    */
   public boolean setColourHex(String colourHex, Integer transitionTime) {
     LightProperties newProperties = new LightProperties();
@@ -361,10 +361,10 @@ public class Light extends Device {
   }
 
   /**
-   * Set the colour of the light to a predefined hexadecimal colour
+   * Set the color of the light to a predefined hexadecimal color
    *
-   * @param colourHex The new colour for the light
-   * @return True if successfully updated the colour of the light, false if not
+   * @param colourHex The new color for the light
+   * @return True if successfully updated the color of the light, false if not
    */
   public boolean setColourHex(String colourHex) {
     return setColourHex(colourHex, null);
@@ -419,12 +419,12 @@ public class Light extends Device {
   }
 
   /**
-   * Set the colour of the light
+   * Set the color of the light
    *
-   * @param colourX The X value of the new colour for the light
-   * @param colourY The Y value of the new colour for the light
+   * @param colourX The X value of the new color for the light
+   * @param colourY The Y value of the new color for the light
    * @param transitionTime The transition time for updating the light
-   * @return True if successfully updated the colour of the light, false if not
+   * @return True if successfully updated the color of the light, false if not
    */
   public boolean setColourXY(Integer colourX, Integer colourY, Integer transitionTime) {
     LightProperties newProperties = new LightProperties();
@@ -435,66 +435,66 @@ public class Light extends Device {
   }
 
   /**
-   * Set the colour of the light
+   * Set the color of the light
    *
-   * @param colourX The X value of the new colour for the light
-   * @param colourY The Y value of the new colour for the light
-   * @return True if successfully updated the colour of the light, false if not
+   * @param colourX The X value of the new color for the light
+   * @param colourY The Y value of the new color for the light
+   * @return True if successfully updated the color of the light, false if not
    */
   public boolean setColourXY(Integer colourX, Integer colourY) {
     return setColourXY(colourX, colourY, null);
   }
 
   /**
-   * Set the colour of the light
+   * Set the color of the light
    *
-   * @param colourXY The new colour for the light
+   * @param colourXY The new color for the light
    * @param transitionTime The transition time for updating the light
-   * @return True if successfully updated the colour of the light, false if not
+   * @return True if successfully updated the color of the light, false if not
    */
   public boolean setColour(ColourXY colourXY, Integer transitionTime) {
     return setColourXY(colourXY.getX(), colourXY.getY(), transitionTime);
   }
 
   /**
-   * Set the colour of the light
+   * Set the color of the light
    *
-   * @param colourXY The new colour for the light
-   * @return True if successfully updated the colour of the light, false if not
+   * @param colourXY The new color for the light
+   * @return True if successfully updated the color of the light, false if not
    */
   public boolean setColour(ColourXY colourXY) {
     return setColour(colourXY, null);
   }
 
   /**
-   * Set the colour of the light
+   * Set the color of the light
    *
-   * @param colourRGB The new colour for the light
+   * @param colourRGB The new color for the light
    * @param transitionTime The transition time for updating the light
-   * @return True if successfully updated the colour of the light, false if not
+   * @return True if successfully updated the color of the light, false if not
    */
   public boolean setColour(ColourRGB colourRGB, Integer transitionTime) {
     return setColour(ColourXY.fromRGB(colourRGB), transitionTime);
   }
 
   /**
-   * Set the colour of the light
+   * Set the color of the light
    *
-   * @param colourRGB The new colour for the light
-   * @return True if successfully updated the colour of the light, false if not
+   * @param colourRGB The new color for the light
+   * @return True if successfully updated the color of the light, false if not
    */
   public boolean setColour(ColourRGB colourRGB) {
     return setColour(colourRGB, null);
   }
 
   /**
-   * Set the colour of the light
+   * Set the color of the light
    *
-   * @param colourRed The red value of the new colour for the light
-   * @param colourGreen The green value of the new colour for the light
-   * @param colourBlue The blue value of the new colour for the light
+   * @param colourRed The red value of the new color for the light
+   * @param colourGreen The green value of the new color for the light
+   * @param colourBlue The blue value of the new color for the light
    * @param transitionTime The transition time for updating the light
-   * @return True if successfully updated the colour of the light, false if not
+   * @return True if successfully updated the color of the light, false if not
    */
   public boolean setColourRGB(
       int colourRed, int colourGreen, int colourBlue, Integer transitionTime) {
@@ -502,23 +502,23 @@ public class Light extends Device {
   }
 
   /**
-   * Set the colour of the light
+   * Set the color of the light
    *
-   * @param colourRed The red value of the new colour for the light
-   * @param colourGreen The green value of the new colour for the light
-   * @param colourBlue The blue value of the new colour for the light
-   * @return True if successfully updated the colour of the light, false if not
+   * @param colourRed The red value of the new color for the light
+   * @param colourGreen The green value of the new color for the light
+   * @param colourBlue The blue value of the new color for the light
+   * @return True if successfully updated the color of the light, false if not
    */
   public boolean setColourRGB(int colourRed, int colourGreen, int colourBlue) {
     return setColour(new ColourRGB(colourRed, colourGreen, colourBlue));
   }
 
   /**
-   * Set the colour temperature of the light
+   * Set the color temperature of the light
    *
-   * @param colourTemperature The new colour temperature for the light
+   * @param colourTemperature The new color temperature for the light
    * @param transitionTime The transition time for updating the light
-   * @return True if successfully updated the colour temperature of the light, false if not
+   * @return True if successfully updated the color temperature of the light, false if not
    */
   public boolean setColourTemperature(Integer colourTemperature, Integer transitionTime) {
     LightProperties newProperties = new LightProperties();
@@ -528,10 +528,10 @@ public class Light extends Device {
   }
 
   /**
-   * Set the colour temperature of the light
+   * Set the color temperature of the light
    *
-   * @param colourTemperature The new colour temperature for the light
-   * @return True if successfully updated the colour temperature of the light, false if not
+   * @param colourTemperature The new color temperature for the light
+   * @return True if successfully updated the color temperature of the light, false if not
    */
   public boolean setColourTemperature(Integer colourTemperature) {
     return setColourTemperature(colourTemperature, null);

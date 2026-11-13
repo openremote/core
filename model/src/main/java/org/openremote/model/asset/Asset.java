@@ -289,7 +289,7 @@ public abstract class Asset<T extends Asset<?>> implements IdentifiableEntity<T>
     public Asset<?> deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
       JavaType jType = getValueType(ctxt);
       if (jType != null) {
-        // Make the asset type info available to the attribute deserialiser
+        // Make the asset type info available to the attribute deserializer
         ctxt.setAttribute(
             ASSET_TYPE_INFO_ATTRIBUTE,
             ValueUtil.getAssetInfo(jType.getRawClass().getSimpleName()).orElse(null));
@@ -407,7 +407,7 @@ public abstract class Asset<T extends Asset<?>> implements IdentifiableEntity<T>
   protected Asset(String name) {
     setName(name);
 
-    // Initialise required attributes
+    // Initialize required attributes
     ValueUtil.initialiseAssetAttributes(this);
   }
 

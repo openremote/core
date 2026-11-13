@@ -641,7 +641,7 @@ test.describe("Role-Based Access Control", () => {
   /**
    * @given A notification seeded into "smartcity" (REST) and a "smartcity" user with read:notifications only
    * @when That user opens the notification's details dialog
-   * @then The recipient type is shown, but the recipient's identity is sanitised away (shown as "-")
+   * @then The recipient type is shown, but the recipient's identity is sanitized away (shown as "-")
    */
   test("should hide the recipient identity for a viewer without user/asset read permission", async ({
     manager,

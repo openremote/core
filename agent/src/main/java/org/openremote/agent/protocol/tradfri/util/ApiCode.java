@@ -138,7 +138,7 @@ public class ApiCode {
   // Lights
 
   /**
-   * The IKEA TRÅDFRI API code for a hexadecimal colour property<br>
+   * The IKEA TRÅDFRI API code for a hexadecimal color property<br>
    * <i>Value: {@value}</i>
    */
   public static final String COLOUR_HEX = "5706";
@@ -156,19 +156,19 @@ public class ApiCode {
   public static final String SATURATION = "5708";
 
   /**
-   * The IKEA TRÅDFRI API code for a X value of a colour property<br>
+   * The IKEA TRÅDFRI API code for a X value of a color property<br>
    * <i>Value: {@value}</i>
    */
   public static final String COLOUR_X = "5709";
 
   /**
-   * The IKEA TRÅDFRI API code for a Y value of a colour property<br>
+   * The IKEA TRÅDFRI API code for a Y value of a color property<br>
    * <i>Value: {@value}</i>
    */
   public static final String COLOUR_Y = "5710";
 
   /**
-   * The IKEA TRÅDFRI API code for a colour temperature property<br>
+   * The IKEA TRÅDFRI API code for a color temperature property<br>
    * <i>Value: {@value}</i>
    */
   public static final String COLOUR_TEMPERATURE = "5711";

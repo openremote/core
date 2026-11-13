@@ -48,7 +48,7 @@ service FuotaService {
   // Add the given Gateway IDs to the FUOTA deployment.
   // By default, ChirpStack will automatically select the minimum amount of
   // gateways needed to cover all devices within the multicast-group. Setting
-  // the gateways manually overrides this behaviour.
+  // the gateways manually overrides this behavior.
   rpc AddGateways(AddGatewaysToFuotaDeploymentRequest) returns (google.protobuf.Empty) {}
   
   // List the gateways added to the FUOTA deployment.

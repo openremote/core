@@ -290,7 +290,7 @@ public class RulesetDeployment {
     return status != COMPILATION_ERROR && status != DISABLED && status != RulesetStatus.EXPIRED;
   }
 
-  /** Called when a ruleset is started (allows for initialisation tasks) */
+  /** Called when a ruleset is started (allows for initialization tasks) */
   public boolean start(RulesFacts facts) {
     if (!canStart()) {
       return false;

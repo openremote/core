@@ -50,7 +50,7 @@ const meta: Meta = {
 export const Primary: Story = {
   args: {
     type: InputType.COLOUR,
-    label: "Colour picker",
+    label: "Color picker",
   },
 };
 

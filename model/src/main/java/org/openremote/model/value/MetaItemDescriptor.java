@@ -40,7 +40,7 @@ import org.openremote.model.util.ValueUtil;
 public class MetaItemDescriptor<T> extends AbstractNameValueDescriptorHolder<T> {
 
   /**
-   * This class handles deserialising meta item descriptor names to {@link MetaItemDescriptor}s; to
+   * This class handles deserializing meta item descriptor names to {@link MetaItemDescriptor}s; to
    * reuse instances
    */
   public static class StringMetaItemDescriptorConverter
