@@ -472,7 +472,7 @@ function showImportPreviewDialog(
   onImported: (attributes: AssetAttributes) => void,
   onBack: () => void
 ) {
-  const patchedAttributes = (preview.patchedAttributes || {}) as AssetAttributes;
+  const patchedAttributes: AssetAttributes = preview.patchedAttributes || {};
   const importable = preview.importableAttributes || [];
 
   const dialog = showDialog(

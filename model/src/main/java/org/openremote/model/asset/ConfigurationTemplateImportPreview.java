@@ -19,10 +19,9 @@
 package org.openremote.model.asset;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
+import org.openremote.model.attribute.AttributeMap;
 
 /**
  * What importing a {@link ConfigurationTemplate} into an asset draft would do, for the user to
@@ -50,16 +49,15 @@ public class ConfigurationTemplateImportPreview {
   @Schema(
       description =
           "The submitted draft attributes with the metadata of every importable attribute replaced, keyed by attribute name.")
-  protected ObjectNode patchedAttributes;
+  protected AttributeMap patchedAttributes;
 
   @JsonCreator
   public ConfigurationTemplateImportPreview(
-      @JsonProperty("failure") ConfigurationTemplateImportFailure failure,
-      @JsonProperty("importableAttributes")
-          List<AttributeConfigurationSummary> importableAttributes,
-      @JsonProperty("missingAttributes") List<AttributeConfigurationSummary> missingAttributes,
-      @JsonProperty("typeMismatches") List<AttributeConfigurationTypeMismatch> typeMismatches,
-      @JsonProperty("patchedAttributes") ObjectNode patchedAttributes) {
+      ConfigurationTemplateImportFailure failure,
+      List<AttributeConfigurationSummary> importableAttributes,
+      List<AttributeConfigurationSummary> missingAttributes,
+      List<AttributeConfigurationTypeMismatch> typeMismatches,
+      AttributeMap patchedAttributes) {
     this.failure = failure;
     this.importableAttributes = importableAttributes;
     this.missingAttributes = missingAttributes;
@@ -88,7 +86,7 @@ public class ConfigurationTemplateImportPreview {
     return typeMismatches;
   }
 
-  public ObjectNode getPatchedAttributes() {
+  public AttributeMap getPatchedAttributes() {
     return patchedAttributes;
   }
 }

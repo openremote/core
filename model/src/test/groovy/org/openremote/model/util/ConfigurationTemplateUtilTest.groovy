@@ -78,8 +78,8 @@ class ConfigurationTemplateUtilTest extends Specification {
     and: "only the attribute with metadata is held, with its type and its metadata as stored"
     exported.attributes.keySet() == ["temperature"] as Set
     exported.attributes.temperature.type == ValueType.NUMBER.name
-    exported.attributes.temperature.meta.get(MetaItemType.LABEL.name).asText() == "Temperature"
-    exported.attributes.temperature.meta.get("unknownMetaItem").get("nested").asInt() == 1
+    exported.attributes.temperature.getMetaValue(MetaItemType.LABEL).orElse(null) == "Temperature"
+    exported.attributes.temperature.meta.getValue("unknownMetaItem", Map).orElse(null) == [nested: 1]
   }
 
   def "export limited to a selection holds only the selected attributes"() {
@@ -132,7 +132,7 @@ class ConfigurationTemplateUtilTest extends Specification {
     def exported = ConfigurationTemplateUtil.export(asset, null)
 
     then: "that metadata is left out"
-    exported.attributes.temperature.meta.fieldNames().toList() == [MetaItemType.LABEL.name]
+    exported.attributes.temperature.meta.keySet() == [MetaItemType.LABEL.name] as Set
 
     and: "an attribute holding no other metadata is left out entirely"
     exported.attributes.keySet() == ["temperature"] as Set
@@ -148,13 +148,13 @@ class ConfigurationTemplateUtilTest extends Specification {
     ]))
 
     then: "the other metadata is imported"
-    def meta = preview.patchedAttributes.get("temperature").get("meta")
-    meta.get(MetaItemType.LABEL.name).asText() == "Imported"
+    def meta = preview.patchedAttributes.get("temperature").get().meta
+    meta.getValue(MetaItemType.LABEL).orElse(null) == "Imported"
 
     and: "the access and attribute link metadata of the document is ignored and that of the asset kept"
-    !meta.has(MetaItemType.ACCESS_PUBLIC_WRITE.name)
-    !meta.has(MetaItemType.ATTRIBUTE_LINKS.name)
-    meta.get(MetaItemType.ACCESS_PUBLIC_READ.name).asBoolean()
+    !meta.has(MetaItemType.ACCESS_PUBLIC_WRITE)
+    !meta.has(MetaItemType.ATTRIBUTE_LINKS)
+    meta.getValue(MetaItemType.ACCESS_PUBLIC_READ).orElse(false)
   }
 
   def "an attribute missing on the target asset is skipped and reported"() {
@@ -235,17 +235,17 @@ class ConfigurationTemplateUtilTest extends Specification {
     ]))
 
     then: "the imported metadata replaces the existing metadata entirely"
-    def patchedTemperature = preview.patchedAttributes.get("temperature")
-    patchedTemperature.get("meta").get("unitType").get(0).asText() == "celsius"
-    !patchedTemperature.get("meta").has(MetaItemType.LABEL.name)
-    !patchedTemperature.get("meta").has(MetaItemType.READ_ONLY.name)
+    def patchedTemperature = preview.patchedAttributes.get("temperature").get()
+    patchedTemperature.meta.getValue("unitType", List).orElse(null) == ["celsius"]
+    !patchedTemperature.hasMeta(MetaItemType.LABEL)
+    !patchedTemperature.hasMeta(MetaItemType.READ_ONLY)
 
     and: "an attribute without metadata gets the imported metadata added"
-    preview.patchedAttributes.get("plain").get("meta").get("label").asText() == "Plain"
+    preview.patchedAttributes.get("plain").get().getMetaValue(MetaItemType.LABEL).orElse(null) == "Plain"
 
     and: "the type and the value of the attribute are untouched"
-    patchedTemperature.get("type").asText() == ValueType.NUMBER.name
-    patchedTemperature.get("value").asDouble() == 21.5d
+    patchedTemperature.type == ValueType.NUMBER
+    patchedTemperature.value.orElse(null) == 21.5d
 
     and: "the asset itself is not modified"
     asset.getAttributes().get("temperature").get().getMeta().has(MetaItemType.LABEL.name)
@@ -263,6 +263,6 @@ class ConfigurationTemplateUtilTest extends Specification {
 
     then: "the map key decides which attribute is imported"
     preview.importableAttributes*.name == ["temperature"]
-    preview.patchedAttributes.get("temperature").get("meta").get("label").asText() == "Imported"
+    preview.patchedAttributes.get("temperature").get().getMetaValue(MetaItemType.LABEL).orElse(null) == "Imported"
   }
 }

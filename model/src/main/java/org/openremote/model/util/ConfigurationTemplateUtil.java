@@ -41,8 +41,8 @@ import org.openremote.model.asset.ConfigurationTemplate;
 import org.openremote.model.asset.ConfigurationTemplateImportPreview;
 import org.openremote.model.attribute.Attribute;
 import org.openremote.model.attribute.AttributeMap;
+import org.openremote.model.attribute.MetaItem;
 import org.openremote.model.attribute.MetaMap;
-import org.openremote.model.value.MetaItemDescriptor;
 
 /**
  * Reads and writes {@link ConfigurationTemplate}s. Callers are responsible for enforcing realm
@@ -78,7 +78,7 @@ public final class ConfigurationTemplateUtil {
           .filter(attribute -> selectAll || attributeNames.contains(attribute.getName()))
           .forEach(
               attribute -> {
-                ObjectNode meta = withoutAssetBoundMeta(attribute.getMeta());
+                MetaMap meta = withoutAssetBoundMeta(attribute.getMeta());
 
                 if (!meta.isEmpty()) {
                   attributes.put(
@@ -97,6 +97,9 @@ public final class ConfigurationTemplateUtil {
    * ConfigurationTemplateImportPreview#getPatchedAttributes()} holds the draft attributes with the
    * metadata of every importable attribute replaced, except for {@link #ASSET_BOUND_META_ITEMS},
    * which keep the values of the draft.
+   *
+   * <p>The document is read as a JSON tree, as binding it cannot tell a malformed entry from an
+   * invalid metadata item.
    */
   public static ConfigurationTemplateImportPreview preview(Asset<?> draft, String document) {
     JsonNode root;
@@ -141,14 +144,13 @@ public final class ConfigurationTemplateUtil {
         return ConfigurationTemplateImportPreview.failed(MALFORMED_ATTRIBUTE_ENTRY);
       }
 
-      ObjectNode importedMeta = ((ObjectNode) meta).deepCopy();
-      importedMeta.remove(ASSET_BOUND_META_ITEMS);
+      Optional<MetaMap> importedMeta = readMeta((ObjectNode) meta);
 
-      if (!isValidMeta(importedMeta)) {
+      if (importedMeta.isEmpty()) {
         return ConfigurationTemplateImportPreview.failed(INVALID_META_ITEM);
       }
 
-      imported.put(entry.getKey(), new AttributeConfiguration(type.asText(), importedMeta));
+      imported.put(entry.getKey(), new AttributeConfiguration(type.asText(), importedMeta.get()));
     }
 
     AttributeMap targetAttributes =
@@ -183,66 +185,67 @@ public final class ConfigurationTemplateUtil {
           NO_IMPORTABLE_ATTRIBUTES, importable, missing, typeMismatches, null);
     }
 
-    ObjectNode patchedAttributes = toObjectNode(targetAttributes);
+    AttributeMap patchedAttributes = ValueUtil.clone(targetAttributes);
     importable.forEach(
-        attribute -> {
-          ObjectNode patched = (ObjectNode) patchedAttributes.get(attribute.getName());
-          ObjectNode meta = imported.get(attribute.getName()).getMeta();
-          JsonNode targetMeta = patched.get("meta");
+        summary -> {
+          Attribute<?> patched = patchedAttributes.get(summary.getName()).orElseThrow();
+          MetaMap meta = imported.get(summary.getName()).getMeta();
 
-          if (targetMeta != null && targetMeta.isObject()) {
-            ASSET_BOUND_META_ITEMS.stream()
-                .filter(targetMeta::has)
-                .forEach(name -> meta.set(name, targetMeta.get(name)));
+          if (patched.getMeta() != null) {
+            ASSET_BOUND_META_ITEMS.forEach(
+                name -> patched.getMeta().get(name).ifPresent(item -> meta.addOrReplace(item)));
           }
-          patched.set("meta", meta);
+          patched.setMeta(meta);
         });
 
     return new ConfigurationTemplateImportPreview(
         null, importable, missing, typeMismatches, patchedAttributes);
   }
 
-  protected static boolean isAbsent(JsonNode node) {
+  private static boolean isAbsent(JsonNode node) {
     return node == null || node.isNull();
   }
 
-  protected static ObjectNode withoutAssetBoundMeta(MetaMap meta) {
-    ObjectNode node = meta != null ? toObjectNode(meta) : ValueUtil.JSON.createObjectNode();
-    node.remove(ASSET_BOUND_META_ITEMS);
-    return node;
+  private static MetaMap withoutAssetBoundMeta(MetaMap meta) {
+    MetaMap result = meta != null ? new MetaMap(meta) : new MetaMap();
+    ASSET_BOUND_META_ITEMS.forEach(result::remove);
+    return result;
   }
 
   /**
-   * Whether every metadata item with a known descriptor holds a value of its type that meets the
-   * bean constraints of that type. Unknown metadata items are taken as they are.
+   * Reads the metadata of a document entry without the {@link #ASSET_BOUND_META_ITEMS}, or nothing
+   * if an item with a known descriptor does not hold a value of its type that meets the bean
+   * constraints of that type. Unknown metadata items are taken as they are.
    */
-  protected static boolean isValidMeta(ObjectNode meta) {
-    for (Map.Entry<String, JsonNode> item : meta.properties()) {
-      Optional<MetaItemDescriptor<?>> descriptor = ValueUtil.getMetaItemDescriptor(item.getKey());
+  private static Optional<MetaMap> readMeta(ObjectNode node) {
+    ObjectNode items = node.deepCopy();
+    items.remove(ASSET_BOUND_META_ITEMS);
+    MetaMap meta;
 
-      if (descriptor.isEmpty() || item.getValue().isNull()) {
-        continue;
-      }
-      try {
-        Object value =
-            ValueUtil.JSON.treeToValue(item.getValue(), descriptor.get().getType().getType());
+    try {
+      meta = ValueUtil.JSON.treeToValue(items, MetaMap.class);
+    } catch (JsonProcessingException | IllegalArgumentException e) {
+      return Optional.empty();
+    }
 
-        if (value != null
-            && (!ValueUtil.validate(value).isEmpty() || changesType(item.getValue(), value))) {
-          return false;
-        }
-      } catch (JsonProcessingException | IllegalArgumentException e) {
-        return false;
+    for (MetaItem<?> item : meta.values()) {
+      Object value = item.getValue().orElse(null);
+
+      if (item.getType() != null
+          && value != null
+          && (!ValueUtil.validate(value).isEmpty()
+              || changesType(items.get(item.getName()), value))) {
+        return Optional.empty();
       }
     }
-    return true;
+    return Optional.of(meta);
   }
 
   /**
    * Whether a value that names its subtype was read as another one, as happens to an agent link of
    * a type that is not installed, which falls back to the default agent link.
    */
-  protected static boolean changesType(JsonNode node, Object value) {
+  private static boolean changesType(JsonNode node, Object value) {
     JsonNode type = node.get("type");
 
     if (type == null || !type.isTextual()) {
@@ -252,19 +255,7 @@ public final class ConfigurationTemplateUtil {
     return readType != null && !type.asText().equals(readType.asText());
   }
 
-  protected static String typeName(Attribute<?> attribute) {
+  private static String typeName(Attribute<?> attribute) {
     return attribute.getType() != null ? attribute.getType().getName() : null;
-  }
-
-  /**
-   * Serializes through text rather than a token buffer, so that attribute values held as raw JSON
-   * are materialized into the returned tree.
-   */
-  protected static ObjectNode toObjectNode(Object value) {
-    try {
-      return (ObjectNode) ValueUtil.JSON.readTree(ValueUtil.JSON.writeValueAsString(value));
-    } catch (JsonProcessingException e) {
-      throw new IllegalStateException("Cannot serialize attribute configuration", e);
-    }
   }
 }

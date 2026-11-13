@@ -19,9 +19,9 @@
 package org.openremote.model.asset;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.swagger.v3.oas.annotations.media.Schema;
+import org.openremote.model.attribute.MetaMap;
+import org.openremote.model.value.MetaHolder;
 
 /**
  * The configuration of a single {@link org.openremote.model.attribute.Attribute} within an {@link
@@ -30,17 +30,16 @@ import io.swagger.v3.oas.annotations.media.Schema;
 @Schema(
     description =
         "Configuration of a single attribute; the attribute name is the key within the document.")
-public class AttributeConfiguration {
+public class AttributeConfiguration implements MetaHolder {
 
   @Schema(description = "Value descriptor name of the attribute, e.g. number.")
   protected String type;
 
   @Schema(description = "Metadata keyed by meta-item name, exactly as stored on the attribute.")
-  protected ObjectNode meta;
+  protected MetaMap meta;
 
   @JsonCreator
-  public AttributeConfiguration(
-      @JsonProperty("type") String type, @JsonProperty("meta") ObjectNode meta) {
+  public AttributeConfiguration(String type, MetaMap meta) {
     this.type = type;
     this.meta = meta;
   }
@@ -49,7 +48,8 @@ public class AttributeConfiguration {
     return type;
   }
 
-  public ObjectNode getMeta() {
+  @Override
+  public MetaMap getMeta() {
     return meta;
   }
 }

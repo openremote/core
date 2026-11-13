@@ -93,8 +93,8 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
     document.assetType == ThingAsset.DESCRIPTOR.name
     document.attributes.keySet() == ["temperature", "customValue"] as Set
     document.attributes.temperature.type == ValueType.NUMBER.name
-    document.attributes.temperature.meta.get(MetaItemType.LABEL.name).asText() == "Source temperature"
-    document.attributes.temperature.meta.get(MetaItemType.READ_ONLY.name).asBoolean()
+    document.attributes.temperature.getMetaValue(MetaItemType.LABEL).orElse(null) == "Source temperature"
+    document.attributes.temperature.getMetaValue(MetaItemType.READ_ONLY).orElse(false)
 
     when: "a subset of the attributes is exported"
     def subset = assetResource.exportConfigurationTemplate(null, source.id, ["temperature"])
@@ -124,13 +124,13 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
     preview.typeMismatches*.targetType == [ValueType.NUMBER.name]
 
     and: "the patched attributes hold the imported metadata, keeping the attribute value"
-    def patched = preview.patchedAttributes.get("temperature")
-    patched.get("meta").get(MetaItemType.LABEL.name).asText() == "Source temperature"
-    patched.get("meta").get(MetaItemType.READ_ONLY.name).asBoolean()
-    patched.get("value").asDouble() == 21.5d
+    def patched = preview.patchedAttributes.get("temperature").get()
+    patched.getMetaValue(MetaItemType.LABEL).orElse(null) == "Source temperature"
+    patched.getMetaValue(MetaItemType.READ_ONLY).orElse(false)
+    patched.value.orElse(null) == 21.5d
 
     and: "the attributes that are not imported are returned untouched"
-    preview.patchedAttributes.get("customValue").get("type").asText() == ValueType.NUMBER.name
+    preview.patchedAttributes.get("customValue").get().type == ValueType.NUMBER
 
     and: "the target asset is not stored by the preview"
     assetResource.get(null, target.id).getAttribute("temperature").get().getMeta()
