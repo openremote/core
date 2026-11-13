@@ -1,6 +1,6 @@
 # Load Tests
 
-[Blazemeter Taurus](https://gettaurus.org/) load testing utilising [JMeter](https://jmeter.apache.org/).
+[Blazemeter Taurus](https://gettaurus.org/) load testing utilizing [JMeter](https://jmeter.apache.org/).
 
 ## Prerequisites
 

@@ -454,7 +454,7 @@ export class AssetMap extends BaseMap {
   }
 
   /**
-   * Registers the colour of an asset type the map has not seen before
+   * Registers the color of an asset type the map has not seen before
    * @returns Whether the type is new, meaning the cluster properties are out of date
    */
   private _addAssetType(type: string) {

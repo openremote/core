@@ -7,7 +7,7 @@
 # - Deploying to hosts on push/release and/or manual trigger and/or when certain openremote/manager docker tags are updated
 #
 # By default this workflow will just run tests on push/release; distribution (pushing of openremote/manager docker image)
-# and deployment behaviour is configured via the .ci_cd/ci_cd.json file (see .ci_cd/README.md for more details).
+# and deployment behavior is configured via the .ci_cd/ci_cd.json file (see .ci_cd/README.md for more details).
 #
 # DEPLOYMENTS
 #
@@ -451,7 +451,7 @@ jobs:
 
           pushSnapshot = os.getenv('INPUT_PUSH_SNAPSHOT')
           if pushSnapshot == 'true' and repoOwner != 'openremote':
-            os.system("echo 'Only Openremote organisation can push to ECR'")
+            os.system("echo 'Only Openremote organization can push to ECR'")
             sys.exit(1)
           else:
             os.system(f"echo 'pushSnapshot={pushSnapshot}' >> $GITHUB_OUTPUT")

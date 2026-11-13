@@ -205,14 +205,14 @@ public class VelbusPacket {
   }
 
   /// <summary>
-  /// Initialises a new instance of the Packet class.
+  /// Initializes a new instance of the Packet class.
   /// </summary>
   public VelbusPacket() {
     this(0x00);
   }
 
   /*
-   * Initialises a new instance of the Packet class using the
+   * Initializes a new instance of the Packet class using the
    * specified address.
    */
   public VelbusPacket(int address) {
@@ -235,7 +235,7 @@ public class VelbusPacket {
   }
 
   /*
-   * Initialises a new instance of the Packet class using the
+   * Initializes a new instance of the Packet class using the
    * specified address, priority, data size and rtr state.
    */
   public VelbusPacket(int address, PacketPriority priority, int dataSize, boolean rtr) {

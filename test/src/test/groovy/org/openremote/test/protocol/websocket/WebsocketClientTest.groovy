@@ -81,7 +81,7 @@ class WebsocketClientTest extends Specification implements ManagerContainerTrait
       String str = ValueUtil.asJSON(message).orElse(null)
       return prefix + str
     } catch (Exception e) {
-      throw new IllegalArgumentException("Unable to serialise message")
+      throw new IllegalArgumentException("Unable to serialize message")
     }
   }
 
@@ -483,7 +483,7 @@ class WebsocketClientTest extends Specification implements ManagerContainerTrait
     }
 
     // TODO: Remove this once client supports some better connection logic
-    and: "some time passes to allow the connection to be fully initialised"
+    and: "some time passes to allow the connection to be fully initialized"
     sleep(3000)
 
     when: "we subscribe to attribute events produced by the server"

@@ -131,7 +131,7 @@ public class Attribute<T> extends AbstractNameValueHolder<T> implements MetaHold
           }
           case "meta" -> {
             // findNonContextualValueDeserializer is slow so caching the result to speed up
-            // deserialisation
+            // deserialization
             if (metaDeserialiser == null) {
               metaDeserialiser = ctxt.findNonContextualValueDeserializer(META_MAP_TYPE);
             }
@@ -145,7 +145,7 @@ public class Attribute<T> extends AbstractNameValueHolder<T> implements MetaHold
           }
           case "timestamp" -> attribute.timestamp = jp.getValueAsLong();
           case "value" -> {
-            //                        // Can only deserialise value once we know its' type
+            //                        // Can only deserialize value once we know its' type
             //                        if (!typeFound) {
             //                            valueBuffer = new TokenBuffer(jp, ctxt);
             //                            valueBuffer.copyCurrentStructure(jp);

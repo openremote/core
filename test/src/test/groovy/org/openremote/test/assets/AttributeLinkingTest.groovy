@@ -156,7 +156,7 @@ class AttributeLinkingTest extends Specification implements ManagerContainerTrai
       assert noEventProcessedIn(assetProcessingService, 500)
     }
 
-    // Need to reset counter due to synchronisation issues (ideally counter would still be at 0 as
+    // Need to reset counter due to synchronization issues (ideally counter would still be at 0 as
     // each press event had a corresponding release event)
     when: "the counter is reset"
     def attr = asset2.getAttribute("counter").get()

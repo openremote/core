@@ -108,7 +108,7 @@ export class Console {
           consoleReg.apps = storedReg.apps;
         }
       } catch (e) {
-        console.error("Failed to deserialise console registration");
+        console.error("Failed to deserialize console registration");
       }
     }
 
@@ -183,7 +183,7 @@ export class Console {
       return;
     }
 
-    console.debug("Console: initialising");
+    console.debug("Console: initializing");
     this._initialiseInProgress = true;
 
     try {
@@ -218,7 +218,7 @@ export class Console {
   // to be retrieved from the replies; if that is required then providers should be manually enabled from the calling app
   public async enableProviders(): Promise<void> {
     if (!this._initialised) {
-      throw new Error("Console must be initialised before enabling providers");
+      throw new Error("Console must be initialized before enabling providers");
     }
 
     for (let index = this._pendingProviderEnables.length - 1; index > -1; index--) {
@@ -229,8 +229,8 @@ export class Console {
 
   public async enableProvider(providerName: string, data?: any): Promise<ProviderEnableResponse> {
     if (!this._initialised) {
-      console.debug("Console must be initialised before disabling providers");
-      throw new Error("Console must be initialised before enabling providers");
+      console.debug("Console must be initialized before disabling providers");
+      throw new Error("Console must be initialized before enabling providers");
     }
 
     if (!this._registration.providers!.hasOwnProperty(providerName)) {
@@ -267,8 +267,8 @@ export class Console {
 
   public async disableProvider(provider: string): Promise<ProviderMessage> {
     if (!this._initialised) {
-      console.debug("Console must be initialised before disabling providers");
-      throw new Error("Console must be initialised before disabling providers");
+      console.debug("Console must be initialized before disabling providers");
+      throw new Error("Console must be initialized before disabling providers");
     }
 
     if (!this._registration.providers!.hasOwnProperty(provider)) {
@@ -639,7 +639,7 @@ export class Console {
   }
 
   protected async _initialiseProvider(providerName: string): Promise<void> {
-    console.debug("Console: initialising provider '" + providerName + "'");
+    console.debug("Console: initializing provider '" + providerName + "'");
     let initResponse: ProviderInitialiseResponse;
 
     try {
@@ -673,7 +673,7 @@ export class Console {
     }
 
     if (!initResponse.success) {
-      console.debug("Provider initialisation failed: '" + providerName + "'");
+      console.debug("Provider initialization failed: '" + providerName + "'");
       initResponse.disabled = true;
       this._registration.providers![providerName].disabled = true;
     }

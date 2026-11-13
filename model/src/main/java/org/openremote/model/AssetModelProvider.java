@@ -65,7 +65,7 @@ public interface AssetModelProvider {
    * Get {@link AttributeDescriptor}s that should be associated with the specified {@link Asset}
    * type; these are combined with any {@link AttributeDescriptor}s already associated with the
    * given {@link Asset} type. Any duplicate conflicts will generate an {@link
-   * IllegalStateException} during {@link ValueUtil} initialisation.
+   * IllegalStateException} during {@link ValueUtil} initialization.
    */
   default Map<String, Collection<AttributeDescriptor<?>>> getAttributeDescriptors() {
     return null;
@@ -75,7 +75,7 @@ public interface AssetModelProvider {
    * Get {@link MetaItemDescriptor}s that should be associated with the specified {@link Asset}
    * type; these are combined with any {@link MetaItemDescriptor}s already associated with the given
    * {@link Asset} type. Any duplicate conflicts will generate an {@link IllegalStateException}
-   * during {@link ValueUtil} initialisation.
+   * during {@link ValueUtil} initialization.
    *
    * <p>If {@link #useAutoScan} is true and this is also defined then the results will be combined
    * with those returned by scanning.
@@ -88,7 +88,7 @@ public interface AssetModelProvider {
    * Get {@link ValueDescriptor}s that should be associated with the specified {@link Asset} type;
    * these are combined with any {@link ValueDescriptor}s already associated with the given {@link
    * Asset} type. Any duplicate conflicts will generate an {@link IllegalStateException} during
-   * {@link ValueUtil} initialisation. Shouldn't contain any {@link ValueDescriptor}s of type array
+   * {@link ValueUtil} initialization. Shouldn't contain any {@link ValueDescriptor}s of type array
    * (i.e. ones obtained by calling {@link ValueDescriptor#asArray} or ones where {@link
    * ValueDescriptor#getType} returns a class that {@link Class#isArray} returns true for.
    *
@@ -100,7 +100,7 @@ public interface AssetModelProvider {
   }
 
   /**
-   * Called when the full Asset model has been initialised which gives {@link AssetModelProvider}s
+   * Called when the full Asset model has been initialized which gives {@link AssetModelProvider}s
    * the chance to do additional work (e.g. add constraints such as allowed values based on
    * available asset types).
    */

@@ -818,7 +818,7 @@ public class JsonRulesBuilder extends RulesBuilder {
                   this.scheduledActionConsumer);
             });
 
-    // Initialise asset states
+    // Initialize asset states
     onAssetStatesChanged(facts, null);
   }
 

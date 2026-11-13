@@ -992,7 +992,7 @@ public class ManagerKeycloakIdentityProvider extends KeycloakIdentityProvider
 
   @Override
   public Realm getRealm(String name) {
-    // This gets hit a lot for event authorisation so caching added
+    // This gets hit a lot for event authorization so caching added
     try {
       return realmCache.get(
           name,

@@ -149,7 +149,7 @@ public class CronExpressionParser implements Serializable {
         }
       }
 
-      // Initialise empty year value
+      // Initialize empty year value
       otherValues[3] = "";
 
       System.arraycopy(fields, 3, otherValues, 0, fields.length - 3);

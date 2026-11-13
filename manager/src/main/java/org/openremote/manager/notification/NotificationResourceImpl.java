@@ -265,7 +265,7 @@ public class NotificationResourceImpl extends ManagerWebResource implements Noti
             "Anonymous request can only update public assets not linked to a user", FORBIDDEN);
       }
 
-      // Disabled until console permissions finalised
+      // Disabled until console permissions finalized
       //            if (assetStorageService.isUserAsset(asset.getId())) {
       //                LOG.fine("DENIED: Anonymous request to update a notification sent to an
       // asset that is linked to one or more users");

@@ -53,7 +53,7 @@ public class NotificationProcessingException extends RuntimeException {
      */
     INVALID_MESSAGE,
 
-    /** An error occurred whilst trying to map target IDs to actual targets. */
+    /** An error occurred while trying to map target IDs to actual targets. */
     ERROR_TARGET_MAPPING,
 
     /** {@link NotificationHandler} failed to return any results. */

@@ -36,7 +36,7 @@ public class LightProperties extends DeviceProperties {
   @JsonProperty(ApiCode.BRIGHTNESS)
   private Integer brightness;
 
-  /** The colour of the light in hexadecimals */
+  /** The color of the light in hexadecimals */
   @JsonProperty(ApiCode.COLOUR_HEX)
   private String colourHex;
 
@@ -48,15 +48,15 @@ public class LightProperties extends DeviceProperties {
   @JsonProperty(ApiCode.SATURATION)
   private Integer saturation;
 
-  /** The X value of the colour of the light */
+  /** The X value of the color of the light */
   @JsonProperty(ApiCode.COLOUR_X)
   private Integer colourX;
 
-  /** The Y value of the colour of the light */
+  /** The Y value of the color of the light */
   @JsonProperty(ApiCode.COLOUR_Y)
   private Integer colourY;
 
-  /** The colour temperature of the light */
+  /** The color temperature of the light */
   @JsonProperty(ApiCode.COLOUR_TEMPERATURE)
   private Integer colourTemperature;
 
@@ -86,9 +86,9 @@ public class LightProperties extends DeviceProperties {
   }
 
   /**
-   * Get the colour of the light in hexadecimals
+   * Get the color of the light in hexadecimals
    *
-   * @return The colour of the light in hexadecimals
+   * @return The color of the light in hexadecimals
    */
   public String getColourHex() {
     return this.colourHex;
@@ -113,27 +113,27 @@ public class LightProperties extends DeviceProperties {
   }
 
   /**
-   * Get the X value of the colour of the light
+   * Get the X value of the color of the light
    *
-   * @return The X value of the colour of the light
+   * @return The X value of the color of the light
    */
   public Integer getColourX() {
     return this.colourX;
   }
 
   /**
-   * Get the Y value of the colour of the light
+   * Get the Y value of the color of the light
    *
-   * @return The Y value of the colour of the light
+   * @return The Y value of the color of the light
    */
   public Integer getColourY() {
     return this.colourY;
   }
 
   /**
-   * Get the colour temperature of the light
+   * Get the color temperature of the light
    *
-   * @return The colour temperature of the light
+   * @return The color temperature of the light
    */
   public Integer getColourTemperature() {
     return this.colourTemperature;
@@ -169,11 +169,11 @@ public class LightProperties extends DeviceProperties {
   }
 
   /**
-   * Set the colour of the light to a predefined hexadecimal colour within the LightProperties class
+   * Set the color of the light to a predefined hexadecimal color within the LightProperties class
    * <br>
    * <i>Note: This does not change the actual light</i>
    *
-   * @param colourHex The new colour for the light
+   * @param colourHex The new color for the light
    */
   public void setColourHex(String colourHex) {
     this.colourHex = colourHex;
@@ -200,30 +200,30 @@ public class LightProperties extends DeviceProperties {
   }
 
   /**
-   * Set the X value of the colour of the light within the LightProperties class<br>
+   * Set the X value of the color of the light within the LightProperties class<br>
    * <i>Note: This does not change the actual light</i>
    *
-   * @param colourX The X value of the new colour for the light
+   * @param colourX The X value of the new color for the light
    */
   public void setColourX(Integer colourX) {
     this.colourX = colourX;
   }
 
   /**
-   * Set the Y value of the colour of the light within the LightProperties class<br>
+   * Set the Y value of the color of the light within the LightProperties class<br>
    * <i>Note: This does not change the actual light</i>
    *
-   * @param colourY The Y value of the new colour for the light
+   * @param colourY The Y value of the new color for the light
    */
   public void setColourY(Integer colourY) {
     this.colourY = colourY;
   }
 
   /**
-   * Set the colour temperature of the light within the LightProperties class<br>
+   * Set the color temperature of the light within the LightProperties class<br>
    * <i>Note: This does not change the actual light</i>
    *
-   * @param colourTemperature The new colour temperature for the light
+   * @param colourTemperature The new color temperature for the light
    */
   public void setColourTemperature(Integer colourTemperature) {
     this.colourTemperature = colourTemperature;

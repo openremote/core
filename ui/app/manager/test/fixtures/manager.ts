@@ -311,9 +311,9 @@ export class Manager {
   }
 
   /**
-   * When an application initialises a WebSocket this will assign that instance to the `window.ws` object.
+   * When an application initializes a WebSocket this will assign that instance to the `window.ws` object.
    *
-   * Must only be used inside a `await page.addInitScript` before the WebSocket gets initialised.
+   * Must only be used inside a `await page.addInitScript` before the WebSocket gets initialized.
    */
   hijackWebSocket() {
     return () => {

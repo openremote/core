@@ -349,7 +349,7 @@ to the usual stack lifecycle permissions. Kubernetes RBAC cannot restrict
 `create` by resource name; an
 administrator can pre-create the empty registry with label
 `app.kubernetes.io/managed-by: or-stack` and `data: {}` so operators need only
-`get` and `update` on this named ConfigMap. The scripts refuse an unlabelled or
+`get` and `update` on this named ConfigMap. The scripts refuse an unlabeled or
 malformed registry.
 Only trusted deployment operators and automation should have write access to this registry,
 because modifying it can bypass hostname ownership checks.

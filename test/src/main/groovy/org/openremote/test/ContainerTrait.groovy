@@ -363,7 +363,7 @@ trait ContainerTrait {
       TestFixture.users = getUsers()
     }
 
-    // Wait for agents and rulesets to be deployed - Just a very basic way of waiting for the system to be 'initialised'
+    // Wait for agents and rulesets to be deployed - Just a very basic way of waiting for the system to be 'initialized'
     def agentService = container.hasService(AgentService.class) ? container.getService(AgentService.class) : null
     def rulesService = container.hasService(RulesService.class) ? container.getService(RulesService.class) : null
     def assetProcessingService = container.hasService(AssetProcessingService.class) ? container.getService(AssetProcessingService.class) : null

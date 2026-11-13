@@ -603,7 +603,7 @@ Resources:
 
                 # ------------------------------------------------------------------------------------------------------
                 #
-                # Script for synchronising files in /deployment.local/backup with S3 bucket with same name as this host
+                # Script for synchronizing files in /deployment.local/backup with S3 bucket with same name as this host
                 #
                 # ------------------------------------------------------------------------------------------------------
 

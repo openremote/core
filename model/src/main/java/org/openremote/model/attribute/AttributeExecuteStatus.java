@@ -28,7 +28,7 @@ public enum AttributeExecuteStatus {
   /** Request repeating execution */
   REQUEST_REPEATING(true),
 
-  /** Request that running execution be cancelled */
+  /** Request that running execution be canceled */
   REQUEST_CANCEL(true),
 
   /** Ready to be executed */
@@ -40,7 +40,7 @@ public enum AttributeExecuteStatus {
   /** Execution is currently running */
   RUNNING(false),
 
-  /** Execution has been cancelled */
+  /** Execution has been canceled */
   CANCELLED(false);
 
   private final boolean write;

@@ -260,7 +260,7 @@ public class MQTTBrokerService extends RouteBuilder
 
     // TODO: Make auto provisioning clients disconnect and reconnect with credentials or pass
     // through X.509 certificates for auth
-    // Cannot use authentication or authorisation cache as auto provisioning MQTT clients will
+    // Cannot use authentication or authorization cache as auto provisioning MQTT clients will
     // authenticate as anonymous and this is then baked into the created ServerSession and cannot be
     // modified
     // so all anonymous sessions will use the same username/password for key lookups in the caches -
@@ -284,7 +284,7 @@ public class MQTTBrokerService extends RouteBuilder
       } catch (Exception e) {
         LOG.log(
             WARNING,
-            "MQTT custom handler threw an exception whilst initialising: handler="
+            "MQTT custom handler threw an exception while initializing: handler="
                 + handler.getName(),
             e);
         throw e;
@@ -365,7 +365,7 @@ public class MQTTBrokerService extends RouteBuilder
       } catch (Exception e) {
         LOG.log(
             WARNING,
-            "MQTT custom handler threw an exception whilst starting: handler=" + handler.getName(),
+            "MQTT custom handler threw an exception while starting: handler=" + handler.getName(),
             e);
         throw e;
       }
@@ -439,7 +439,7 @@ public class MQTTBrokerService extends RouteBuilder
               } catch (Exception e) {
                 LOG.log(
                     WARNING,
-                    "MQTT custom handler threw an exception whilst stopping: handler="
+                    "MQTT custom handler threw an exception while stopping: handler="
                         + handler.getName(),
                     e);
               }

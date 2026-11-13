@@ -504,7 +504,7 @@ class NotificationTest extends Specification implements ManagerContainerTrait {
       } == 1
     }
 
-    // TODO: Update once console permissions model finalised
+    // TODO: Update once console permissions model finalized
     //        when: "an anonymous user marks a console notification from another console as delivered"
     //        anonymousNotificationResource.notificationDelivered(null, testuser3Console1.id, notifications.find {n -> n.targetId == testuser3Console1.id}.id)
     //

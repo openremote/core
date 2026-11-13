@@ -618,7 +618,7 @@ class ApplyPredictedDataPointsServiceTest extends Specification implements Manag
       scheduled.future.get()
     }
 
-    then: "the scheduled prediction for the attribute is cancelled"
+    then: "the scheduled prediction for the attribute is canceled"
     conditions.eventually {
       assert !applyService.scheduledEntries.containsKey(attributeRef)
     }
@@ -697,7 +697,7 @@ class ApplyPredictedDataPointsServiceTest extends Specification implements Manag
       scheduled.future.get()
     }
 
-    then: "the scheduled prediction for the attribute is cancelled"
+    then: "the scheduled prediction for the attribute is canceled"
     conditions.eventually {
       assert !applyService.scheduledEntries.containsKey(attributeRef)
     }

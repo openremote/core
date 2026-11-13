@@ -86,7 +86,7 @@ function getAppConfig(mode, isDevServer, dirname, managerUrl, keycloakUrl, port)
 
   if (isDevServer) {
     console.log("");
-    console.log("To customise the URL of the manager and/or keycloak use the managerUrl and/or keycloakUrl");
+    console.log("To customize the URL of the manager and/or keycloak use the managerUrl and/or keycloakUrl");
     console.log(" environment arguments e.g: ");
     console.log("");
     console.log("npm run serve -- --env managerUrl=https://127.0.0.1");

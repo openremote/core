@@ -102,7 +102,7 @@ public class VelbusDevice {
     Arrays.fill(subAddresses, 0);
   }
 
-  /** Attempt initialisation of this device */
+  /** Attempt initialization of this device */
   public void initialise() {
     synchronized (this) {
       if (isInitialised()) {
@@ -110,17 +110,17 @@ public class VelbusDevice {
       }
 
       if (initialisationTask != null) {
-        LOG.finest("Initialisation already in progress");
+        LOG.finest("Initialization already in progress");
         return;
       }
 
       if (initialisationFailed) {
         initialisationAttempts = 0;
         initialisationFailed = false;
-        LOG.finest("Re-attempting device initialisation");
+        LOG.finest("Re-attempting device initialization");
       }
 
-      LOG.info("Initialisation starting: " + getBaseAddress());
+      LOG.info("Initialization starting: " + getBaseAddress());
       initialisationTask =
           velbusNetwork
               .getExecutorService()
@@ -136,7 +136,7 @@ public class VelbusDevice {
     synchronized (this) {
       if (initialisationAttempts >= MAX_INITIALISATION_ATTEMPTS) {
         LOG.fine(
-            "Initialisation failed - Device has reached maximum initialisation attempts: "
+            "Initialization failed - Device has reached maximum initialization attempts: "
                 + getBaseAddress());
         initialisationFailed = true;
         cancelInitialisationTask(false);
@@ -145,7 +145,7 @@ public class VelbusDevice {
 
       initialisationAttempts++;
 
-      // Send/Resend the packets needed to initialise the device
+      // Send/Resend the packets needed to initialize the device
       velbusNetwork.sendPackets(createModuleTypePacket(baseAddress));
     }
   }
@@ -159,8 +159,8 @@ public class VelbusDevice {
   }
 
   /**
-   * Indicates that the device is now initialised and if so it updates the flag and performs post
-   * initialisation tasks
+   * Indicates that the device is now initialized and if so it updates the flag and performs post
+   * initialization tasks
    */
   private void onInitialised() {
     synchronized (this) {
@@ -169,7 +169,7 @@ public class VelbusDevice {
       }
 
       cancelInitialisationTask(true);
-      LOG.info("Device initialised: " + getBaseAddress());
+      LOG.info("Device initialized: " + getBaseAddress());
       this.initialised = true;
     }
 
@@ -225,7 +225,7 @@ public class VelbusDevice {
 
   public void writeProperty(String property, Object value) {
     if (!isInitialisedAndValid()) {
-      LOG.finest("Ignoring property write as device is not initialised and/or it is invalid");
+      LOG.finest("Ignoring property write as device is not initialized and/or it is invalid");
       return;
     }
 
@@ -260,7 +260,7 @@ public class VelbusDevice {
                 + ")");
         break;
       case MODULE_TYPE:
-        // This is the basic initialisation response packet for all devices
+        // This is the basic initialization response packet for all devices
         int typeCode = velbusPacket.getTypeCode();
         setDeviceType(VelbusDeviceType.fromCode(typeCode));
 

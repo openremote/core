@@ -27,7 +27,7 @@ import java.util.Set;
 import org.openremote.model.util.Config;
 import org.openremote.model.util.TextUtil;
 
-/** A simple configuration container for configuring CORS behaviour */
+/** A simple configuration container for configuring CORS behavior */
 public class CORSConfig {
   public static final int DEFAULT_CORS_MAX_AGE = 600;
   public static final String DEFAULT_CORS_ALLOW_ALL = "*";

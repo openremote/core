@@ -559,7 +559,7 @@ class AssetIntegrityTest extends Specification implements ManagerContainerTrait 
     childAsset.setName("Restored pending delete child")
     def restoredChildAsset = assetStorageService.merge(childAsset)
 
-    then: "the child deletion is cancelled and the asset is visible again"
+    then: "the child deletion is canceled and the asset is visible again"
     restoredChildAsset.id == childAsset.id
     restoredChildAsset.name == "Restored pending delete child"
     !restoredChildAsset.isDeletePending()

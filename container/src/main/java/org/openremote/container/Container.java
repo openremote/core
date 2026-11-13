@@ -185,7 +185,7 @@ public class Container implements org.openremote.model.Container {
         service.init(Container.this);
       }
 
-      // Initialise the asset model
+      // Initialize the asset model
       ValueUtil.initialise(this);
 
       if (isDevMode()) {
@@ -221,22 +221,22 @@ public class Container implements org.openremote.model.Container {
         service.stop(this);
       } catch (Exception e) {
         LOG.log(
-            INFO, "Exception thrown whilst stopping service: " + service.getClass().getName(), e);
+            INFO, "Exception thrown while stopping service: " + service.getClass().getName(), e);
       }
     }
 
     try {
-      LOG.log(INFO, "Cancelling scheduled tasks");
+      LOG.log(INFO, "Canceling scheduled tasks");
       SCHEDULED_EXECUTOR.shutdown();
     } catch (Exception e) {
-      LOG.log(WARNING, "Exception thrown whilst trying to stop scheduled tasks", e);
+      LOG.log(WARNING, "Exception thrown while trying to stop scheduled tasks", e);
     }
 
     try {
       LOG.log(INFO, "Stopping executor");
       EXECUTOR.shutdown();
     } catch (Exception e) {
-      LOG.log(WARNING, "Exception thrown whilst trying to stop executor", e);
+      LOG.log(WARNING, "Exception thrown while trying to stop executor", e);
     }
 
     if (meterRegistry != null) {

@@ -203,7 +203,7 @@ public class AgentService extends RouteBuilder implements ContainerService {
   private static final Logger LOG = Logger.getLogger(AgentService.class.getName());
   public static final int PRIORITY =
       MessageBrokerService.PRIORITY
-          + 100; // Start quite late to ensure asset model etc. are initialised
+          + 100; // Start quite late to ensure asset model etc. are initialized
   protected AssetProcessingService assetProcessingService;
   protected AssetStorageService assetStorageService;
   protected ClientEventService clientEventService;
@@ -516,7 +516,7 @@ public class AgentService extends RouteBuilder implements ContainerService {
       try {
         protocol.stop(container);
       } catch (Exception e) {
-        LOG.log(Level.SEVERE, "Protocol instance threw an exception whilst being stopped", e);
+        LOG.log(Level.SEVERE, "Protocol instance threw an exception while being stopped", e);
       }
 
       // Remove child asset subscriptions for this agent
@@ -657,7 +657,7 @@ public class AgentService extends RouteBuilder implements ContainerService {
                 }
                 throw new AssetProcessingException(
                     failure,
-                    "An exception occurred whilst the protocol was trying to process the attribute write request: agentLink="
+                    "An exception occurred while the protocol was trying to process the attribute write request: agentLink="
                         + agentLink
                         + ", msg="
                         + msg);
@@ -671,7 +671,7 @@ public class AgentService extends RouteBuilder implements ContainerService {
    * Called when an {@link AttributeEvent} for an {@link Agent} is broadcast on the client event bus
    * (i.e. the attribute has been updated in the DB).
    *
-   * <p>We use this to try and react to agent changes in a generic way by re-initialising the agent
+   * <p>We use this to try and react to agent changes in a generic way by re-initializing the agent
    * to simplify each agent implementation.
    */
   // TODO: Queue up agent attribute events and do a single agent replacement
@@ -736,7 +736,7 @@ public class AgentService extends RouteBuilder implements ContainerService {
     return attributes
         .filter(
             attribute ->
-                // Exclude attributes without agent link or with agent link to not recognised agents
+                // Exclude attributes without agent link or with agent link to not recognized agents
                 // (could be gateway agents)
                 attribute
                     .getMetaValue(AGENT_LINK)
@@ -880,7 +880,7 @@ public class AgentService extends RouteBuilder implements ContainerService {
             Future<Void> discoveryFuture = instanceDiscovery.startInstanceDiscovery(onDiscovered);
             discoveryFuture.get();
           } catch (InterruptedException e) {
-            LOG.fine("Protocol instance discovery was cancelled");
+            LOG.fine("Protocol instance discovery was canceled");
           } catch (Exception e) {
             LOG.log(
                 Level.WARNING,
@@ -928,7 +928,7 @@ public class AgentService extends RouteBuilder implements ContainerService {
               Future<Void> discoveryFuture = assetDiscovery.startAssetDiscovery(onDiscovered);
               discoveryFuture.get();
             } catch (InterruptedException e) {
-              LOG.fine("Protocol asset discovery was cancelled");
+              LOG.fine("Protocol asset discovery was canceled");
             } catch (Exception e) {
               LOG.log(Level.WARNING, "Failed to do protocol asset discovery: Agent = " + agent, e);
             } finally {
@@ -974,7 +974,7 @@ public class AgentService extends RouteBuilder implements ContainerService {
               Future<Void> discoveryFuture = assetImport.startAssetImport(fileData, onDiscovered);
               discoveryFuture.get();
             } catch (InterruptedException e) {
-              LOG.fine("Protocol asset import was cancelled");
+              LOG.fine("Protocol asset import was canceled");
             } catch (Exception e) {
               LOG.log(Level.WARNING, "Failed to do protocol asset import: Agent = " + agent, e);
             } finally {

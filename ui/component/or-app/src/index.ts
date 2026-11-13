@@ -243,7 +243,7 @@ export class OrApp<S extends AppStateKeyed> extends OrElement {
     if (!managerConfig.defaultLanguage) {
       managerConfig.defaultLanguage = Util.getBrowserLanguage();
     }
-    console.info("Initialising the manager");
+    console.info("Initializing the manager");
 
     manager.init(managerConfig).then(async (success) => {
       if (success) {

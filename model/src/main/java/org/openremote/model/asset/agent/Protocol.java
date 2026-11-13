@@ -54,7 +54,7 @@ import org.openremote.model.value.ValueFilter;
  *   <li>{@link #stop}
  * </ol>
  *
- * <h3>Create/initialise protocol instance</h3>
+ * <h3>Create/initialize protocol instance</h3>
  *
  * If the {@link Agent} was deleted or {@link Agent#isDisabled} then nothing happens otherwise:
  *
@@ -70,7 +70,7 @@ import org.openremote.model.value.ValueFilter;
  *
  * Each {@link Agent} asset has its' own {@link Protocol} instance and this instance is responsible
  * for managing only the attributes linked to that specific instance, it is up to the specific
- * {@link Agent} type to initialise an instance of its' own {@link Protocol}.
+ * {@link Agent} type to initialize an instance of its' own {@link Protocol}.
  *
  * <p>
  *
@@ -96,7 +96,7 @@ import org.openremote.model.value.ValueFilter;
  * body will be an {@link AttributeEvent}. Each message also contains the target protocol name in
  * header {@link #ACTUATOR_TOPIC_TARGET_PROTOCOL}.
  *
- * <p>To simplify protocol development some common protocol behaviour is recommended for generic
+ * <p>To simplify protocol development some common protocol behavior is recommended for generic
  * protocols:
  *
  * <h1>Inbound value conversion (Protocol -> Linked Attribute)</h1>
@@ -135,7 +135,7 @@ import org.openremote.model.value.ValueFilter;
  * <p>NOTE: That {@link #start} will always be called before {@link #linkAttribute} and {@link
  * #unlinkAttribute} will always be called before {@link #stop}.
  *
- * <p>The following summarises the method calls protocols should expect:
+ * <p>The following summarizes the method calls protocols should expect:
  *
  * <p>{@link Agent} asset is created/loaded:
  *
@@ -224,7 +224,7 @@ public interface Protocol<T extends Agent<T, ?, ?>> {
    * Called before any calls to {@link #linkAttribute} to allow the protocol to perform required
    * tasks with {@link ContainerService}s (e.g. register Camel routes). The protocol instance should
    * validate the settings defined in the associated {@link Agent}; but whether or not the protocol
-   * establishes a connection/ fully initialises at this time is up to the protocol implementation,
+   * establishes a connection/ fully initializes at this time is up to the protocol implementation,
    * it could be desirable to wait until {@link #linkAttribute} is called for the first time, or it
    * could be a connectionless protocol. If there is a configuration issue etc. then an appropriate
    * exception should be thrown and suitable logs made.
@@ -263,7 +263,7 @@ public interface Protocol<T extends Agent<T, ?, ?>> {
 
   /**
    * An Attribute event (write) has been requested for an attribute linked to this protocol;
-   * implementations should handle multithreaded requests or use some sort of synchronisation for
+   * implementations should handle multithreaded requests or use some sort of synchronization for
    * thread safety. The {@link AttributeEvent} will be enriched with data about the relating asset
    * and attribute.
    */

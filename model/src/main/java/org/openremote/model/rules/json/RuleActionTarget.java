@@ -23,7 +23,7 @@ import org.openremote.model.query.UserQuery;
 
 /**
  * Controls which {@link org.openremote.model.asset.Asset}s the {@link RuleAction} is applied to; if
- * not supplied or none of the options are supplied then the default behaviour is to use all {@link
+ * not supplied or none of the options are supplied then the default behavior is to use all {@link
  * org.openremote.model.asset.Asset}s that caused the rule to trigger. The precedence is:
  *
  * <ol>

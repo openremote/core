@@ -225,7 +225,7 @@ public class SimulatorProtocol extends AbstractProtocol<SimulatorAgent, Simulato
             .orElse(simulatorReplayDatapoints[0]);
 
     if (nextDatapoint == null) {
-      LOG.warning("Next datapoint not found so replay cancelled: " + attributeRef);
+      LOG.warning("Next datapoint not found so replay canceled: " + attributeRef);
       return null;
     }
 

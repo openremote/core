@@ -210,9 +210,9 @@ export class InsightsPage implements BasePage {
   }
 
   /**
-   * Sets the custom line/bar colour of the (single) attribute in the open widget
+   * Sets the custom line/bar color of the (single) attribute in the open widget
    * settings.
-   * @param hex The colour to set, e.g. `#ff0000`
+   * @param hex The color to set, e.g. `#ff0000`
    */
   async setAttributeColor(hex: string) {
     const settings = this.getWidgetSettings();
@@ -224,15 +224,15 @@ export class InsightsPage implements BasePage {
       (el as HTMLInputElement).value = value;
       el.dispatchEvent(new Event("input", { bubbles: true }));
     }, hex);
-    // The colour change is written to the config behind a debounce; wait for it
-    // to flush so the colour persists when the dashboard is saved.
+    // The color change is written to the config behind a debounce; wait for it
+    // to flush so the color persists when the dashboard is saved.
     await expect
       .poll(async () => (await this.getAttributeColors()).some(([, c]) => c?.toLowerCase() === hex.toLowerCase()))
       .toBe(true);
   }
 
   /**
-   * Reads the current value of the (single) custom colour input in the open
+   * Reads the current value of the (single) custom color input in the open
    * widget settings.
    */
   getAttributeColorInput(): Locator {

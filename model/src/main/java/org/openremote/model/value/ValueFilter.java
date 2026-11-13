@@ -34,7 +34,7 @@ import java.io.Serializable;
   @JsonSubTypes.Type(value = JsonPathFilter.class),
   @JsonSubTypes.Type(value = MathExpressionValueFilter.class)
 })
-// TODO: Standardise inbound/outbound value processing as ordered list of filters and/or converters
+// TODO: Standardize inbound/outbound value processing as ordered list of filters and/or converters
 public abstract class ValueFilter implements Serializable {
 
   public abstract Object filter(Object value);

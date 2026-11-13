@@ -21,7 +21,7 @@ import { OrElement } from "@openremote/or-element";
 import { customElement, property } from "lit/decorators.js";
 
 /**
- * A simple loading wrapper around some other content that will hide the content whilst loading property is true
+ * A simple loading wrapper around some other content that will hide the content while loading property is true
  */
 @customElement("or-loading-wrapper")
 export class OrLoadingWrapper extends OrElement {

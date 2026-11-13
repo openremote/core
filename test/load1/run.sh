@@ -9,7 +9,7 @@
 # The following environment variables can be used:
 #
 # `DEPLOYMENT1_DO_NOTHING` (default: false) - Do not do anything with deployment1; useful when running the test multiple times to speed up deployment
-# `DEPLOYMENT1_RESTART_ONLY` (default: false) - Will only restart the manager container on deployment 1 rather than the default behaviour of stack down/up
+# `DEPLOYMENT1_RESTART_ONLY` (default: false) - Will only restart the manager container on deployment 1 rather than the default behavior of stack down/up
 # `DEPLOYMENT1_MQTT_RATE_LIMIT` (default: 100/s) - Will set the MQTT_RATE_LIMIT on the proxy container to limit the connection rate of MQTT devices
 # `DEPLOYMENT1_ENV` (default: unset) - Provide custom environment variables to the deployment
 # `DEPLOYMENT2_THREAD_COUNT` (default: unset) - Override console user test `THREAD_COUNT` (set to `0` to skip deployment 2 test)

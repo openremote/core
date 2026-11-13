@@ -62,7 +62,7 @@ import org.openremote.model.util.ValueUtil;
 public class ValueDescriptor<T> implements NameHolder, Serializable {
 
   /**
-   * Custom deserialiser that will return the same instance of {@link ValueDescriptor} using the
+   * Custom deserializer that will return the same instance of {@link ValueDescriptor} using the
    * {@link #VALUE_DESCRIPTOR_PROVIDER} attribute; otherwise it will construct a new instance
    */
   public static class ValueDescriptorDeserializer extends StdDeserializer<ValueDescriptor<?>>

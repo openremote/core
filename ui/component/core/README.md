@@ -6,15 +6,15 @@ ES6 modules for connecting to an OpenRemote Manager as well as utilities for per
 
 The default export is a singleton of type `Manager` that can be used to connect to an OpenRemote Manager, initiate
 authentication and download common resources (translation files, icons, etc). Everything is initiated by calling
-the `init` method, what tasks are performed during initialisation is determined by the `ManagerConfig` passed to the
+the `init` method, what tasks are performed during initialization is determined by the `ManagerConfig` passed to the
 `init`, the tasks include the following:
 
 - Check the manager exists and is accessible (calls the `api/master/info` endpoint)
-- Initialise authentication and perform login redirect (if requested in the `ManagerConfig`)
+- Initialize authentication and perform login redirect (if requested in the `ManagerConfig`)
 - Download `mdi` iconset (if requested in the `ManagerConfig` - if not specified iconset will be downloaded)
-- Initialise REST API client (`@openremote/rest`) - Sets a timeout of 10s and will also add a request interceptor to
+- Initialize REST API client (`@openremote/rest`) - Sets a timeout of 10s and will also add a request interceptor to
   add required `Authorization` header for authentication
-- Initialise console (the console is the device used to render the application desktop, Android or iOS device)
+- Initialize console (the console is the device used to render the application desktop, Android or iOS device)
 - Download built in OpenRemote translation files
 - Download Asset Model Descriptors
 
@@ -29,10 +29,10 @@ yarn add @openremote/core
 
 For a full list of properties, methods and options refer to the TypeDoc generated [documentation](<>).
 
-Initialisation is done by calling the `init` method which returns a Promise that is fulfilled with a `boolean` indicating
-whether initialisation was successful or not.
+Initialization is done by calling the `init` method which returns a Promise that is fulfilled with a `boolean` indicating
+whether initialization was successful or not.
 
-Initialisation usage example:
+Initialization usage example:
 
 ```$javascript
 import openremote from "@openremote/core";
@@ -85,7 +85,7 @@ class AssetComponent extends subscribe(openremote) {
 ### Events (`./dist/event`)
 
 Provides infrastructure for connecting to the OpenRemote Manager client event bus; by default an `EventProvider` instance
-`Manager` is initialised by the `Manager` during the initialisation process and can be accessed from `openremote.events`
+`Manager` is initialized by the `Manager` during the initialization process and can be accessed from `openremote.events`
 but it is also possible to instantiate an `EventProvider` manually.
 
 ### Util (`./dist/util`)

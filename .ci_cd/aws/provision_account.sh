@@ -3,7 +3,7 @@
 # Provisions a member account of the specified name under the specified OU using Control Tower Account Factory via
 # Service Catalog; callee must have required permissions to call the service catalog and must also be in the Control
 # Tower home account.
-# The customisations for control tower will perform some standard customisations of the provisioned account as defined
+# The customizations for control tower will perform some standard customizations of the provisioned account as defined
 # in the custom-control-tower-configuration CodeCommit repo. Also does the following:
 #
 # * Add /SSH-Key/developers store parameter to the new account's list of SSH public keys (this is used when provisioning
@@ -121,21 +121,21 @@ fi
 echo "Storing account ID for future reference"
 aws ssm put-parameter --name "/Account-Ids/$AWS_ACCOUNT_NAME" --value "$AWS_ACCOUNT_ID" --type String &>/dev/null
 
-# Wait for control tower customisations to complete
+# Wait for control tower customizations to complete
 STATUS=$(aws codepipeline list-pipeline-executions --pipeline-name Custom-Control-Tower-CodePipeline --query "pipelineExecutionSummaries[0].status" --output text)
 count=0
 while [ "$STATUS" == 'InProgress' ] && [ $count -lt 30 ]; do
-  echo "Code pipeline for control tower customisations status is $STATUS .. Sleeping 30 seconds"
+  echo "Code pipeline for control tower customizations status is $STATUS .. Sleeping 30 seconds"
   sleep 30
   STATUS=$(aws codepipeline list-pipeline-executions --pipeline-name Custom-Control-Tower-CodePipeline --query "pipelineExecutionSummaries[0].status" --output text)
   count=$((count+1))
 done
 
 if [ "$STATUS" != 'Succeeded' ]; then
-  echo "Control tower customisation pipeline has failed cannot continue until this is resolved"
+  echo "Control tower customization pipeline has failed cannot continue until this is resolved"
   exit 1
 else
-  echo "Control tower customisation pipeline has succeeded"
+  echo "Control tower customization pipeline has succeeded"
 fi
 
 # Update aws github-da profile with this account

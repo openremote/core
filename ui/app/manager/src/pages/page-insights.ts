@@ -139,7 +139,7 @@ export class PageInsights extends Page<AppStateKeyed> {
   }
 
   stateChanged(state: AppStateKeyed) {
-    // State is only utilised for initial loading
+    // State is only utilized for initial loading
     this.getRealmState(state); // Order is important here!
     this._editMode =
       state.app.params && state.app.params.editMode

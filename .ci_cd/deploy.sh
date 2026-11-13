@@ -3,7 +3,7 @@
 #                    !!!!!!!!! MUST BE RUN FROM THE REPO ROOT DIR !!!!!!!!!
 #
 # Script that handles packaging deployment files and executing stack down/up via SCP/SSH; between stack down/up the
-# host init script is executed (see .ci_cd/host_init/init.sh) this initialises the host and configures any standard
+# host init script is executed (see .ci_cd/host_init/init.sh) this initializes the host and configures any standard
 # deployment maintenance tasks (daily restart, daily backups, etc.).
 #
 # If AWS CLI authentication variables are configured then this script can use the AWS CLI to perform AWS specific

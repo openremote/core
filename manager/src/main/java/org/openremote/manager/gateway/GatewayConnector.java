@@ -148,7 +148,7 @@ public class GatewayConnector {
     }
   }
 
-  /** Connection for this gateway has started so initiate synchronisation of assets */
+  /** Connection for this gateway has started so initiate synchronization of assets */
   protected void connected(
       String sessionId, Consumer<Object> gatewayMessageConsumer, Runnable requestDisconnect) {
 
@@ -180,7 +180,7 @@ public class GatewayConnector {
     startSync();
   }
 
-  /** Connection to the edge gateway instance has been disconnected so stop any synchronisation */
+  /** Connection to the edge gateway instance has been disconnected so stop any synchronization */
   protected void disconnected(String sessionId) {
     synchronized (this.sessionId) {
       if (!sessionId.equals(this.sessionId.get())) {
@@ -277,7 +277,7 @@ public class GatewayConnector {
                 }
               }
               // Let the gateway know init is complete
-              LOG.info("Gateway fully initialised: " + getGatewayIdString());
+              LOG.info("Gateway fully initialized: " + getGatewayIdString());
 
               sendMessageToGateway(new GatewayInitDoneEvent());
               tunnellingSupported = response != null && response.isTunnelingSupported();
@@ -470,23 +470,23 @@ public class GatewayConnector {
   }
 
   /**
-   * Explicitly check event type and authorise accordingly don't blindly accept events from gateway
+   * Explicitly check event type and authorize accordingly don't blindly accept events from gateway
    * clients as they may be malicious - every event type added to {@link #eventConsumerMap} should
    * be handled
    */
   protected SharedEvent authoriseGatewayEvent(SharedEvent event) {
-    // Gateway capabilities response events are always authorised
+    // Gateway capabilities response events are always authorized
     if (event instanceof GatewayCapabilitiesResponseEvent) {
       return event;
     }
 
-    // Gateway tunnel start/stop response events are always authorised
+    // Gateway tunnel start/stop response events are always authorized
     if (event instanceof GatewayTunnelStartResponseEvent
         || event instanceof GatewayTunnelStopResponseEvent) {
       return event;
     }
 
-    // Only some attribute and asset events are authorised
+    // Only some attribute and asset events are authorized
     if (event instanceof AssetInfo assetInfo) {
 
       // Map the gateway Asset ID to the central instance
@@ -517,7 +517,7 @@ public class GatewayConnector {
     return null;
   }
 
-  /** Get list of gateway assets (get basic details and then batch load them to minimise load) */
+  /** Get list of gateway assets (get basic details and then batch load them to minimize load) */
   protected synchronized void startSync() {
     if (syncAborted()) {
       return;
@@ -600,7 +600,7 @@ public class GatewayConnector {
     expectedSyncResponseName = ASSET_READ_EVENT_NAME_BATCH + syncIndex;
 
     LOG.fine(
-        "Synchronising assets "
+        "Synchronizing assets "
             + (syncIndex + 1)
             + "-"
             + (syncIndex + requestAssetIds.length)
