@@ -24,7 +24,7 @@ import type { LitElement } from "lit";
 
 /*
  * The toggle reuses the Vaadin `<vaadin-checkbox>` as its base, so it inherits the checkbox's
- * behaviour, form participation, accessibility and `checked` / `readonly` / `disabled` states.
+ * behavior, form participation, accessibility and `checked` / `readonly` / `disabled` states.
  * Only the visuals and the exposed role differ: the `checkbox` part is restyled into a pill-shaped
  * track with a sliding knob, and the input is exposed as a `switch` to assistive technology.
  *

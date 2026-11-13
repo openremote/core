@@ -147,7 +147,7 @@ public class VelbusNetwork {
         messageQueue.clear();
       }
 
-      // Initialise the devices
+      // Initialize the devices
       for (VelbusDevice device : devices) {
         if (device != null) {
           device.initialise();

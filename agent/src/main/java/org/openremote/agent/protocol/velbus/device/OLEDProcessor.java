@@ -127,7 +127,7 @@ public class OLEDProcessor extends FeatureProcessor {
 
     switch (packetCommand) {
       case MODULE_STATUS:
-        // TODO: try and extract memo text from the device at initialisation
+        // TODO: try and extract memo text from the device at initialization
         device.setProperty("MEMO_TEXT", "");
 
         packet.setHandled(true);

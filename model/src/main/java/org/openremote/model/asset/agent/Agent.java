@@ -269,10 +269,10 @@ public abstract class Agent<T extends Agent<T, U, V>, U extends Protocol<T>, V e
   /**
    * Indicates if the specified attribute name is a configuration attribute and therefore if an
    * {@link org.openremote.model.attribute.AttributeEvent} is detected for this attribute the agent
-   * should be stopped and restarted. The default behaviour is any attribute that has an {@link
+   * should be stopped and restarted. The default behavior is any attribute that has an {@link
    * AttributeDescriptor} defined on the {@link Agent} class or one of its' subclasses is considered
    * to be a configuration attribute for the agent; excluding {@link Agent#STATUS}. Agent's can
-   * override this behaviour as required.
+   * override this behavior as required.
    */
   public boolean isConfigurationAttribute(String attributeName) {
     // This is an event for an agent so is it for an attribute that has a descriptor which is

@@ -8,7 +8,7 @@
 # including their default values. These can be overridden in many ways, shell environment variable,
 # env file, extending/merging this compose file, etc.
 #
-# Here's a list of commonly customised environment variables:
+# Here's a list of commonly customized environment variables:
 #
 # OR_ADMIN_PASSWORD
 # OR_HOSTNAME
@@ -208,7 +208,7 @@ services:
 
       # !! WARNING: This will wipe your database !!
       # Force a full clean and setup on startup irrespective of whether there is existing data
-      # Default behaviour is false unless OR_DEV_MODE = true or openremote database doesn't already exist
+      # Default behavior is false unless OR_DEV_MODE = true or openremote database doesn't already exist
       OR_SETUP_RUN_ON_RESTART: ${OR_SETUP_RUN_ON_RESTART:-false}
 
       # Manager web server interface binding; default: 0.0.0.0
@@ -278,7 +278,7 @@ services:
       OR_MAP_TILES_PATH: ${OR_MAP_TILES_PATH:-/deployment/map/mapdata.mbtiles}
 
       # Override the map settings such as center location and zoom when opening the
-      # manager's map, as well as other style details and colours.
+      # manager's map, as well as other style details and colors.
       OR_MAP_SETTINGS_PATH: ${OR_MAP_SETTINGS_PATH:-/deployment/map/mapsettings.json}
 
       # Override the maximum allowed custom map tiles database file size in bytes.

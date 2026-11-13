@@ -242,7 +242,7 @@ export class OrMapMarker extends OrElement {
   }
 
   /**
-   * Override in sub types to customise the look of the marker. If undefined returned then a default marker will
+   * Override in sub types to customize the look of the marker. If undefined returned then a default marker will
    * be used instead.
    */
   public createMarkerContent(): HTMLElement | undefined {

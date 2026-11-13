@@ -63,7 +63,7 @@ public class PersistenceEventInterceptor implements Interceptor {
       Type[] types)
       throws CallbackException {
     if (isAssetDeletePendingUpdate(entity, currentState, previousState, propertyNames)) {
-      // Assets are soft deleted but we still want a delete event to maintain existing behaviour
+      // Assets are soft deleted but we still want a delete event to maintain existing behavior
       persistenceEvents.add(
           new PersistenceEvent<>(PersistenceEvent.Cause.DELETE, entity, null, currentState));
     } else {

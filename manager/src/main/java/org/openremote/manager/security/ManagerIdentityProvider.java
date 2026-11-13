@@ -36,7 +36,7 @@ import org.openremote.model.query.filter.StringPredicate;
 import org.openremote.model.security.*;
 import org.openremote.model.util.TextUtil;
 
-// TODO: Normalise interface for Basic and Keycloak providers and add client CRUD
+// TODO: Normalize interface for Basic and Keycloak providers and add client CRUD
 
 /**
  * SPI for implementations used by {@link ManagerIdentityService}, provides CRUD of {@link User} and

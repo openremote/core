@@ -173,7 +173,7 @@ class HostnameReservationsTest(unittest.TestCase):
     def test_disabling_external_dns_retains_cleanup_obligation(self):
         args = ("prepare", "--name", "stack-a", "--target", "local", "--hostname", "a.example.com")
         self.success(self.command(*args, "--dns", "external-dns"))
-        # The stub has no reserved-hostname annotation, modelling an interrupted
+        # The stub has no reserved-hostname annotation, modeling an interrupted
         # apply after the registry write but before the annotation was recorded.
         self.failure(self.apply(host="other.example.com", target="local"), "hostname changes")
         self.success(self.command(*args, "--dns", "none"))

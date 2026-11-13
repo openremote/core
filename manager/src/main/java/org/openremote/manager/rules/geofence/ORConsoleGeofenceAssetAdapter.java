@@ -55,7 +55,7 @@ import org.openremote.model.syslog.SyslogCategory;
  * This implementation is for handling geofences on console assets that support the OR Console
  * Geofence Provider (i.e. Android and iOS Consoles):
  *
- * <p>This adapter utilises push notifications to notify assets when their geofences change; a data
+ * <p>This adapter utilizes push notifications to notify assets when their geofences change; a data
  * only (silent) push notification is sent to affected consoles/assets. Consoles can also manually
  * request their geofences (e.g. on startup)
  */

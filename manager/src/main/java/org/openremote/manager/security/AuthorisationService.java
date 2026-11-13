@@ -22,7 +22,7 @@ import org.openremote.model.Container;
 import org.openremote.model.ContainerService;
 
 /**
- * This service is intended to form a centralised authorisation service for all resources and
+ * This service is intended to form a centralized authorization service for all resources and
  * actions within the system.
  */
 public class AuthorisationService implements ContainerService {

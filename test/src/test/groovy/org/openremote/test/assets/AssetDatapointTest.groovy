@@ -91,7 +91,7 @@ class AssetDatapointTest extends Specification implements ManagerContainerTrait 
       String str = ValueUtil.asJSON(message).orElse(null)
       return prefix + str
     } catch (Exception e) {
-      throw new IllegalArgumentException("Unable to serialise message")
+      throw new IllegalArgumentException("Unable to serialize message")
     }
   }
 
@@ -154,7 +154,7 @@ class AssetDatapointTest extends Specification implements ManagerContainerTrait 
     //def datapointResource = getClientApiTarget(serverUri(serverPort), MASTER_REALM, accessToken).proxy(AssetDatapointResource.class)
     def predictedDatapointResource = getClientApiTarget(serverUri(serverPort), MASTER_REALM, accessToken).proxy(AssetPredictedDatapointResource.class)
 
-    then: "the simulator protocol instance should have been initialised and attributes linked"
+    then: "the simulator protocol instance should have been initialized and attributes linked"
     conditions.eventually {
       assert agentService.protocolInstanceMap.get(managerTestSetup.agentId) != null
       assert ((SimulatorProtocol) agentService.protocolInstanceMap.get(managerTestSetup.agentId)).linkedAttributes.size() == 4

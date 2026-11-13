@@ -105,7 +105,7 @@ public interface JSerialCommChannelConfig extends ChannelConfig {
 
   /**
    * Sets the number of stop bits to include at the end of every character to aid the serial device
-   * in synchronising with the data.
+   * in synchronizing with the data.
    *
    * @param stopbits The number of stop bits to use
    */
@@ -146,7 +146,7 @@ public interface JSerialCommChannelConfig extends ChannelConfig {
   Paritybit getParitybit();
 
   /**
-   * @return The number of milliseconds to wait between opening the serial port and initialising.
+   * @return The number of milliseconds to wait between opening the serial port and initializing.
    */
   int getWaitTimeMillis();
 

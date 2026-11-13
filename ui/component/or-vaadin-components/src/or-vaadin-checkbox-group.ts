@@ -27,7 +27,7 @@ export type * from "@vaadin/checkbox-group";
 @customElement("or-vaadin-checkbox-group")
 export class OrVaadinCheckboxGroup extends CheckboxGroup implements OrVaadinComponent {
   /*
-   * Vaadin's `CheckboxGroupMixin` recognises group items via a strict `localName === "vaadin-checkbox"`
+   * Vaadin's `CheckboxGroupMixin` recognizes group items via a strict `localName === "vaadin-checkbox"`
    * check, so wrapped children (`or-vaadin-checkbox`, `or-vaadin-toggle`) would never register: the
    * group's `value`, its validation and its disabled/readonly propagation would all ignore them.
    * Accept any `Checkbox` subclass instead. This overrides a private Vaadin API, so re-check it when

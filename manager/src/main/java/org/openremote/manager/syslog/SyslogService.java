@@ -332,7 +332,7 @@ public class SyslogService extends Handler implements ContainerService {
               }
             });
       } catch (Exception e) {
-        LOG.log(Level.SEVERE, "Exception occurred whilst flushing the syslog", e);
+        LOG.log(Level.SEVERE, "Exception occurred while flushing the syslog", e);
       }
     }
   }

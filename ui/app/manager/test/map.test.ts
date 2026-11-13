@@ -177,7 +177,7 @@ test.describe("Marker config", () => {
    *
    * @skip This test is skipped on Firefox because headless mode does not support WebGL required by maplibre
    */
-  test("should toggle asset marker colour based on attribute value", async ({ page, manager, browserName }) => {
+  test("should toggle asset marker color based on attribute value", async ({ page, manager, browserName }) => {
     test.skip(browserName === "firefox", "firefox headless mode does not support webgl required by maplibre");
 
     await page.addInitScript(manager.hijackWebSocket());
@@ -240,7 +240,7 @@ test.describe("Marker config", () => {
    *
    * @skip This test is skipped on Firefox because headless mode does not support WebGL required by maplibre
    */
-  test("should display marker with label and change marker colour based on attribute range", async ({
+  test("should display marker with label and change marker color based on attribute range", async ({
     page,
     manager,
     browserName,
@@ -313,7 +313,7 @@ test.describe("Marker clustering", () => {
    * @given Assets with location are set up in the "smartcity" realm
    * @when Logging in to OpenRemote "smartcity" realm as "smartcity"
    * @and Navigating to the "map" page
-   * @then Shows cluster marker with the expected asset type colours
+   * @then Shows cluster marker with the expected asset type colors
    * @when Zooming in
    * @then Shows cluster marker reduce to 10
    * @and Shows a normal marker
@@ -726,7 +726,7 @@ test.describe("Preset filters", () => {
   });
 
   /**
-   * Parameterised: for each filter option (including "All"), verify marker count and badge text.
+   * Parameterized: for each filter option (including "All"), verify marker count and badge text.
    *
    * @skip This test is skipped on Firefox because headless mode does not support WebGL required by maplibre
    */
@@ -769,7 +769,7 @@ test.describe("Preset filters", () => {
   /**
    * @given filters are configured, one of which has an explicit label and an unresolvable asset type
    * @when opening the preset filter dropdown
-   * @then the labelled option displays the configured label instead of a derived type name
+   * @then the labeled option displays the configured label instead of a derived type name
    * @when selecting that option
    * @then the select field shows the configured label as the selected value
    *
