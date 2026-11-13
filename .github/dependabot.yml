@@ -52,7 +52,6 @@ updates:
   # Maintain Docker base images
   - package-ecosystem: "docker"
     directories:
-      - "/balena"
       - "/manager"
     schedule:
       interval: "weekly"
