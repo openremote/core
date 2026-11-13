@@ -307,7 +307,8 @@ export class Manager implements EventProviderFactory {
     return this.events;
   }
 
-  protected static MAX_RECONNECT_DELAY = 45000;
+  /** Session storage key set while a new login runs after Keycloak rejected the returned one */
+  protected static LOGIN_RETRY_KEY = "or-login-retry";
   private _error?: ORError;
   private _config!: ManagerConfig;
   private _authenticated: boolean = false;
@@ -322,9 +323,8 @@ export class Manager implements EventProviderFactory {
   private _console!: Console;
   private _consoleAppConfig?: ConsoleAppConfig;
   private _events?: EventProvider;
-  private _disconnected: boolean = false;
-  private _reconnectTimer?: number;
   private _displayRealm?: string;
+  private _signedIn?: Promise<boolean>;
 
   public isManagerSameOrigin(): boolean {
     if (!this.ready) {
@@ -354,14 +354,42 @@ export class Manager implements EventProviderFactory {
     }
   }
 
-  public async init(config: ManagerConfig): Promise<boolean> {
+  /**
+   * Loads the manager info and signs in, the part of {@link init} a page needs before it loads the app. Never rejects:
+   * a failure resolves `false` and sets {@link error}, and `false` without an error means the page is on its way to
+   * the login page. A later {@link init} continues from here, with the config given here.
+   */
+  public signIn(config: ManagerConfig): Promise<boolean> {
+    this._signedIn ??= this._settle(() => this.doSignIn(config));
+    return this._signedIn;
+  }
+
+  /** Never rejects: a failure resolves `false` and sets {@link error} */
+  public init(config: ManagerConfig): Promise<boolean> {
+    return this._settle(() => this.doInit(config));
+  }
+
+  protected async _settle(step: () => Promise<boolean>): Promise<boolean> {
+    try {
+      return await step();
+    } catch (e) {
+      console.error("Failed to initialise the manager", e);
+      this._setError(ORError.MANAGER_FAILED_TO_LOAD);
+      return false;
+    }
+  }
+
+  protected async doSignIn(config: ManagerConfig): Promise<boolean> {
     if (this._config) {
       console.debug("Already initialised");
     }
 
     this._config = normaliseConfig(config);
 
-    let success = await this.loadManagerInfo();
+    // Without the info, the auth server URL would only be a guess
+    if (!(await this.loadManagerInfo())) {
+      return false;
+    }
 
     // Create console as we need to access storage during auth
     const orConsole = new Console(this._config.realm!, this._config.consoleAutoEnable!, () => {
@@ -408,31 +436,34 @@ export class Manager implements EventProviderFactory {
       // Normalise by stripping any trailing slashes
       this._config.keycloakUrl = this._config.keycloakUrl.replace(/\/+$/, "");
 
-      success = await this.doAuthInit();
+      return this.doAuthInit();
     }
 
-    if (!success) {
+    return true;
+  }
+
+  protected async doInit(config: ManagerConfig): Promise<boolean> {
+    if (!(await this.signIn(config))) {
       return false;
     }
 
-    if (success) {
-      success = this.doRestApiInit();
-    }
+    let success = this.doRestApiInit();
 
-    // Don't let console registration error prevent loading
-    const consoleSuccess = await this.doConsoleInit();
-    if (consoleSuccess) {
-      // Send the console a message to clear the web history, so no pages outside the app can be accessed.
-      // For example, this prevents navigating back to an authentication screen.
-      this._clearWebHistory();
-    }
-
-    success = (await this.doTranslateInit()) && success;
-
-    if (success) {
-      success = await this.doDescriptorsInit();
-      success = await this.getConsoleAppConfig();
-    }
+    // Only the translations decide whether the app can start, and they read the language the console stored
+    const [translateSuccess] = await Promise.all([
+      // Don't let console registration error prevent loading
+      this.doConsoleInit().then((consoleSuccess) => {
+        if (consoleSuccess) {
+          // Send the console a message to clear the web history, so no pages outside the app can be accessed.
+          // For example, this prevents navigating back to an authentication screen.
+          this._clearWebHistory();
+        }
+        return this.doTranslateInit();
+      }),
+      this.doDescriptorsInit(),
+      this.getConsoleAppConfig(),
+    ]);
+    success = translateSuccess && success;
 
     this.doIconInit();
 
@@ -452,29 +483,40 @@ export class Manager implements EventProviderFactory {
   }
 
   protected async loadManagerInfo(): Promise<boolean> {
-    // Check manager exists by calling the info endpoint
+    // Check manager exists by calling the info endpoint, which fails while the manager restarts
     try {
-      const json = await new Promise<any>((resolve, reject) => {
-        const oReq = new XMLHttpRequest();
-        oReq.addEventListener("load", () => {
-          resolve(JSON.parse(oReq.responseText));
-        });
-        oReq.addEventListener("error", () => {
-          reject(new Error("Failed to contact the manager"));
-        });
-        oReq.open("GET", this._config.managerUrl + "/api/master/info");
-        oReq.send();
-      });
+      const json = await Util.retryWithBackoff(() => this._requestManagerInfo());
       this._managerVersion = json && json.version ? json.version : "";
       this._authServerUrl = json && json.authServerUrl ? json.authServerUrl : "";
 
       return true;
     } catch (e) {
-      // TODO: Implement auto retry?
       console.error("Failed to contact the manager", e);
       this._setError(ORError.MANAGER_FAILED_TO_LOAD);
       return false;
     }
+  }
+
+  protected _requestManagerInfo(): Promise<any> {
+    return new Promise<any>((resolve, reject) => {
+      const oReq = new XMLHttpRequest();
+      oReq.addEventListener("load", () => {
+        try {
+          // A reverse proxy answers with its own error page while the manager is down
+          if (oReq.status !== 200) {
+            throw new Error("The manager info request failed with status " + oReq.status);
+          }
+          resolve(JSON.parse(oReq.responseText));
+        } catch (e) {
+          reject(e);
+        }
+      });
+      oReq.addEventListener("error", () => {
+        reject(new Error("Failed to contact the manager"));
+      });
+      oReq.open("GET", this._config.managerUrl + "/api/master/info");
+      oReq.send();
+    });
   }
 
   protected async doTranslateInit(): Promise<boolean> {
@@ -539,9 +581,11 @@ export class Manager implements EventProviderFactory {
     }
 
     try {
-      const assetInfosResponse = await rest.api.AssetModelResource.getAssetInfos();
-      const metaItemDescriptorResponse = await rest.api.AssetModelResource.getMetaItemDescriptors();
-      const valueDescriptorResponse = await rest.api.AssetModelResource.getValueDescriptors();
+      const [assetInfosResponse, metaItemDescriptorResponse, valueDescriptorResponse] = await Promise.all([
+        rest.api.AssetModelResource.getAssetInfos(),
+        rest.api.AssetModelResource.getMetaItemDescriptors(),
+        rest.api.AssetModelResource.getValueDescriptors(),
+      ]);
 
       AssetModelUtil._assetTypeInfos = assetInfosResponse.data;
       AssetModelUtil._metaItemDescriptors = Object.values(metaItemDescriptorResponse.data);
@@ -612,24 +656,13 @@ export class Manager implements EventProviderFactory {
     return connected;
   }
 
-  // Function that connects the EventProvider.
-  protected _connectEvents() {
-    if (this.events?.status === EventProviderStatus.DISCONNECTED) {
-      this.events!.connect().catch((e) => {
-        console.error(`Failed to connect EventProvider.`);
-        console.error(e);
-      });
-    } else {
-      console.warn("Tried to connect EventProvider, but it wasn't disconnected!");
-    }
-  }
-
   protected _onEventProviderStatusChanged(status: EventProviderStatus) {
     switch (status) {
       case EventProviderStatus.DISCONNECTED:
-        this._onDisconnect();
+        this._emitEvent(OREvent.OFFLINE);
         break;
       case EventProviderStatus.CONNECTED:
+        this._emitEvent(OREvent.ONLINE);
         break;
       case EventProviderStatus.CONNECTING:
         this._emitEvent(OREvent.CONNECTING);
@@ -678,7 +711,15 @@ export class Manager implements EventProviderFactory {
    */
   public async getUserPreferredLanguage(keycloak = this._keycloak): Promise<string | undefined> {
     if (keycloak && keycloak.authenticated) {
-      const profile: Keycloak.KeycloakProfile | undefined = keycloak?.profile || (await keycloak?.loadUserProfile());
+      let profile: Keycloak.KeycloakProfile | undefined = keycloak.profile;
+      if (!profile) {
+        try {
+          profile = await keycloak.loadUserProfile();
+        } catch {
+          console.warn("Could not get user language from keycloak: the user profile could not be loaded.");
+          return undefined;
+        }
+      }
       if (profile?.attributes) {
         const attributes = new Map(Object.entries(profile.attributes));
         if (attributes.has("locale")) {
@@ -830,6 +871,10 @@ export class Manager implements EventProviderFactory {
   }
 
   protected async loadAndInitialiseKeycloak(): Promise<boolean> {
+    // Read before init, which removes the returned login from the URL
+    const hash = new URLSearchParams(window.location.hash.substring(1));
+    const returnedFromLogin = hash.has("state") && hash.has("code");
+
     try {
       // Initialise keycloak
       this._keycloak = new Keycloak({
@@ -837,6 +882,17 @@ export class Manager implements EventProviderFactory {
         realm: this._config.realm!,
         url: this._config.keycloakUrl,
       });
+      // A redirect the user didn't click replaces the page in the history, so going back skips pages that only redirected
+      this._keycloak.login = (options) => {
+        const loginUrl = this._keycloak!.createLoginUrl(options);
+        if (navigator.userActivation?.isActive) {
+          window.location.assign(loginUrl);
+        } else {
+          window.location.replace(loginUrl);
+        }
+        // Never settles, as the page is leaving
+        return new Promise<void>(() => {});
+      };
 
       // Try to use a stored offline refresh token if defined
       const offlineToken = await this._getNativeOfflineRefreshToken();
@@ -869,6 +925,12 @@ export class Manager implements EventProviderFactory {
         }
         this._onAuthenticated();
         this._createTokenUpdateInterval();
+        sessionStorage.removeItem(Manager.LOGIN_RETRY_KEY);
+        // keycloak-js calls this when Keycloak rejects a token refresh, which only happens once the session has ended
+        this._keycloak.onAuthLogout = () => {
+          console.warn("The Keycloak session has ended, signing in again");
+          this.login();
+        };
 
         const currentSession = this._keycloak.tokenParsed?.session_state;
         if (currentSession && sessionStorage.getItem("or-session") !== currentSession) {
@@ -882,10 +944,29 @@ export class Manager implements EventProviderFactory {
       return true;
     } catch (error) {
       this._authenticated = false;
-      this._setError(ORError.AUTH_FAILED);
       console.error("Failed to initialise Keycloak: " + error);
+      if (returnedFromLogin && this._keycloak && this._startNewLogin()) {
+        return false;
+      }
+      this._setError(ORError.AUTH_FAILED);
       return false;
     }
+  }
+
+  /**
+   * Starts a new login after Keycloak rejected the returned one, for example because its code expired while the
+   * manager restarted. While the Keycloak session lasts, it returns without asking for the password. It is tried once
+   * in a row, so a login that keeps failing shows the error.
+   */
+  protected _startNewLogin(): boolean {
+    if (sessionStorage.getItem(Manager.LOGIN_RETRY_KEY)) {
+      sessionStorage.removeItem(Manager.LOGIN_RETRY_KEY);
+      return false;
+    }
+    console.warn("Keycloak rejected the returned login, starting a new one");
+    sessionStorage.setItem(Manager.LOGIN_RETRY_KEY, "true");
+    this.login();
+    return true;
   }
 
   protected _createTokenUpdateInterval() {
@@ -896,8 +977,7 @@ export class Manager implements EventProviderFactory {
     if (!this._keycloakUpdateTokenInterval) {
       this._keycloakUpdateTokenInterval = window.setInterval(async () => {
         await this._updateKeycloakAccessToken().catch(() => {
-          console.debug("Keycloak failed to refresh the access token");
-          this._onDisconnect();
+          console.debug("Keycloak failed to refresh the access token, trying again later");
         });
       }, 10000);
     }
@@ -940,145 +1020,9 @@ export class Manager implements EventProviderFactory {
     }
   }
 
-  /**
-   * Disconnect can occur when events status changes to offline and/or keycloak token refresh fails
-   * we just try to reach keycloak and then get a new token as well as wait for the events status to change
-   */
-  protected async _onDisconnect() {
-    if (this._disconnected) {
-      return;
-    }
-    console.debug("Disconnected");
-    this._disconnected = true;
-
-    // Cancel token refresh timer
-    if (this._keycloakUpdateTokenInterval) {
-      window.clearTimeout(this._keycloakUpdateTokenInterval);
-      this._keycloakUpdateTokenInterval = undefined;
-    }
-
-    this._emitEvent(OREvent.OFFLINE);
-    this.reconnect();
-  }
-
-  protected _onReconnected() {
-    console.debug("Reconnected to the Manager.");
-    this._disconnected = false;
-
-    // Reinstate token update interval
-    this._createTokenUpdateInterval();
-    this._emitEvent(OREvent.ONLINE);
-  }
-
-  /**
-   * Checks keycloak is available and token is valid otherwise will redirect to login; also checks if event bus is
-   * online.
-   */
-  public async reconnect(reattemptDelayMillis: number = 3000) {
-    console.debug("Checking connection to the Manager...");
-
-    if (!this._disconnected) {
-      console.debug("Manager is still connected. No action necessary.");
-      return;
-    }
-    console.debug("Manager is disconnected!");
-
-    if (this._reconnectTimer) {
-      window.clearTimeout(this._reconnectTimer);
-      this._reconnectTimer = undefined;
-    }
-
-    const tryReconnect = async () => {
-      console.debug("Reconnecting to the Manager...");
-
-      // If the user was never authenticated (public access), skip token refresh and just reconnect the event provider.
-      if (!this._authenticated) {
-        console.debug("User is not authenticated, skipping token refresh");
-        const isEventsOnline = () => this.events?.status === EventProviderStatus.CONNECTED;
-        if (!isEventsOnline()) {
-          await this.events?.connect();
-        }
-        return isEventsOnline();
-      }
-
-      const keycloakOffline = !(await this.isKeycloakReachable());
-
-      if (keycloakOffline) {
-        console.error("Keycloak is not reachable. Reconnect attempt failed.");
-        return false;
-      }
-
-      // Check if access token can be refreshed
-      try {
-        await this._updateKeycloakAccessToken();
-      } catch (e) {
-        console.error("Could not update Keycloak access token, attempting again using offline token...", e);
-        // Try and use offline token if it is available
-        const offlineToken = await this._getNativeOfflineRefreshToken();
-        this._keycloak!.refreshToken = offlineToken;
-        if (!offlineToken) {
-          console.warn("No offline token was found on this device.");
-        }
-
-        try {
-          await this._updateKeycloakAccessToken();
-        } catch (e) {
-          this.login();
-          throw new Error("Cannot update access token so sending to login");
-        }
-        console.debug("Keycloak access token is valid");
-      }
-
-      // Check events
-      const isEventsOnline = () => this.events?.status === EventProviderStatus.CONNECTED;
-      if (!isEventsOnline()) {
-        console.debug("Event provider offline, attempting to reconnect using latest auth token.");
-        await this.events?.connect();
-      }
-      return isEventsOnline();
-    };
-
-    const connected = await tryReconnect();
-
-    if (connected === undefined) {
-      // Going back to keycloak login so nothing to do
-      return;
-    }
-
-    // If failed to connect, schedule another reconnect attempt
-    if (!connected) {
-      reattemptDelayMillis = Math.min(Manager.MAX_RECONNECT_DELAY, reattemptDelayMillis + 3000);
-      console.error(`Failed to reconnect to the Manager. Attempting again in ${reattemptDelayMillis}...`);
-      this._reconnectTimer = window.setTimeout(() => this.reconnect(reattemptDelayMillis), reattemptDelayMillis);
-      return;
-    }
-
-    this._onReconnected();
-  }
-
-  /**
-   * Checks whether keycloak is reachable using a simple HTTP HEAD request since the keycloak JS adapter doesn't give
-   * us details of the HTTP responses they get, we test it manually using this.
-   * @param timeoutMillis - Custom timeout of the HTTP HEAD request in milliseconds
-   * @protected
-   */
-  protected async isKeycloakReachable(timeoutMillis = 2000): Promise<boolean> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMillis);
-    try {
-      // Get the token URL from keycloak as this must already have CORS configured for keycloak to work
-      // Make an OPTIONS request as GET/HEAD requests are not allowed on the token endpoint
-      // Note if keycloak service is unavailable the proxy may respond with 503 and no CORS headers
-      // but this is handled by the catch block
-      // @ts-ignore
-      const tokenUrl = this._keycloak.endpoints.token();
-      const result = await fetch(tokenUrl, { method: "OPTIONS", signal: controller.signal });
-      return result.status === 200;
-    } catch (e) {
-      return false;
-    } finally {
-      clearTimeout(timeout);
-    }
+  /** @deprecated The event provider reconnects by itself, this only makes it try right away */
+  public async reconnect(): Promise<void> {
+    await this._events?.connect();
   }
 }
 

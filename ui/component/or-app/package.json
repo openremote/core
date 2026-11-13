@@ -15,6 +15,16 @@
       "types": "./build/custom-elements-jsx.d.ts"
     }
   },
+  "typesVersions": {
+    "*": {
+      "build/lib/*": [
+        "build/lib/*"
+      ],
+      "*": [
+        "build/lib/*"
+      ]
+    }
+  },
   "types": "build/lib/index.d.ts",
   "files": [
     "src/images/**",
@@ -35,6 +45,7 @@
   "dependencies": {
     "@openremote/core": "workspace:*",
     "@openremote/model": "workspace:*",
+    "@openremote/or-components": "workspace:*",
     "@openremote/or-element": "workspace:*",
     "@openremote/or-icon": "workspace:*",
     "@openremote/or-mwc-components": "workspace:*",
