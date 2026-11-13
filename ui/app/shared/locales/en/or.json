@@ -488,6 +488,7 @@
   },
   "appError": {
     "noConfig": "No app config provided",
+    "noRealmConfig": "No realm config provided",
     "noReduxStore": "No Redux store provided",
     "noPages": "No pages provided"
   },

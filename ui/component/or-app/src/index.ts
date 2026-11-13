@@ -280,7 +280,7 @@ export class OrApp<S extends AppStateKeyed> extends OrElement {
         }
 
         if (!this._config) {
-          this._showStartupError(document.body, "appError.noConfig", "No app config provided");
+          this._showStartupError(document.body, "appError.noRealmConfig", "No realm config provided");
           console.error("No default AppConfig or realm specific config provided so cannot render");
           return;
         }
