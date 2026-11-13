@@ -61,6 +61,10 @@ class ConfigurationTemplateUtilTest extends Specification {
     return "{${fields.join(",")}}"
   }
 
+  static String forecastEntry(String pastCount) {
+    return """{"type": "number", "meta": {"forecast": {"type": "wea", "pastPeriod": "P1D", "pastCount": ${pastCount}, "forecastPeriod": "PT1H", "forecastCount": 1}}}"""
+  }
+
   def "export holds the type and metadata of attributes that have metadata"() {
     given: "an asset with configured and unconfigured attributes"
     def asset = thingAsset([
@@ -118,7 +122,43 @@ class ConfigurationTemplateUtilTest extends Specification {
     INVALID_META_ITEM | document(ThingAsset.DESCRIPTOR.name, [temperature: '{"type": "number", "meta": {"readOnly": {"not": "a boolean"}}}'])
     INVALID_META_ITEM | document(ThingAsset.DESCRIPTOR.name, [temperature: '{"type": "number", "meta": {"constraints": [{"type": "noSuchConstraint"}]}}'])
     INVALID_META_ITEM | document(ThingAsset.DESCRIPTOR.name, [temperature: '{"type": "number", "meta": {"agentLink": {"type": "NoSuchAgentLink", "id": "agentId"}}}'])
+    INVALID_META_ITEM | document(ThingAsset.DESCRIPTOR.name, [temperature: forecastEntry("0")])
     NO_IMPORTABLE_ATTRIBUTES | document(ThingAsset.DESCRIPTOR.name, [:])
+  }
+
+  def "a rejected document names where it fails: #attribute, #metaItem, #parameter"() {
+    given: "an asset with a configured attribute"
+    def asset = thingAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature"])])
+
+    when: "the document is previewed"
+    def location = ConfigurationTemplateUtil.preview(asset, documentText).failureLocation
+
+    then: "the location holds the attribute, metadata item and parameter as far as they apply"
+    location.attribute == attribute
+    location.metaItem == metaItem
+    location.parameter == parameter
+
+    where:
+    documentText | attribute | metaItem | parameter
+    document(ThingAsset.DESCRIPTOR.name, [:], null) | null | null | "version"
+    '{"version": 1, "assetType": 5, "attributes": {}}' | null | null | "assetType"
+    '{"version": 1, "assetType": "ThingAsset", "attributes": 5}' | null | null | "attributes"
+    document(ThingAsset.DESCRIPTOR.name, [temperature: '5']) | "temperature" | null | null
+    document(ThingAsset.DESCRIPTOR.name, [temperature: '{"meta": {}}']) | "temperature" | null | "type"
+    document(ThingAsset.DESCRIPTOR.name, [temperature: '{"type": "number", "meta": 5}']) | "temperature" | null | "meta"
+    document(ThingAsset.DESCRIPTOR.name, [temperature: '{"type": "number", "meta": {"readOnly": {"not": "a boolean"}}}']) | "temperature" | "readOnly" | null
+    document(ThingAsset.DESCRIPTOR.name, [temperature: '{"type": "number", "meta": {"constraints": [{"type": "noSuchConstraint"}]}}']) | "temperature" | "constraints" | "[0]"
+    document(ThingAsset.DESCRIPTOR.name, [temperature: '{"type": "number", "meta": {"agentLink": {"type": "NoSuchAgentLink", "id": "agentId"}}}']) | "temperature" | "agentLink" | "type"
+    document(ThingAsset.DESCRIPTOR.name, [temperature: forecastEntry('"many"')]) | "temperature" | "forecast" | "pastCount"
+    document(ThingAsset.DESCRIPTOR.name, [temperature: forecastEntry("0")]) | "temperature" | "forecast" | "pastCount"
+  }
+
+  def "a document rejected as a whole has no location"() {
+    expect: "the rejection holds no location"
+    ConfigurationTemplateUtil.preview(thingAsset(), documentText).failureLocation == null
+
+    where:
+    documentText << ["not json at all", "[]", document(ThingAsset.DESCRIPTOR.name, [:], 2)]
   }
 
   def "export leaves out metadata that grants access or links attributes"() {

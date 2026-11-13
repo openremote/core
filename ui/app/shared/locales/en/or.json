@@ -1365,6 +1365,13 @@
       "INVALID_META_ITEM": "The selected file holds a configuration item whose value does not fit its type.",
       "NO_IMPORTABLE_ATTRIBUTES": "None of the attributes in the selected file can be imported into this asset.",
       "DRAFT_MISMATCH": "This asset has changed since you opened it; refresh it and try again."
+    },
+    "failureLocation": {
+      "field": "On field '{{parameter}}'.",
+      "attribute": "On attribute '{{attribute}}'.",
+      "attributeField": "On field '{{parameter}}' of attribute '{{attribute}}'.",
+      "configurationItem": "On configuration item '{{item}}' of attribute '{{attribute}}'.",
+      "configurationItemParameter": "On parameter '{{parameter}}' of configuration item '{{item}}' of attribute '{{attribute}}'."
     }
   }
 }

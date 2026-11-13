@@ -189,6 +189,22 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
       return true
     }
 
+    when: "a document holding a configuration item that breaks a constraint is imported"
+    adminResource.previewConfigurationTemplateImport(null, target.id,
+            new ConfigurationTemplateImportRequest(target, '{"version": 1, "assetType": "ThingAsset", "attributes": {"temperature": {"type": "number", "meta": {"forecast": {"type": "wea", "pastPeriod": "P1D", "pastCount": 0, "forecastPeriod": "PT1H", "forecastCount": 1}}}}}'))
+
+    then: "the import is rejected with the reason and where it fails"
+    WebApplicationException invalidMetaItem = thrown()
+    invalidMetaItem.response.withCloseable { r ->
+      assert r.status == BAD_REQUEST.statusCode
+      def rejected = r.readEntity(ConfigurationTemplateImportPreview.class)
+      assert rejected.failure == INVALID_META_ITEM
+      assert rejected.failureLocation.attribute == "temperature"
+      assert rejected.failureLocation.metaItem == MetaItemType.FORECAST.name
+      assert rejected.failureLocation.parameter == "pastCount"
+      return true
+    }
+
     when: "a document holding no attribute of the target asset is imported"
     adminResource.previewConfigurationTemplateImport(null, target.id,
             new ConfigurationTemplateImportRequest(target, '{"version": 1, "assetType": "ThingAsset", "attributes": {"absent": {"type": "text", "meta": {"label": "Absent"}}}}'))

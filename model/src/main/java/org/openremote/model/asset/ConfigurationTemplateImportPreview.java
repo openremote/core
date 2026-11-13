@@ -37,6 +37,9 @@ public class ConfigurationTemplateImportPreview {
   @Schema(description = "Why the document cannot be imported; absent when it can.")
   protected ConfigurationTemplateImportFailure failure;
 
+  @Schema(description = "Where the document cannot be imported; absent when that is not known.")
+  protected ConfigurationTemplateImportFailureLocation failureLocation;
+
   @Schema(description = "Attributes whose metadata will be replaced.")
   protected List<AttributeConfigurationSummary> importableAttributes;
 
@@ -54,11 +57,13 @@ public class ConfigurationTemplateImportPreview {
   @JsonCreator
   public ConfigurationTemplateImportPreview(
       ConfigurationTemplateImportFailure failure,
+      ConfigurationTemplateImportFailureLocation failureLocation,
       List<AttributeConfigurationSummary> importableAttributes,
       List<AttributeConfigurationSummary> missingAttributes,
       List<AttributeConfigurationTypeMismatch> typeMismatches,
       AttributeMap patchedAttributes) {
     this.failure = failure;
+    this.failureLocation = failureLocation;
     this.importableAttributes = importableAttributes;
     this.missingAttributes = missingAttributes;
     this.typeMismatches = typeMismatches;
@@ -67,11 +72,22 @@ public class ConfigurationTemplateImportPreview {
 
   public static ConfigurationTemplateImportPreview failed(
       ConfigurationTemplateImportFailure failure) {
-    return new ConfigurationTemplateImportPreview(failure, List.of(), List.of(), List.of(), null);
+    return failed(failure, null);
+  }
+
+  public static ConfigurationTemplateImportPreview failed(
+      ConfigurationTemplateImportFailure failure,
+      ConfigurationTemplateImportFailureLocation failureLocation) {
+    return new ConfigurationTemplateImportPreview(
+        failure, failureLocation, List.of(), List.of(), List.of(), null);
   }
 
   public ConfigurationTemplateImportFailure getFailure() {
     return failure;
+  }
+
+  public ConfigurationTemplateImportFailureLocation getFailureLocation() {
+    return failureLocation;
   }
 
   public List<AttributeConfigurationSummary> getImportableAttributes() {

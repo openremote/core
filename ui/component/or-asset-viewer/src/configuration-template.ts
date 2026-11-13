@@ -25,6 +25,7 @@ import {
   WellknownMetaItems,
   type Asset,
   type Attribute,
+  type ConfigurationTemplateImportFailureLocation,
   type ConfigurationTemplateImportPreview,
   type ValueConstraint,
   type ValueFormat,
@@ -546,15 +547,50 @@ function showImportFailureDialog(host: Node, asset: Asset, configuration: string
   const message = preview
     ? i18next.t(`configurationTemplate.failure.${preview.failure}`)
     : i18next.t(forbidden ? "configurationTemplate.forbidden" : "errorOccurred");
+  const location = getFailureLocation(asset, preview?.failureLocation);
 
   showErrorDialog(
     host,
     html`${dialogStyle}
       <div class="ac-body">
         <span>${message}</span>
+        ${location ? html`<span>${location}</span>` : ``}
         ${preview ? getSkippedTemplate(asset, preview, configuration) : ``}
       </div>`,
     "configurationTemplate.importHeading"
+  );
+}
+
+/** Where a rejected template fails, from the attribute down to the parameter, or nothing if that is not known. */
+function getFailureLocation(
+  asset: Asset,
+  location: ConfigurationTemplateImportFailureLocation | undefined
+): string | undefined {
+  if (!location?.attribute && !location?.parameter) {
+    return undefined;
+  }
+  const values = {
+    attribute: location.attribute ? attributeName(asset, { name: location.attribute }) : undefined,
+    item: location.metaItem ? Util.getMetaLabel(undefined, location.metaItem, asset.type, false) : undefined,
+    parameter: location.parameter,
+  };
+
+  if (!location.attribute) {
+    return i18next.t("configurationTemplate.failureLocation.field", values);
+  }
+  if (!location.metaItem) {
+    return i18next.t(
+      location.parameter
+        ? "configurationTemplate.failureLocation.attributeField"
+        : "configurationTemplate.failureLocation.attribute",
+      values
+    );
+  }
+  return i18next.t(
+    location.parameter
+      ? "configurationTemplate.failureLocation.configurationItemParameter"
+      : "configurationTemplate.failureLocation.configurationItem",
+    values
   );
 }
 

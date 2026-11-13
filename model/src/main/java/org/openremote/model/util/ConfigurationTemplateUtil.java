@@ -22,8 +22,8 @@ import static org.openremote.model.asset.ConfigurationTemplateImportFailure.*;
 import static org.openremote.model.value.MetaItemType.*;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -38,6 +38,8 @@ import org.openremote.model.asset.AttributeConfiguration;
 import org.openremote.model.asset.AttributeConfigurationSummary;
 import org.openremote.model.asset.AttributeConfigurationTypeMismatch;
 import org.openremote.model.asset.ConfigurationTemplate;
+import org.openremote.model.asset.ConfigurationTemplateImportFailure;
+import org.openremote.model.asset.ConfigurationTemplateImportFailureLocation;
 import org.openremote.model.asset.ConfigurationTemplateImportPreview;
 import org.openremote.model.attribute.Attribute;
 import org.openremote.model.attribute.AttributeMap;
@@ -115,43 +117,50 @@ public final class ConfigurationTemplateUtil {
       return ConfigurationTemplateImportPreview.failed(INVALID_JSON);
     }
 
+    for (String field : List.of("version", "assetType", "attributes")) {
+      if (isAbsent(root.get(field))) {
+        return failed(MISSING_REQUIRED_FIELD, null, null, field);
+      }
+    }
+
     JsonNode version = root.get("version");
     JsonNode assetType = root.get("assetType");
     JsonNode attributes = root.get("attributes");
 
-    if (isAbsent(version) || isAbsent(assetType) || isAbsent(attributes)) {
-      return ConfigurationTemplateImportPreview.failed(MISSING_REQUIRED_FIELD);
-    }
     if (!version.isIntegralNumber() || version.asInt() != ConfigurationTemplate.CURRENT_VERSION) {
       return ConfigurationTemplateImportPreview.failed(UNSUPPORTED_VERSION);
     }
     if (!assetType.isTextual() || assetType.asText().isBlank()) {
-      return ConfigurationTemplateImportPreview.failed(MISSING_REQUIRED_FIELD);
+      return failed(MISSING_REQUIRED_FIELD, null, null, "assetType");
     }
     if (!attributes.isObject()) {
-      return ConfigurationTemplateImportPreview.failed(MALFORMED_ATTRIBUTE_ENTRY);
+      return failed(MALFORMED_ATTRIBUTE_ENTRY, null, null, "attributes");
     }
 
     // The map key is the attribute name, so an entry's own name field, if any, is ignored
     Map<String, AttributeConfiguration> imported = new LinkedHashMap<>();
     for (Map.Entry<String, JsonNode> entry : attributes.properties()) {
-      JsonNode type = entry.getValue().isObject() ? entry.getValue().get("type") : null;
-      JsonNode meta = entry.getValue().isObject() ? entry.getValue().get("meta") : null;
+      String attribute = entry.getKey();
+
+      if (!entry.getValue().isObject()) {
+        return failed(MALFORMED_ATTRIBUTE_ENTRY, attribute, null, null);
+      }
+
+      JsonNode type = entry.getValue().get("type");
+      JsonNode meta = entry.getValue().get("meta");
 
       if (type == null || !type.isTextual() || type.asText().isBlank()) {
-        return ConfigurationTemplateImportPreview.failed(MALFORMED_ATTRIBUTE_ENTRY);
+        return failed(MALFORMED_ATTRIBUTE_ENTRY, attribute, null, "type");
       }
       if (meta == null || !meta.isObject()) {
-        return ConfigurationTemplateImportPreview.failed(MALFORMED_ATTRIBUTE_ENTRY);
+        return failed(MALFORMED_ATTRIBUTE_ENTRY, attribute, null, "meta");
       }
 
-      Optional<MetaMap> importedMeta = readMeta((ObjectNode) meta);
-
-      if (importedMeta.isEmpty()) {
-        return ConfigurationTemplateImportPreview.failed(INVALID_META_ITEM);
+      try {
+        imported.put(attribute, new AttributeConfiguration(type.asText(), readMeta(meta)));
+      } catch (InvalidMetaItemException e) {
+        return failed(INVALID_META_ITEM, attribute, e.metaItem, e.parameter);
       }
-
-      imported.put(entry.getKey(), new AttributeConfiguration(type.asText(), importedMeta.get()));
     }
 
     AttributeMap targetAttributes =
@@ -183,7 +192,7 @@ public final class ConfigurationTemplateUtil {
     // Report what was skipped even when that leaves nothing to import
     if (importable.isEmpty()) {
       return new ConfigurationTemplateImportPreview(
-          NO_IMPORTABLE_ATTRIBUTES, importable, missing, typeMismatches, null);
+          NO_IMPORTABLE_ATTRIBUTES, null, importable, missing, typeMismatches, null);
     }
 
     AttributeMap patchedAttributes = ValueUtil.clone(targetAttributes);
@@ -200,7 +209,16 @@ public final class ConfigurationTemplateUtil {
         });
 
     return new ConfigurationTemplateImportPreview(
-        null, importable, missing, typeMismatches, patchedAttributes);
+        null, null, importable, missing, typeMismatches, patchedAttributes);
+  }
+
+  private static ConfigurationTemplateImportPreview failed(
+      ConfigurationTemplateImportFailure failure,
+      String attribute,
+      String metaItem,
+      String parameter) {
+    return ConfigurationTemplateImportPreview.failed(
+        failure, new ConfigurationTemplateImportFailureLocation(attribute, metaItem, parameter));
   }
 
   private static boolean isAbsent(JsonNode node) {
@@ -214,32 +232,68 @@ public final class ConfigurationTemplateUtil {
   }
 
   /**
-   * Reads the metadata of a document entry without the {@link #ASSET_BOUND_META_ITEMS}, or nothing
-   * if an item with a known descriptor does not hold a value of its type that meets the bean
-   * constraints of that type. Unknown metadata items are taken as they are.
+   * Reads the metadata of a document entry without the {@link #ASSET_BOUND_META_ITEMS}. An item
+   * with a known descriptor must hold a value of its type that meets the bean constraints of that
+   * type; unknown metadata items are taken as they are.
    */
-  private static Optional<MetaMap> readMeta(ObjectNode node) {
-    ObjectNode items = node.deepCopy();
-    items.remove(ASSET_BOUND_META_ITEMS);
-    MetaMap meta;
+  private static MetaMap readMeta(JsonNode node) throws InvalidMetaItemException {
+    MetaMap meta = new MetaMap();
 
-    try {
-      meta = ValueUtil.JSON.treeToValue(items, MetaMap.class);
-    } catch (JsonProcessingException | IllegalArgumentException e) {
-      return Optional.empty();
-    }
+    for (Map.Entry<String, JsonNode> entry : node.properties()) {
+      String name = entry.getKey();
 
-    for (MetaItem<?> item : meta.values()) {
-      Object value = item.getValue().orElse(null);
+      if (ASSET_BOUND_META_ITEMS.contains(name)) {
+        continue;
+      }
 
-      if (item.getType() != null
-          && value != null
-          && (!ValueUtil.validate(value).isEmpty()
-              || changesType(items.get(item.getName()), value))) {
-        return Optional.empty();
+      // One item at a time, so that a failure names its item
+      MetaMap read;
+      try {
+        read =
+            ValueUtil.JSON.treeToValue(
+                ValueUtil.JSON.createObjectNode().set(name, entry.getValue()), MetaMap.class);
+      } catch (JsonMappingException e) {
+        throw new InvalidMetaItemException(name, path(e));
+      } catch (JsonProcessingException | IllegalArgumentException e) {
+        throw new InvalidMetaItemException(name, null);
+      }
+
+      for (MetaItem<?> item : read.values()) {
+        Object value = item.getValue().orElse(null);
+
+        if (item.getType() != null && value != null) {
+          Optional<String> violation =
+              ValueUtil.validate(value).stream()
+                  .map(constraintViolation -> constraintViolation.getPropertyPath().toString())
+                  .sorted()
+                  .findFirst();
+
+          if (violation.isPresent()) {
+            throw new InvalidMetaItemException(
+                name, violation.get().isEmpty() ? null : violation.get());
+          }
+          if (changesType(entry.getValue(), value)) {
+            throw new InvalidMetaItemException(name, "type");
+          }
+        }
+        meta.addOrReplace(item);
       }
     }
-    return Optional.of(meta);
+    return meta;
+  }
+
+  /** The path of a binding failure within the value read, or null for the value itself. */
+  private static String path(JsonMappingException e) {
+    StringBuilder path = new StringBuilder();
+
+    for (JsonMappingException.Reference reference : e.getPath()) {
+      if (reference.getFieldName() != null) {
+        path.append(path.isEmpty() ? "" : ".").append(reference.getFieldName());
+      } else if (reference.getIndex() >= 0) {
+        path.append('[').append(reference.getIndex()).append(']');
+      }
+    }
+    return path.isEmpty() ? null : path.toString();
   }
 
   /**
@@ -258,5 +312,17 @@ public final class ConfigurationTemplateUtil {
 
   private static String typeName(Attribute<?> attribute) {
     return attribute.getType() != null ? attribute.getType().getName() : null;
+  }
+
+  /** A metadata item that cannot be read, with the parameter within it where that is known. */
+  private static final class InvalidMetaItemException extends Exception {
+    private final String metaItem;
+    private final String parameter;
+
+    private InvalidMetaItemException(String metaItem, String parameter) {
+      super(null, null, false, false);
+      this.metaItem = metaItem;
+      this.parameter = parameter;
+    }
   }
 }

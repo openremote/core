@@ -382,7 +382,7 @@ public interface AssetResource {
    * draft once the user confirms, so the same access as {@link #update} is required. A 400 status
    * is returned if no draft is given or the template cannot be imported, and a 409 status if the
    * draft no longer identifies the persisted asset. A rejected template is answered with the
-   * preview, whose failure names the reason.
+   * preview, whose failure names the reason and, where known, the location within the template.
    */
   @POST
   @Path("{assetId}/configurationTemplate/import")
@@ -399,7 +399,7 @@ public interface AssetResource {
   @ApiResponse(
       responseCode = "400",
       description =
-          "The draft is missing, or the document cannot be imported; a rejected document is answered with the preview, whose failure names the reason",
+          "The draft is missing, or the document cannot be imported; a rejected document is answered with the preview, whose failure names the reason and failureLocation, where known, the attribute, metadata item and parameter",
       content = {
         @Content(
             mediaType = APPLICATION_JSON,
