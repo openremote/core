@@ -31,7 +31,9 @@ class MetaMapTest extends Specification {
   }
 
   static String path(JsonMappingException e) {
-    return e.path.collect { it.fieldName != null ? ".${it.fieldName}" : "[${it.index}]" }.join("").replaceFirst(/^\./, "")
+    return e.path.collect {
+      it.fieldName != null ? ".${it.fieldName}" : "[${it.index}]"
+    }.join("").replaceFirst(/^\./, "")
   }
 
   def "a metadata value that cannot be read names its item in the error path: #expectedPath"() {
