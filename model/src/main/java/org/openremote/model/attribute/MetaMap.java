@@ -94,8 +94,12 @@ public class MetaMap extends NamedMap<String, MetaItem<?>> {
         metaItem = new MetaItem(metaItemName);
       }
 
-      metaItem.setValue(
-          Attribute.AttributeDeserializer.deserialiseValue(metaItem.getType(), jp, ctxt));
+      try {
+        metaItem.setValue(
+            Attribute.AttributeDeserializer.deserialiseValue(metaItem.getType(), jp, ctxt));
+      } catch (JsonMappingException e) {
+        throw JsonMappingException.wrapWithPath(e, MetaMap.class, metaItemName);
+      }
 
       list.add(metaItem);
     }

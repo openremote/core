@@ -16,14 +16,17 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
-import { css } from "lit";
+package org.openremote.setup.configtemplate;
 
-export const countBadgeStyle = css`
-  or-vaadin-badge {
-    --vaadin-badge-background: var(--shades-contrast-10, #3a463a0d);
-    border-radius: calc(var(--lumo-border-radius-m) + 2px);
-    font-size: 12px;
-    color: var(--lumo-secondary-text-color);
-    padding: 0 calc(var(--lumo-space-m) - 4px);
+import java.util.List;
+import org.openremote.model.Container;
+import org.openremote.model.setup.Setup;
+
+/** Setup tasks of the config template demo. */
+public class SetupTasks implements org.openremote.model.setup.SetupTasks {
+
+  @Override
+  public List<Setup> createTasks(Container container, String setupType, boolean keycloakEnabled) {
+    return List.of(new ManagerConfigTemplateSetup(container));
   }
-`;
+}
