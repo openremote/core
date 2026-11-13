@@ -97,6 +97,37 @@ test("should show that the app could not be loaded when the manager stays unreac
   await expect(page.getByRole("alert")).toHaveText("Could not load the app, try again later");
 });
 
+/**
+ * @given A visitor who is not signed in
+ * @when The manager is opened
+ * @then The login page is shown without an error dialog before it
+ */
+test("should go to the login page without showing an error dialog", async ({ page, manager }) => {
+  // Counts confirm dialogs as they connect, through a callback that keeps working after the page redirects
+  let dialogs = 0;
+  await page.exposeFunction("onConfirmDialogConnected", () => dialogs++);
+  await page.addInitScript(() => {
+    const define = customElements.define.bind(customElements);
+    customElements.define = (name, constructor, options) => {
+      if (name === "or-vaadin-confirm-dialog") {
+        const prototype = (constructor as unknown as { prototype: { connectedCallback?(this: HTMLElement): void } })
+          .prototype;
+        const connected = prototype.connectedCallback;
+        prototype.connectedCallback = function (this: HTMLElement) {
+          (window as unknown as { onConfirmDialogConnected(): void }).onConfirmDialogConnected();
+          connected?.call(this);
+        };
+      }
+      define(name, constructor, options);
+    };
+  });
+
+  await manager.goToRealmStartPage("master");
+  await expect(page.getByRole("textbox", { name: "Username or email" })).toBeVisible();
+  // An empty error dialog opened on the manager page, just before it redirected to the login page
+  expect(dialogs).toBe(0);
+});
+
 test.describe("Sign in", () => {
   test.use({ storageState: adminStatePath });
 
