@@ -30,9 +30,21 @@ ex.response.withCloseable { r ->
 }
 ```
 
+Start the container in `setupSpec`, not in each feature method, and remove any test-specific resources in `cleanup`. The container is reused, but starting it still costs a couple of seconds per method.
+
 ### Running tests
 
 When running integration tests, part of the stack (PostgreSQL and Keycloak) must be running. Start it with `docker compose -f profile/dev-testing.yml -p openremote up -d --no-build`.
+
+## Model and JSON
+
+Don't put `@JsonProperty` on `@JsonCreator` parameters whose name already matches the property; the build compiles with `-parameters` and registers `ParameterNamesModule`. Add it only when the names differ.
+
+Keep Jackson types (`JsonNode`, `ObjectNode`) out of model fields and public signatures; they are an implementation dependency. Use the typed model instead: `AttributeMap`, `MetaMap`, `NamedMap`, or the DTO itself.
+
+Bind a request body to its model class and validate it with JSR-380 (`@NotNull`, `@NotBlank`, `@Min`, ...), so each violation carries its path; see `AssetValidator`. Read a JSON tree only where each kind of defect needs its own error, and keep the tree inside the method that reads it.
+
+`NamedMap`, so `AttributeMap` and `MetaMap`, is unordered. Use `LinkedHashMap` to keep an order that already carries meaning, and `TreeMap` only when a sorted, stable serialization is the goal.
 
 ## REST resources
 
