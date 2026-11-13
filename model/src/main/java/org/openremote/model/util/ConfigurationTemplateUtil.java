@@ -71,6 +71,7 @@ public final class ConfigurationTemplateUtil {
    */
   public static ConfigurationTemplate export(Asset<?> asset, Collection<String> attributeNames) {
     boolean selectAll = attributeNames == null || attributeNames.isEmpty();
+    // Sorted by name, as the attributes of an asset have no order of their own
     Map<String, AttributeConfiguration> attributes = new TreeMap<>();
 
     if (asset.getAttributes() != null) {
