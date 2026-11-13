@@ -19,7 +19,6 @@
 package org.openremote.model.asset;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 
@@ -38,8 +37,7 @@ public class ConfigurationTemplateImportRequest {
   @NotNull protected String document;
 
   @JsonCreator
-  public ConfigurationTemplateImportRequest(
-      @JsonProperty("draft") Asset<?> draft, @JsonProperty("document") String document) {
+  public ConfigurationTemplateImportRequest(Asset<?> draft, String document) {
     this.draft = draft;
     this.document = document;
   }

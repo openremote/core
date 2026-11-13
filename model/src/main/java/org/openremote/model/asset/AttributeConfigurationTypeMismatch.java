@@ -19,7 +19,6 @@
 package org.openremote.model.asset;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
@@ -38,10 +37,7 @@ public class AttributeConfigurationTypeMismatch {
   protected String targetType;
 
   @JsonCreator
-  public AttributeConfigurationTypeMismatch(
-      @JsonProperty("name") String name,
-      @JsonProperty("importedType") String importedType,
-      @JsonProperty("targetType") String targetType) {
+  public AttributeConfigurationTypeMismatch(String name, String importedType, String targetType) {
     this.name = name;
     this.importedType = importedType;
     this.targetType = targetType;

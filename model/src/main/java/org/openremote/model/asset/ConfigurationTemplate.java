@@ -19,7 +19,6 @@
 package org.openremote.model.asset;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.Map;
 
@@ -47,9 +46,7 @@ public class ConfigurationTemplate {
 
   @JsonCreator
   public ConfigurationTemplate(
-      @JsonProperty("version") int version,
-      @JsonProperty("assetType") String assetType,
-      @JsonProperty("attributes") Map<String, AttributeConfiguration> attributes) {
+      int version, String assetType, Map<String, AttributeConfiguration> attributes) {
     this.version = version;
     this.assetType = assetType;
     this.attributes = attributes;

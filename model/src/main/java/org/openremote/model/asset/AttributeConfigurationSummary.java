@@ -19,7 +19,6 @@
 package org.openremote.model.asset;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /** An attribute of a {@link ConfigurationTemplate} as reported to the user. */
@@ -33,8 +32,7 @@ public class AttributeConfigurationSummary {
   protected String type;
 
   @JsonCreator
-  public AttributeConfigurationSummary(
-      @JsonProperty("name") String name, @JsonProperty("type") String type) {
+  public AttributeConfigurationSummary(String name, String type) {
     this.name = name;
     this.type = type;
   }
