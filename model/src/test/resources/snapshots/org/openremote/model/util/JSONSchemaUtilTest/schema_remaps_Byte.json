@@ -1,5 +1,5 @@
 {
   "$schema" : "http://json-schema.org/draft-07/schema#",
-  "title" : "Byte",
-  "type" : "integer"
+  "type" : "integer",
+  "title" : "Byte"
 }

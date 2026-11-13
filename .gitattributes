@@ -1,3 +1,4 @@
 # Force EOL markers (Windows Tortoise/msysgit client has autocrlf=true default)
 *.sh    eol=lf
+/model/src/test/resources/snapshots/** text eol=lf
 *.mbtiles filter=lfs diff=lfs merge=lfs -text
