@@ -16,13 +16,14 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
-import { css, html, type PropertyValues, type TemplateResult, unsafeCSS } from "lit";
+import { css, html, nothing, type PropertyValues, type TemplateResult, unsafeCSS } from "lit";
 import { OrElement } from "@openremote/or-element";
 import { customElement, property, query, state } from "lit/decorators.js";
 import { type AppConfig, type Page, type RealmAppConfig, router } from "./types";
 import "@openremote/or-translate";
 import "@openremote/or-mwc-components/or-mwc-snackbar";
 import "./or-header";
+import { translateWithFallback } from "./or-app-loading";
 import "@openremote/or-icon";
 import { updateMetadata } from "pwa-helpers/metadata";
 import { i18next } from "@openremote/or-translate";
@@ -32,12 +33,17 @@ import manager, {
   DefaultColor4,
   type Manager,
   normaliseConfig,
+  ORError,
   OREvent,
   Util,
 } from "@openremote/core";
 import { DEFAULT_LANGUAGES, HeaderConfig } from "./or-header";
 import { OrMwcDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
-import { showErrorDialog } from "@openremote/or-vaadin-components/or-vaadin-confirm-dialog";
+import {
+  getConfirmDialogContent,
+  showConfirmDialog,
+  showErrorDialog,
+} from "@openremote/or-vaadin-components/or-vaadin-confirm-dialog";
 import { OrMwcSnackbar, showSnackbar } from "@openremote/or-mwc-components/or-mwc-snackbar";
 import { AnyAction, type Store, type Unsubscribe } from "@reduxjs/toolkit";
 import { type AppStateKeyed, setOffline, setVisibility, updatePage, updateRealm } from "./app";
@@ -58,6 +64,7 @@ export const DefaultFavIcon = require("@openremote/or-app/images/favicon.ico");
 export { AnyAction };
 export * from "./app";
 export * from "./or-header";
+export * from "./or-app-loading";
 export * from "./types";
 
 // Declare MANAGER_URL and KEYCLOAK_URL - Global var injected by webpack
@@ -69,6 +76,19 @@ export { HeaderConfig, DEFAULT_LANGUAGES };
 export function getDefaultManagerConfig() {
   return normaliseConfig(DEFAULT_MANAGER_CONFIG);
 }
+
+// The English text of each startup error, shown when the translations are missing
+const STARTUP_ERRORS: Record<ORError, [key: string, fallback: string]> = {
+  [ORError.MANAGER_FAILED_TO_LOAD]: ["managerError.MANAGER_FAILED_TO_LOAD", "Could not load the app, try again later"],
+  [ORError.AUTH_FAILED]: ["managerError.AUTH_FAILED", "Could not sign in, try again later"],
+  [ORError.AUTH_TYPE_UNSUPPORTED]: ["managerError.AUTH_TYPE_UNSUPPORTED", "Requested auth type not supported"],
+  [ORError.CONSOLE_ERROR]: ["managerError.CONSOLE_ERROR", "Could not start the console, try again later"],
+  [ORError.EVENTS_CONNECTION_ERROR]: [
+    "managerError.EVENTS_CONNECTION_ERROR",
+    "Could not connect to the manager, try again later",
+  ],
+  [ORError.TRANSLATION_ERROR]: ["managerError.TRANSLATION_ERROR", "Could not load the translations, try again later"],
+};
 
 const DEFAULT_MANAGER_CONFIG: ManagerConfig = {
   managerUrl: MANAGER_URL || "",
@@ -95,6 +115,10 @@ export class OrApp<S extends AppStateKeyed> extends OrElement {
 
   @state()
   protected _initialised = false;
+
+  /** Why the app didn't start: it could not be loaded, or an error that a dialog shows */
+  @state()
+  protected _startupFailure?: "loadFailed" | "error";
 
   @state()
   protected _page?: string;
@@ -245,30 +269,30 @@ export class OrApp<S extends AppStateKeyed> extends OrElement {
     }
     console.info("Initialising the manager");
 
-    manager.init(managerConfig).then(async (success) => {
+    const started = manager.init(managerConfig).then(async (success) => {
       if (success) {
         this.doAppConfigInit();
 
         if (!this.appConfig) {
-          showErrorDialog(document.body, "appError.noConfig");
+          this._showStartupError(document.body, "appError.noConfig", "No app config provided");
           console.error("No AppConfig supplied");
           return;
         }
 
         if (!this._config) {
-          showErrorDialog(document.body, "appError.noConfig");
+          this._showStartupError(document.body, "appError.noRealmConfig", "No realm config provided");
           console.error("No default AppConfig or realm specific config provided so cannot render");
           return;
         }
 
         if (!this._store) {
-          showErrorDialog(document.body, "appError.noReduxStore");
+          this._showStartupError(document.body, "appError.noReduxStore", "No Redux store provided");
           console.error("No Redux store supplied");
           return;
         }
 
         if (!this.appConfig.pages || Object.keys(this.appConfig.pages).length === 0) {
-          showErrorDialog(document.body, "appError.noPages");
+          this._showStartupError(document.body, "appError.noPages", "No pages provided");
           console.error("No page providers");
           return;
         }
@@ -321,10 +345,36 @@ export class OrApp<S extends AppStateKeyed> extends OrElement {
           });
         }
         router.resolve();
-      } else {
-        showErrorDialog(this.shadowRoot!, manager.isError ? "managerError." + manager.error : "");
+      } else if (manager.error === ORError.MANAGER_FAILED_TO_LOAD) {
+        this._startupFailure = "loadFailed";
+      } else if (manager.error) {
+        this._showStartupError(this.shadowRoot!, ...STARTUP_ERRORS[manager.error]);
       }
+      // Without an error, the page is on its way to the login page
     });
+    started.catch((e) => {
+      console.error("Failed to start the app", e);
+      this._startupFailure = "loadFailed";
+    });
+  }
+
+  protected _showStartupError(host: Node, key: string, fallback: string) {
+    this._startupFailure = "error";
+    showConfirmDialog(
+      host,
+      html`
+        <or-vaadin-confirm-dialog>
+          ${getConfirmDialogContent(
+            "error tertiary",
+            html`${translateWithFallback("errorOccurred", "An error has occurred")}`,
+            html`${translateWithFallback(key, fallback)}`,
+            html`<or-vaadin-button theme="error tertiary" slot="confirm-button">
+              ${translateWithFallback("close", "Close")}
+            </or-vaadin-button>`
+          )}
+        </or-vaadin-confirm-dialog>
+      `
+    );
   }
 
   protected updated(changedProps: PropertyValues) {
@@ -427,7 +477,14 @@ export class OrApp<S extends AppStateKeyed> extends OrElement {
 
   protected render(): TemplateResult | void {
     if (!this._initialised) {
-      return html`<or-mwc-dialog id="app-modal"></or-mwc-dialog>`;
+      return html`
+        <or-mwc-dialog id="app-modal"></or-mwc-dialog>
+        ${
+          this._startupFailure === "error"
+            ? nothing
+            : html`<or-app-loading ?failed=${this._startupFailure === "loadFailed"}></or-app-loading>`
+        }
+      `;
     }
     let consoleStyles;
     if (manager.consoleAppConfig) {

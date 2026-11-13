@@ -308,6 +308,8 @@ export class Manager implements EventProviderFactory {
   }
 
   protected static MAX_RECONNECT_DELAY = 45000;
+  /** Session storage key set while a new login runs after Keycloak rejected the returned one */
+  protected static LOGIN_RETRY_KEY = "or-login-retry";
   private _error?: ORError;
   private _config!: ManagerConfig;
   private _authenticated: boolean = false;
@@ -354,14 +356,30 @@ export class Manager implements EventProviderFactory {
     }
   }
 
+  /** Never rejects: a failure resolves `false` and sets {@link error} */
   public async init(config: ManagerConfig): Promise<boolean> {
+    try {
+      return await this.doInit(config);
+    } catch (e) {
+      console.error("Failed to initialise the manager", e);
+      this._setError(ORError.MANAGER_FAILED_TO_LOAD);
+      return false;
+    }
+  }
+
+  protected async doInit(config: ManagerConfig): Promise<boolean> {
     if (this._config) {
       console.debug("Already initialised");
     }
 
     this._config = normaliseConfig(config);
 
-    let success = await this.loadManagerInfo();
+    // Without the info, the auth server URL would only be a guess
+    if (!(await this.loadManagerInfo())) {
+      return false;
+    }
+
+    let success = true;
 
     // Create console as we need to access storage during auth
     const orConsole = new Console(this._config.realm!, this._config.consoleAutoEnable!, () => {
@@ -452,29 +470,40 @@ export class Manager implements EventProviderFactory {
   }
 
   protected async loadManagerInfo(): Promise<boolean> {
-    // Check manager exists by calling the info endpoint
+    // Check manager exists by calling the info endpoint, which fails while the manager restarts
     try {
-      const json = await new Promise<any>((resolve, reject) => {
-        const oReq = new XMLHttpRequest();
-        oReq.addEventListener("load", () => {
-          resolve(JSON.parse(oReq.responseText));
-        });
-        oReq.addEventListener("error", () => {
-          reject(new Error("Failed to contact the manager"));
-        });
-        oReq.open("GET", this._config.managerUrl + "/api/master/info");
-        oReq.send();
-      });
+      const json = await Util.retryWithBackoff(() => this._requestManagerInfo());
       this._managerVersion = json && json.version ? json.version : "";
       this._authServerUrl = json && json.authServerUrl ? json.authServerUrl : "";
 
       return true;
     } catch (e) {
-      // TODO: Implement auto retry?
       console.error("Failed to contact the manager", e);
       this._setError(ORError.MANAGER_FAILED_TO_LOAD);
       return false;
     }
+  }
+
+  protected _requestManagerInfo(): Promise<any> {
+    return new Promise<any>((resolve, reject) => {
+      const oReq = new XMLHttpRequest();
+      oReq.addEventListener("load", () => {
+        try {
+          // A reverse proxy answers with its own error page while the manager is down
+          if (oReq.status !== 200) {
+            throw new Error("The manager info request failed with status " + oReq.status);
+          }
+          resolve(JSON.parse(oReq.responseText));
+        } catch (e) {
+          reject(e);
+        }
+      });
+      oReq.addEventListener("error", () => {
+        reject(new Error("Failed to contact the manager"));
+      });
+      oReq.open("GET", this._config.managerUrl + "/api/master/info");
+      oReq.send();
+    });
   }
 
   protected async doTranslateInit(): Promise<boolean> {
@@ -678,7 +707,15 @@ export class Manager implements EventProviderFactory {
    */
   public async getUserPreferredLanguage(keycloak = this._keycloak): Promise<string | undefined> {
     if (keycloak && keycloak.authenticated) {
-      const profile: Keycloak.KeycloakProfile | undefined = keycloak?.profile || (await keycloak?.loadUserProfile());
+      let profile: Keycloak.KeycloakProfile | undefined = keycloak.profile;
+      if (!profile) {
+        try {
+          profile = await keycloak.loadUserProfile();
+        } catch {
+          console.warn("Could not get user language from keycloak: the user profile could not be loaded.");
+          return undefined;
+        }
+      }
       if (profile?.attributes) {
         const attributes = new Map(Object.entries(profile.attributes));
         if (attributes.has("locale")) {
@@ -830,6 +867,10 @@ export class Manager implements EventProviderFactory {
   }
 
   protected async loadAndInitialiseKeycloak(): Promise<boolean> {
+    // Read before init, which removes the returned login from the URL
+    const hash = new URLSearchParams(window.location.hash.substring(1));
+    const returnedFromLogin = hash.has("state") && hash.has("code");
+
     try {
       // Initialise keycloak
       this._keycloak = new Keycloak({
@@ -869,6 +910,7 @@ export class Manager implements EventProviderFactory {
         }
         this._onAuthenticated();
         this._createTokenUpdateInterval();
+        sessionStorage.removeItem(Manager.LOGIN_RETRY_KEY);
 
         const currentSession = this._keycloak.tokenParsed?.session_state;
         if (currentSession && sessionStorage.getItem("or-session") !== currentSession) {
@@ -882,10 +924,29 @@ export class Manager implements EventProviderFactory {
       return true;
     } catch (error) {
       this._authenticated = false;
-      this._setError(ORError.AUTH_FAILED);
       console.error("Failed to initialise Keycloak: " + error);
+      if (returnedFromLogin && this._keycloak && this._startNewLogin()) {
+        return false;
+      }
+      this._setError(ORError.AUTH_FAILED);
       return false;
     }
+  }
+
+  /**
+   * Starts a new login after Keycloak rejected the returned one, for example because its code expired while the
+   * manager restarted. While the Keycloak session lasts, it returns without asking for the password. It is tried once
+   * in a row, so a login that keeps failing shows the error.
+   */
+  protected _startNewLogin(): boolean {
+    if (sessionStorage.getItem(Manager.LOGIN_RETRY_KEY)) {
+      sessionStorage.removeItem(Manager.LOGIN_RETRY_KEY);
+      return false;
+    }
+    console.warn("Keycloak rejected the returned login, starting a new one");
+    sessionStorage.setItem(Manager.LOGIN_RETRY_KEY, "true");
+    this.login();
+    return true;
   }
 
   protected _createTokenUpdateInterval() {

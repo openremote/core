@@ -6,5 +6,11 @@
     "rootDir": "src"
   },
   "include": ["./src"],
-  "references": [{ "path": "../or-element" }, { "path": "../core" }, { "path": "../rest" }, { "path": "../or-icon" }]
+  "references": [
+    { "path": "../or-element" },
+    { "path": "../core" },
+    { "path": "../rest" },
+    { "path": "../or-icon" },
+    { "path": "../or-translate" }
+  ]
 }
