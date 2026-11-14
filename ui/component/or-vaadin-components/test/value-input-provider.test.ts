@@ -140,6 +140,50 @@ ct("should show a number formatted as a date in minutes", async ({ mount, vaadin
   await expect(vaadinDateTimePicker.getTimeInput(component)).toHaveValue("10:30 AM");
 });
 
+ct("should keep a date only format on the fallback input", async ({ mount }) => {
+  const component = await mount(ValueInputProviderHarness, {
+    props: { valueType: "timestamp", value: localTime(10, 30), format: { dateStyle: "short" } },
+  });
+
+  // The pickers take a local ISO string, and the provider converts the timestamp for the combined picker only.
+  await expect(component.locator("or-vaadin-date-picker")).toHaveCount(0);
+  await expect(component.locator("or-mwc-input")).toHaveCount(1);
+});
+
+ct("should keep a time only format on the fallback input", async ({ mount }) => {
+  const component = await mount(ValueInputProviderHarness, {
+    props: { valueType: "timestamp", value: localTime(10, 30), format: { timeStyle: "short" } },
+  });
+
+  await expect(component.locator("or-vaadin-time-picker")).toHaveCount(0);
+  await expect(component.locator("or-mwc-input")).toHaveCount(1);
+});
+
+ct("should show a json object as formatted text and write back the edited value", async ({ mount }) => {
+  const values: unknown[] = [];
+  const component = await mount(ValueInputProviderHarness, {
+    props: { valueType: "JSONObject", value: { a: 1 } },
+    on: { "value-change": (value: unknown) => values.push(value) },
+  });
+
+  const textArea = component.getByRole("textbox");
+  // The text area carries the value as text, so the object reaches it as formatted JSON.
+  await expect(textArea).toHaveValue('{\n  "a": 1\n}');
+
+  await textArea.fill('{"b": 2}');
+  await textArea.blur();
+
+  await expect.poll(() => values).toEqual([{ b: 2 }]);
+});
+
+ct("should show an empty text area for a json object that is null", async ({ mount }) => {
+  const component = await mount(ValueInputProviderHarness, {
+    props: { valueType: "JSONObject", value: null },
+  });
+
+  await expect(component.getByRole("textbox")).toHaveValue("");
+});
+
 ct("should round up a minimum that falls between two picker values", async ({ mount, vaadinDateTimePicker }) => {
   const values: unknown[] = [];
   const component = await mount(ValueInputProviderHarness, {
