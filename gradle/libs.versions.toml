@@ -1,6 +1,6 @@
 [versions]
 angusMail = "2.0.5"
-artemis = "2.55.0"
+artemis = "2.57.0"
 apacheSshd = "2.18.0"
 asm = "9.10.1"
 axionRelease = "1.21.4"
