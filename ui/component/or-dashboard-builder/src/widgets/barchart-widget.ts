@@ -26,6 +26,7 @@ import type { AssetWidgetConfig } from "../util/widget-config";
 import type { OrWidget, WidgetManifest } from "../util/or-widget";
 import { BarChartSettings } from "../settings/barchart-settings";
 import type { WidgetSettings } from "../util/widget-settings";
+import { TimePrefix } from "@openremote/core";
 import "@openremote/or-attribute-barchart";
 import { type BarChartAttributeConfig, BarChartInterval, OrAttributeBarChart } from "@openremote/or-attribute-barchart";
 
@@ -36,7 +37,7 @@ export interface BarChartWidgetConfig extends AssetWidgetConfig {
   chartOptions?: any;
   showTimestampControls: boolean;
   defaultTimeWindowKey: string;
-  defaultTimePrefixKey: string;
+  defaultTimePrefixKey: TimePrefix;
   defaultInterval: BarChartInterval;
   showLegend: boolean;
   stacked: boolean;
@@ -73,7 +74,7 @@ function getDefaultWidgetConfig(): BarChartWidgetConfig {
     },
     showTimestampControls: false,
     defaultTimeWindowKey: preset,
-    defaultTimePrefixKey: "this",
+    defaultTimePrefixKey: TimePrefix.CURRENT,
     defaultInterval: BarChartInterval.AUTO,
     showLegend: true,
     stacked: false,
