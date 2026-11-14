@@ -4,10 +4,6 @@ tasks.register('copyMdiFont', Exec) {
   commandLine npmCommand("npm"), "run", "copyMdiFont"
 }
 
-tasks.register('clean', Delete) {
-  delete layout.buildDirectory
-}
-
 tasks.register('npmAnalyze', Exec) {
   mustRunAfter npmClean
   dependsOn getYarnInstallTask()
@@ -22,11 +18,14 @@ tasks.register('publishUi') {
   dependsOn clean, npmPublish
 }
 
-tasks.register('installDist', Copy) {
-  dependsOn getYarnInstallTask(), copyMdiFont, npmAnalyze
-  tasks.getByPath(":ui:app:shared:generateSources").dependsOn it
+tasks.register('prepareFonts', Copy) {
+  dependsOn copyMdiFont
   from "${layout.buildDirectory.get()}/Material Design Icons"
   into "${project(':ui:app:shared').projectDir}/fonts/Material Design Icons"
+}
+
+tasks.named('assemble') {
+  dependsOn tasks.named('prepareFonts')
 }
 
 tasks.register('npmBuild', Exec) {

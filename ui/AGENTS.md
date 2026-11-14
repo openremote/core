@@ -6,11 +6,27 @@ Applies to everything under `ui/`. See the root `AGENTS.md` for build, test stac
 
 Every package writes its output to its own `build/` dir, so a single Gradle `clean` removes it and a single `**/build/**` pattern covers it in `.gitignore`, `ui/.prettierignore` and `ui/.eslintrc.json`. Do not introduce a new top-level dir for compiler output, bundles, generated manifests, reports, caches or auth state. Point the tool at `build/` instead: `outDir` and `tsBuildInfoFile` in the package `tsconfig.json`, `outdir` in the cem config, `outputDir` and the reporter's `outputFolder` in the Playwright configs, and `output.path` in `ui/util/rspack.util.js`. A package's `exports`, `module`, `types` and `files` must then point into `build/` too.
 
-Packages with no Gradle plugin need `tasks.register('clean', Delete) { delete layout.buildDirectory }`, since only the `base` plugin supplies `clean`. Where a plugin is already applied, add nothing: a second `clean` is redundant, and configuring it through `doLast` breaks the configuration cache.
+The UI build applies the `base` plugin to all UI projects, supplying `clean`, `assemble`, `check`, and `build`. Do not register another `clean`. UI `npmBuild` and `npmAnalyze` tasks participate in `assemble`, and `npmTest` tasks participate in `check`. Use `installDist` only to copy application resources into the manager distribution.
+
+Run all UI tests with `./gradlew testUi`, component tests with `./gradlew testUiComponent`, or app end-to-end tests with `./gradlew testUiApp`. Individual module tasks retain `npmTest`, alongside `npmBuild`; for example, `./gradlew :ui:component:or-element:npmTest` runs one component package's tests.
+App test tasks automatically prepare the Manager, Manager UI, and shared UI distributions.
+Component test tasks prepare only generated TypeScript sources and shared icon fonts.
+Pass `-PreuseUiTestArtifacts=true` to reuse outputs that were built or downloaded earlier, as in CI.
+Preparation is enabled by default in every environment, including GitHub Actions.
 
 Anything a package references relative to its own emitted files must survive the extra `build/lib` nesting. Reach assets through a package self-reference resolved by an `exports` subpath, not a path relative to the output dir, so the same specifier works from `src` and from the compiled output.
 
 Three outputs stay outside `build/` on purpose. `ui/app/shared/fonts` is packaged by a `generateSources` task that copies the project dir minus `build/**`. `ui/app/shared/cache` is a checksum-keyed download that `clean` would force to re-download. The generated `model.ts` and `restclient.ts` are sources rather than artifacts, so they stay under `rootDir`.
+
+### Parallel UI tasks
+
+`tsc -b` and `ts-loader` can compile every project in their TypeScript reference graph. Each compiler process orders its own work, but separate Gradle tasks can reach the same outputs. For example, `core:npmBuild` can compile `model` while `model:npmBuild` forces its own rebuild. Component `npmTest` scripts also run `tsc -b`. Concurrent processes can read incomplete declarations or overwrite JavaScript and `.tsbuildinfo` files; generating the TypeScript sources first does not prevent this.
+
+Gradle uses one exclusive build-service resource per referenced `tsconfig.json`, including transitive references to projects without an `npmBuild` task. Tasks with overlapping graphs therefore run separately, while independent graphs and `npmAnalyze` remain parallel. The resources are held for the entire `npmBuild` or `npmTest` task, including the browser phase of tests. Reference files are tracked as configuration inputs so changing a graph updates the locks when using the configuration cache.
+
+Knip 6 also reads published declarations. Its configuration stops ignoring dependencies exposed only by public declaration types once `build/lib` exists, but that directory can exist while compilation is still writing its files. Reading incomplete declarations can then produce false dependency diagnostics. Knip therefore uses `mustRunAfter` for source generation, `npmBuild`, and `npmTest`. This orders tasks that are already scheduled without adding them as dependencies, so standalone Knip checks still work with existing CI artifacts or before a build.
+
+Run `./gradlew :ui:testUiLocks` or `yarn test:ui-locks` for regression tests covering shared-output exclusion, independent parallel builds, Knip ordering, standalone checks, and configuration-cache reuse. They run temporary Gradle projects and require no backend services or browser. Both `check` and `build` include these tests.
 
 ## Generated model
 
@@ -104,7 +120,9 @@ Stories call `getORStorybookHelpers(tagName)` (from `ui/component/storybook-util
 
 ### App tests
 
-- **Compilation:** Run `./gradlew clean installDist` after making changes to the UI source code to ensure they are applied before testing.
+- **Compilation:** Gradle `npmTest` tasks prepare the required distributions automatically unless `-PreuseUiTestArtifacts=true` is set. When invoking tests directly through Yarn or npm, run `./gradlew installDist` first.
+- **Services:** The Manager app tests require PostgreSQL and Keycloak. Gradle checks readiness for these tests; see the root README for the startup command.
+- **Browser:** Gradle `npmTest` tasks check that Playwright can launch Chromium before running. Install it with `./gradlew :ui:test:installBrowsers` if needed.
 - **Location:** Define tests in `ui/app/<app-name>/test/`. Define fixtures in `ui/app/<app-name>/test/fixtures/`.
 - **Comments:** Add scenario comments above tests (`@given`, `@when`, `@then`, `@and`) based on the acceptance criteria.
 - **Auth State:** Select correct `storageState` for the task to be tested. Use `adminStatePath` for master/admin tasks. Use `userStatePath` for regular realm user tasks.
@@ -114,7 +132,7 @@ Stories call `getORStorybookHelpers(tagName)` (from `ui/component/storybook-util
 - **Location:** Define tests in `ui/component/<component-name>/test/`. Define fixtures in `ui/component/<component-name>/test/fixtures/`.
 - **One `ct`:** The package's `test/fixtures/index.ts` exports a single `ct` with all its fixtures registered and re-exports `expect`, and tests import both from `./fixtures`. Settings that differ per test go through that `ct` instead of additional exported test objects. Options that Playwright only takes per file or describe block, such as `locale`, can be set per test by overriding the fixture to read a test annotation.
 
-Component tests use Playwright component testing (`@sand4rt/experimental-ct-web`). They live in each package's `test/*.test.ts`, import `{ ct, expect }` from the package's `./fixtures` (or from `@openremote/test` when the package has no fixtures), and `mount(ComponentClass, { props, slots, on })`. Run them with `npm test` in the package (which does `tsc -b && playwright test`). CI runs `./gradlew -p ui/component npmTest`, which only executes packages that register an `npmTest` task, so when adding the first test to a package also register `npmTest` in its `build.gradle` file; copy the tasks from a sibling package. Prefer web-first, role-based assertions (`getByRole("checkbox", { name }).toBeChecked()`, `toHaveCount(...)`) over poking at JS properties (`toHaveJSProperty`) or internal locators. Some important quirks to know about:
+Component tests use Playwright component testing (`@sand4rt/experimental-ct-web`). They live in each package's `test/*.test.ts`, import `{ ct, expect }` from the package's `./fixtures` (or from `@openremote/test` when the package has no fixtures), and `mount(ComponentClass, { props, slots, on })`. Run them with `npm test` in the package (which does `tsc -b && playwright test`). CI runs `./gradlew testUiComponent`, which only executes packages that register an `npmTest` task, so when adding the first test to a package also register `npmTest` in its `build.gradle` file; copy the tasks from a sibling package. Prefer web-first, role-based assertions (`getByRole("checkbox", { name }).toBeChecked()`, `toHaveCount(...)`) over poking at JS properties (`toHaveJSProperty`) or internal locators. Some important quirks to know about:
 
 - **Custom elements used as slotted/appended children must be eagerly registered.** Playwright CT turns each imported component into a _lazy_ dynamic import that only runs when that component is `mount()`ed, so a child element that is never mounted itself (e.g. `or-vaadin-toggle` slotted inside `or-vaadin-toggle-group`) never gets `customElements.define`d and stays an inert, unupgraded tag that appends to the DOM but does not render. Declare such components in the test itself via `mount(..., { hooksConfig: { components: [OrVaadinToggle] } })`; the `beforeMount` hook in `ui/test/playwright/index.js` resolves their import refs, which runs their modules and registers them before the mount.
 - **Use only one `mount()` call per test.** Multiple mounts do not resolve to separate locator paths and can hang until the test times out on a strict mode violation.

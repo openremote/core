@@ -40,7 +40,7 @@ jobs:
         run: find . -name "*.tsbuildinfo" -exec touch {} +
       - name: Run UI component tests
         timeout-minutes: 20
-        run: ./gradlew -p ui/component npmTest
+        run: ./gradlew testUiComponent -PreuseUiTestArtifacts=true
       - name: Archive UI component test results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

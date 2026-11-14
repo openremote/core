@@ -37,6 +37,7 @@
     "@openremote/or-vaadin-components": "workspace:*",
     "@openremote/rest": "workspace:*",
     "echarts": "~6.1.0",
+    "i18next": "^26.3.6",
     "jsonpath-plus": "^10.3.0",
     "lit": "^3.3.1",
     "lodash.debounce": "^4.0.8",

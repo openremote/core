@@ -8,7 +8,15 @@ When naming scripts, use \<date>_\<time> as version number, date being YYYYMMDD 
 ## Dev environment
 
 The backend is written in Java, we target JDK 21, use modern language features up to that version during implementation.  
-Gradle is used as the build system; run `./gradlew clean installDist` for a full clean build.  
+Gradle is used as the build system:
+
+- `./gradlew assemble` builds normal backend and UI artifacts without verification, installing the distribution, or building Docker images.
+- `./gradlew check` runs backend and UI tests, Spotless, UI dependency checks, and translation checks.
+- `./gradlew build` builds and verifies the project. Use this as the normal pre-PR command.
+- `./gradlew installDist` prepares the runnable distribution in `manager/build/install/manager/` and the deployment Docker build context.
+
+Use `./gradlew clean assemble` for a clean artifact build, or `./gradlew clean build` to also run verification.
+Lifecycle tasks compose individual tasks, which remain independently runnable for targeted development and CI checks.
 In sandboxed environments, add `--offline` (requires dependencies to already be cached).
 
 ## Tests
@@ -32,7 +40,23 @@ ex.response.withCloseable { r ->
 
 ### Running tests
 
-When running integration tests, part of the stack (PostgreSQL and Keycloak) must be running. Start it with `docker compose -f profile/dev-testing.yml -p openremote up -d --no-build`.
+- `./gradlew testBackend` runs backend unit tests followed by backend integration tests.
+- `./gradlew testBackendUnit` runs backend unit tests only.
+- `./gradlew testBackendIntegration` runs backend integration tests only.
+- `./gradlew testUi` runs UI component tests followed by UI app end-to-end tests.
+- `./gradlew testUiComponent` runs UI component tests only.
+- `./gradlew testUiApp` runs UI app end-to-end tests only.
+- `./gradlew test` runs `testBackend` followed by `testUi`.
+
+Both `check` and `build` include the complete test sequence.
+UI module tasks retain the `npmTest` name alongside `npmBuild`; for example, `./gradlew :ui:component:or-element:npmTest` runs one component package's tests.
+
+Backend integration tests and UI app tests require PostgreSQL and Keycloak. Start them with `docker compose -f profile/dev-testing.yml -p openremote up -d --no-build`.
+
+The same stack is required for `check` and `build`. Gradle waits up to 30 seconds for PostgreSQL and Keycloak before backend integration tests and Manager UI app tests. Gradle also checks that Playwright can launch Chromium before browser-backed test tasks; install it with `./gradlew :ui:test:installBrowsers` if needed.
+Gradle app test tasks, including individual `npmTest` tasks, automatically prepare the Manager, Manager UI, and shared UI distributions.
+Component test tasks prepare generated TypeScript sources and shared icon fonts without building the Manager application.
+Pass `-PreuseUiTestArtifacts=true` only when the required outputs have already been built or downloaded, as in the CI jobs that reuse Install Dist artifacts.
 
 Spock snapshots are stored under `model/src/test/resources/snapshots`. Rewrite them with `./gradlew :model:test -PupdateSnapshots` and review the resulting diff, since a mismatch is only reported as a test failure otherwise.
 

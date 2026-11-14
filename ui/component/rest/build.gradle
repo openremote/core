@@ -28,7 +28,7 @@ generateTypeScript createTSGeneratorConfigForClient(
         new File("${project(":ui:component:model").projectDir}/src/typescript-generator-info.json")
 )
 
-def generateTypeScriptTask = tasks.named("generateTypeScript") {
+tasks.named("generateTypeScript") {
   // Work around typescript-generator exposing non-serializable configuration objects as Gradle task inputs.
   doNotTrackState("typescript-generator uses non-serializable task input types")
   dependsOn ":ui:component:model:generateTypeScript"
@@ -40,20 +40,12 @@ tasks.register('npmBuild', Exec) {
   commandLine npmCommand("yarn"), "run", "build"
 }
 
-tasks.named("build") {
-  dependsOn generateTypeScriptTask, tasks.named("npmBuild")
-}
-
-tasks.named("npmBuild") {
-  dependsOn generateTypeScriptTask
-}
-
 tasks.register('prepareUi') {
-  dependsOn clean, build, npmPrepare
+  dependsOn clean, assemble, npmPrepare
 }
 
 tasks.register('publishUi') {
-  dependsOn clean, build, npmPublish
+  dependsOn clean, assemble, npmPublish
 }
 
 gradle.startParameter.excludedTaskNames += ["${project.path}:test".toString()]

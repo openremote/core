@@ -1,15 +1,7 @@
-tasks.register('clean', Delete) {
-  delete layout.buildDirectory
-}
-
 tasks.register('npmAnalyze', Exec) {
   mustRunAfter npmClean
   dependsOn getYarnInstallTask()
   commandLine npmCommand("yarn"), "run", "analyze"
-}
-
-tasks.register("installDist") {
-  dependsOn npmAnalyze
 }
 
 tasks.register("prepareUi") {
