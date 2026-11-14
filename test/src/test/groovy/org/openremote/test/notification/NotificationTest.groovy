@@ -623,9 +623,9 @@ class NotificationTest extends Specification implements ManagerContainerTrait {
     def fcmToken = "23123213ad2313b0897efd"
     [testuser3Console1, testuser3Console2].each { console ->
       def asset = assetStorageService.find(console.id) as ConsoleAsset
-      asset.getConsoleProviders().map {
-        it.get(PushNotificationMessage.TYPE)
-      }.get().getData().put("token", fcmToken)
+      // Nulling the token clears provider data, so put() on getData() NPEs.
+      asset.setConsoleProvider(PushNotificationMessage.TYPE,
+              new ConsoleProvider("fcm", true, true, true, true, false, [token: fcmToken]))
       assetStorageService.merge(asset)
     }
     conditions.eventually {
