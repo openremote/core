@@ -1347,6 +1347,7 @@
     "selectAll": "Select all",
     "nothingToExport": "None of the attributes of this asset have configuration items to export",
     "saveBeforeExport": "Save or revert your changes before exporting",
+    "saveBeforeImport": "Save the asset before importing",
     "importHeading": "Import configuration template",
     "selectFileDescription": "Select a JSON file to import attribute configuration data",
     "noFileSelected": "no file selected",

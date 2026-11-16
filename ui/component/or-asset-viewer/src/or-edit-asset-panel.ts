@@ -501,8 +501,15 @@ export class OrEditAssetPanel extends OrElement {
       return undefined;
     }
 
+    // An import is checked against the stored asset, which a new asset does not have yet
+    const saved = !!this.asset.id;
+
     return html`
-      <or-vaadin-button @click=${() => this._importConfiguration()}>
+      <or-vaadin-button
+        ?disabled=${!saved}
+        title=${saved ? "" : i18next.t("configurationTemplate.saveBeforeImport")}
+        @click=${() => this._importConfiguration()}
+      >
         <or-icon slot="prefix" icon="download"></or-icon>
         <or-translate value="configurationTemplate.import"></or-translate>
       </or-vaadin-button>
