@@ -18,7 +18,6 @@
  */
 package org.openremote.model.asset;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
 import io.swagger.v3.oas.annotations.media.Schema;
 import org.openremote.model.attribute.MetaMap;
 import org.openremote.model.value.MetaHolder;
@@ -30,23 +29,11 @@ import org.openremote.model.value.MetaHolder;
 @Schema(
     description =
         "Configuration of a single attribute; the attribute name is the key within the document.")
-public class AttributeConfiguration implements MetaHolder {
-
-  @Schema(description = "Value descriptor name of the attribute, e.g. number.")
-  protected String type;
-
-  @Schema(description = "Metadata keyed by meta-item name, exactly as stored on the attribute.")
-  protected MetaMap meta;
-
-  @JsonCreator
-  public AttributeConfiguration(String type, MetaMap meta) {
-    this.type = type;
-    this.meta = meta;
-  }
-
-  public String getType() {
-    return type;
-  }
+public record AttributeConfiguration(
+    @Schema(description = "Value descriptor name of the attribute, e.g. number.") String type,
+    @Schema(description = "Metadata keyed by meta-item name, exactly as stored on the attribute.")
+        MetaMap meta)
+    implements MetaHolder {
 
   @Override
   public MetaMap getMeta() {

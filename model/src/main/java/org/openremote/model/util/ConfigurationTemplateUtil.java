@@ -184,19 +184,19 @@ public final class ConfigurationTemplateUtil {
           Optional<Attribute<?>> target = targetAttributes.get(name);
 
           if (target.isEmpty()) {
-            missing.add(new AttributeConfigurationSummary(name, configuration.getType()));
+            missing.add(new AttributeConfigurationSummary(name, configuration.type()));
             return;
           }
 
           String targetType = typeName(target.get());
 
-          if (!Objects.equals(configuration.getType(), targetType)) {
+          if (!Objects.equals(configuration.type(), targetType)) {
             typeMismatches.add(
-                new AttributeConfigurationTypeMismatch(name, configuration.getType(), targetType));
+                new AttributeConfigurationTypeMismatch(name, configuration.type(), targetType));
             return;
           }
 
-          importable.add(new AttributeConfigurationSummary(name, configuration.getType()));
+          importable.add(new AttributeConfigurationSummary(name, configuration.type()));
         });
 
     // Report what was skipped even when that leaves nothing to import
@@ -208,8 +208,8 @@ public final class ConfigurationTemplateUtil {
     Asset<?> patchedDraft = ValueUtil.clone(draft);
     importable.forEach(
         summary -> {
-          Attribute<?> patched = patchedDraft.getAttributes().get(summary.getName()).orElseThrow();
-          MetaMap meta = imported.get(summary.getName()).getMeta();
+          Attribute<?> patched = patchedDraft.getAttributes().get(summary.name()).orElseThrow();
+          MetaMap meta = imported.get(summary.name()).getMeta();
 
           if (patched.getMeta() != null) {
             ASSET_BOUND_META_ITEMS.forEach(
@@ -219,7 +219,7 @@ public final class ConfigurationTemplateUtil {
         });
 
     Set<String> importableNames =
-        importable.stream().map(AttributeConfigurationSummary::getName).collect(Collectors.toSet());
+        importable.stream().map(AttributeConfigurationSummary::name).collect(Collectors.toSet());
     Optional<ConfigurationTemplateImportPreview> rejected =
         rejectedOnSave(draft, patchedDraft, importableNames);
 

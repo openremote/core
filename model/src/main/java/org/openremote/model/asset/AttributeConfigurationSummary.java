@@ -18,30 +18,10 @@
  */
 package org.openremote.model.asset;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /** An attribute of a {@link ConfigurationTemplate} as reported to the user. */
 @Schema(description = "Name and type of an attribute within an imported document.")
-public class AttributeConfigurationSummary {
-
-  @Schema(description = "Attribute name.")
-  protected String name;
-
-  @Schema(description = "Value descriptor name of the attribute, e.g. number.")
-  protected String type;
-
-  @JsonCreator
-  public AttributeConfigurationSummary(String name, String type) {
-    this.name = name;
-    this.type = type;
-  }
-
-  public String getName() {
-    return name;
-  }
-
-  public String getType() {
-    return type;
-  }
-}
+public record AttributeConfigurationSummary(
+    @Schema(description = "Attribute name.") String name,
+    @Schema(description = "Value descriptor name of the attribute, e.g. number.") String type) {}

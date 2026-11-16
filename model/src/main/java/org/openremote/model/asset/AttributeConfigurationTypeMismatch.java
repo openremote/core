@@ -18,40 +18,14 @@
  */
 package org.openremote.model.asset;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
  * An attribute that cannot be imported because the target attribute holds a different value type.
  */
 @Schema(description = "Attribute skipped on import because the target type differs.")
-public class AttributeConfigurationTypeMismatch {
-
-  @Schema(description = "Attribute name.")
-  protected String name;
-
-  @Schema(description = "Value descriptor name within the imported document.")
-  protected String importedType;
-
-  @Schema(description = "Value descriptor name of the target attribute.")
-  protected String targetType;
-
-  @JsonCreator
-  public AttributeConfigurationTypeMismatch(String name, String importedType, String targetType) {
-    this.name = name;
-    this.importedType = importedType;
-    this.targetType = targetType;
-  }
-
-  public String getName() {
-    return name;
-  }
-
-  public String getImportedType() {
-    return importedType;
-  }
-
-  public String getTargetType() {
-    return targetType;
-  }
-}
+public record AttributeConfigurationTypeMismatch(
+    @Schema(description = "Attribute name.") String name,
+    @Schema(description = "Value descriptor name within the imported document.")
+        String importedType,
+    @Schema(description = "Value descriptor name of the target attribute.") String targetType) {}
