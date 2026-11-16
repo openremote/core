@@ -93,7 +93,7 @@ interface EventSubscriptionInfo<T extends SharedEvent> {
   eventSubscription: EventSubscription<T>;
   callback: (event: T) => void;
   deferred: Deferred<string> | null;
-  // Unsubscribed while the server has yet to confirm it
+  // Set by unsubscribe while the subscribe waits for the server's reply
   cancelled?: boolean;
 }
 
@@ -258,7 +258,7 @@ abstract class EventProviderImpl implements EventProvider {
           this._processNextSubscription();
 
           if (subscription.cancelled) {
-            this._resolveUnsubscribed(subscription);
+            this._resolveCancelledSubscription(subscription);
             return;
           }
 
@@ -281,16 +281,17 @@ abstract class EventProviderImpl implements EventProvider {
       return;
     }
 
-    // Restored subscriptions are not in the map until the server has confirmed them again
-    const queuedIndex = this._queuedSubscriptions.findIndex(
-      (info) => info.eventSubscription.subscriptionId === subscriptionId
+    // Drop a subscription that is not sent yet, such as one restored after a reconnect
+    const queued = this._queuedSubscriptions.find(
+      (subscription) => subscription.eventSubscription.subscriptionId === subscriptionId
     );
-    if (queuedIndex !== -1) {
-      const [queued] = this._queuedSubscriptions.splice(queuedIndex, 1);
-      this._resolveUnsubscribed(queued);
+    if (queued) {
+      arrayRemove(this._queuedSubscriptions, queued);
+      this._resolveCancelledSubscription(queued);
       return;
     }
 
+    // Finish unsubscribing a pending subscription once the server has replied
     if (this._pendingSubscription?.eventSubscription.subscriptionId === subscriptionId) {
       this._pendingSubscription.cancelled = true;
       return;
@@ -360,7 +361,7 @@ abstract class EventProviderImpl implements EventProvider {
       //         assetIds: assetIds
       //     };
       // }
-      // A failed subscription must not be reused
+      // Cleared when the subscription fails, so the next call subscribes again
       this._assetEventPromise = this.subscribe(subscription, (event) => {
         this._assetEventCallbackMap.forEach((callback) => callback(event));
       }).catch((reason) => {
@@ -386,7 +387,7 @@ abstract class EventProviderImpl implements EventProvider {
 
     this._assetEventCallbackMap.set(subscriptionId, eventFilter);
 
-    // The caller doesn't get an ID to unsubscribe with when this fails
+    // Remove the callback when the subscription fails, since the caller gets no ID to unsubscribe it with
     this._assetEventPromise.catch(() => this._assetEventCallbackMap.delete(subscriptionId));
 
     return this._assetEventPromise.then(() => {
@@ -455,7 +456,7 @@ abstract class EventProviderImpl implements EventProvider {
         eventType: "attribute",
         filter: assetFilter,
       };
-      // A failed subscription must not be reused
+      // Cleared when the subscription fails, so the next call subscribes again
       this._attributeEventPromise = this.subscribe(subscription, (event) => {
         this._attributeEventCallbackMap.forEach((callback) => callback(event));
       }).catch((reason) => {
@@ -488,7 +489,7 @@ abstract class EventProviderImpl implements EventProvider {
 
     this._attributeEventCallbackMap.set(subscriptionId, eventFilter);
 
-    // The caller doesn't get an ID to unsubscribe with when this fails
+    // Remove the callback when the subscription fails, since the caller gets no ID to unsubscribe it with
     this._attributeEventPromise.catch(() => this._attributeEventCallbackMap.delete(subscriptionId));
 
     return this._attributeEventPromise.then(() => {
@@ -605,12 +606,13 @@ abstract class EventProviderImpl implements EventProvider {
     if (this._status === EventProviderStatus.CONNECTED) {
       this._onStatusChanged(EventProviderStatus.DISCONNECTED);
     }
+    // The reply to the pending subscription is lost with the connection, so queue it again unless it was unsubscribed
     if (this._pendingSubscription) {
       const pending = this._pendingSubscription;
       this._pendingSubscription = null;
 
       if (pending.cancelled) {
-        this._resolveUnsubscribed(pending);
+        this._resolveCancelledSubscription(pending);
       } else {
         this._queuedSubscriptions.unshift(pending);
       }
@@ -620,8 +622,11 @@ abstract class EventProviderImpl implements EventProvider {
     this._scheduleReconnect();
   }
 
-  // Resolves rather than rejects, since the subscribe didn't fail but was unsubscribed
-  protected _resolveUnsubscribed(subscription: EventSubscriptionInfo<SharedEvent>) {
+  /**
+   * Resolves the subscribe call of a subscription that was unsubscribed before the server confirmed it, since
+   * unsubscribing is not a failure.
+   */
+  protected _resolveCancelledSubscription(subscription: EventSubscriptionInfo<SharedEvent>) {
     subscription.deferred?.resolve(subscription.eventSubscription.subscriptionId!);
     subscription.deferred = null;
   }
@@ -793,7 +798,10 @@ export class WebSocketEventProvider extends EventProviderImpl {
     return this._connectDeferred.promise;
   }
 
-  // Only the current socket may change the state of the provider
+  /**
+   * Closes the current socket and stops handling its events. Its handlers change the state of the provider, so a late
+   * close or message would otherwise act on the next connection.
+   */
   protected _discardWebSocket(): void {
     if (!this._webSocket) {
       return;
@@ -807,8 +815,11 @@ export class WebSocketEventProvider extends EventProviderImpl {
     this._webSocket = undefined;
   }
 
+  /**
+   * Runs when the open socket closes or fails. Clears `_subscribeDeferred`, since the server's reply that settles it
+   * can't arrive anymore and `_doSubscribe` rejects every subscribe while it is set.
+   */
   protected _beforeDisconnect(): void {
-    // No reply can arrive anymore and the pending subscription is sent again after reconnecting
     this._subscribeDeferred = null;
     this._onDisconnect();
   }
