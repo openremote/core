@@ -76,16 +76,19 @@ public final class ConfigurationTemplateUtil {
 
   /**
    * Builds the export document of an asset, holding the type and metadata of every attribute that
-   * has metadata other than {@link #ASSET_BOUND_META_ITEMS}. A null or empty selection exports all
-   * of them.
+   * its asset type defines and that has metadata other than {@link #ASSET_BOUND_META_ITEMS}.
+   * Attributes added to the asset alone are left out, so a configuration to reuse belongs in an
+   * asset type. A null or empty selection exports all of them.
    */
   public static ConfigurationTemplate export(Asset<?> asset, Collection<String> attributeNames) {
     boolean selectAll = attributeNames == null || attributeNames.isEmpty();
+    Set<String> definedNames = definedAttributeNames(asset.getType());
     // Sorted by name, as the attributes of an asset have no order of their own
     Map<String, AttributeConfiguration> attributes = new TreeMap<>();
 
     if (asset.getAttributes() != null) {
       asset.getAttributes().values().stream()
+          .filter(attribute -> definedNames.contains(attribute.getName()))
           .filter(attribute -> selectAll || attributeNames.contains(attribute.getName()))
           .forEach(
               attribute -> {
@@ -107,8 +110,9 @@ public final class ConfigurationTemplateUtil {
    * changing the draft. The returned {@link
    * ConfigurationTemplateImportPreview#getPatchedAttributes()} holds the draft attributes with the
    * metadata of every importable attribute replaced, except for {@link #ASSET_BOUND_META_ITEMS},
-   * which keep the values of the draft. A document that the patched draft would fail validation on
-   * when saved is rejected too.
+   * which keep the values of the draft. Attributes added to the draft alone, rather than defined by
+   * its asset type, are skipped as export leaves them out. A document that the patched draft would
+   * fail validation on when saved is rejected too.
    *
    * <p>The document is read as a JSON tree, so that its fields are checked as written: binding
    * reads a version of 1.5 as 1, and an agent link of a type that is not installed as a default
@@ -178,6 +182,8 @@ public final class ConfigurationTemplateUtil {
     List<AttributeConfigurationSummary> importable = new ArrayList<>();
     List<AttributeConfigurationSummary> missing = new ArrayList<>();
     List<AttributeConfigurationTypeMismatch> typeMismatches = new ArrayList<>();
+    List<AttributeConfigurationSummary> custom = new ArrayList<>();
+    Set<String> definedNames = definedAttributeNames(draft.getType());
 
     imported.forEach(
         (name, configuration) -> {
@@ -185,6 +191,12 @@ public final class ConfigurationTemplateUtil {
 
           if (target.isEmpty()) {
             missing.add(new AttributeConfigurationSummary(name, configuration.type()));
+            return;
+          }
+
+          // An attribute added to the asset alone takes no configuration, as export leaves it out
+          if (!definedNames.contains(name)) {
+            custom.add(new AttributeConfigurationSummary(name, configuration.type()));
             return;
           }
 
@@ -202,7 +214,7 @@ public final class ConfigurationTemplateUtil {
     // Report what was skipped even when that leaves nothing to import
     if (importable.isEmpty()) {
       return new ConfigurationTemplateImportPreview(
-          NO_IMPORTABLE_ATTRIBUTES, null, importable, missing, typeMismatches, null);
+          NO_IMPORTABLE_ATTRIBUTES, null, importable, missing, typeMismatches, custom, null);
     }
 
     Asset<?> patchedDraft = ValueUtil.clone(draft);
@@ -226,7 +238,13 @@ public final class ConfigurationTemplateUtil {
     return rejected.orElseGet(
         () ->
             new ConfigurationTemplateImportPreview(
-                null, null, importable, missing, typeMismatches, patchedDraft.getAttributes()));
+                null,
+                null,
+                importable,
+                missing,
+                typeMismatches,
+                custom,
+                patchedDraft.getAttributes()));
   }
 
   /**
@@ -279,6 +297,13 @@ public final class ConfigurationTemplateUtil {
     MetaMap result = meta != null ? new MetaMap(meta) : new MetaMap();
     ASSET_BOUND_META_ITEMS.forEach(result::remove);
     return result;
+  }
+
+  /** The names of the attributes an asset type defines, none for a type that is not installed. */
+  private static Set<String> definedAttributeNames(String assetType) {
+    return ValueUtil.getAssetInfo(assetType)
+        .map(info -> info.getAttributeDescriptors().keySet())
+        .orElse(Set.of());
   }
 
   /**

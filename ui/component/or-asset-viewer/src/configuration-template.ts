@@ -241,9 +241,13 @@ function getTemplateMeta(attribute: Attribute<any> | undefined): { [name: string
   );
 }
 
-/** The attributes holding configuration items for a template, which are the attributes that can be exported. */
+/**
+ * The attributes holding configuration items for a template, which are the attributes that can be exported. Attributes
+ * that the asset type does not define are left out, so a configuration to reuse belongs in an asset type.
+ */
 export function getConfigurableAttributes(asset: Asset): Attribute<any>[] {
   return Object.entries(asset.attributes || {})
+    .filter(([name]) => !!AssetModelUtil.getAttributeDescriptor(name, asset.type!))
     .filter(([, attribute]) => Object.keys(getTemplateMeta(attribute)).length > 0)
     .map(([name, attribute]) => ({ ...attribute, name }))
     .sort(Util.sortByString((attribute) => attribute.name!.toUpperCase()));
@@ -616,6 +620,7 @@ function getSkippedTemplate(
   const skipped = [
     ...(preview.missingAttributes || []).map((attribute) => attribute.name!),
     ...(preview.typeMismatches || []).map((mismatch) => mismatch.name!),
+    ...(preview.customAttributes || []).map((attribute) => attribute.name!),
   ];
 
   if (skipped.length === 0) {

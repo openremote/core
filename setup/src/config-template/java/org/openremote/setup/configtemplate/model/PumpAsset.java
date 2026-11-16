@@ -37,6 +37,11 @@ public class PumpAsset extends Asset<PumpAsset> {
       new AttributeDescriptor<>("pressure", ValueType.NUMBER);
   public static final AttributeDescriptor<Boolean> RUNNING =
       new AttributeDescriptor<>("running", ValueType.BOOLEAN);
+  // Optional, so a pump can be missing them
+  public static final AttributeDescriptor<String> ERROR_CODE =
+      new AttributeDescriptor<>("errorCode", ValueType.TEXT).withOptional(true);
+  public static final AttributeDescriptor<String> SERIAL_NUMBER =
+      new AttributeDescriptor<>("serialNumber", ValueType.TEXT).withOptional(true);
 
   public static final AssetDescriptor<PumpAsset> DESCRIPTOR =
       new AssetDescriptor<>("water-pump", "1565c0", PumpAsset.class);

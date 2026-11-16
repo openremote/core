@@ -51,6 +51,11 @@ public class ConfigurationTemplateImportPreview {
 
   @Schema(
       description =
+          "Attributes skipped because they were added to the target asset rather than defined by its asset type.")
+  protected List<AttributeConfigurationSummary> customAttributes;
+
+  @Schema(
+      description =
           "The submitted draft attributes with the metadata of every importable attribute replaced, keyed by attribute name.")
   protected AttributeMap patchedAttributes;
 
@@ -61,12 +66,14 @@ public class ConfigurationTemplateImportPreview {
       List<AttributeConfigurationSummary> importableAttributes,
       List<AttributeConfigurationSummary> missingAttributes,
       List<AttributeConfigurationTypeMismatch> typeMismatches,
+      List<AttributeConfigurationSummary> customAttributes,
       AttributeMap patchedAttributes) {
     this.failure = failure;
     this.failureLocation = failureLocation;
     this.importableAttributes = importableAttributes;
     this.missingAttributes = missingAttributes;
     this.typeMismatches = typeMismatches;
+    this.customAttributes = customAttributes;
     this.patchedAttributes = patchedAttributes;
   }
 
@@ -79,7 +86,7 @@ public class ConfigurationTemplateImportPreview {
       ConfigurationTemplateImportFailure failure,
       ConfigurationTemplateImportFailureLocation failureLocation) {
     return new ConfigurationTemplateImportPreview(
-        failure, failureLocation, List.of(), List.of(), List.of(), null);
+        failure, failureLocation, List.of(), List.of(), List.of(), List.of(), null);
   }
 
   public ConfigurationTemplateImportFailure getFailure() {
@@ -100,6 +107,10 @@ public class ConfigurationTemplateImportPreview {
 
   public List<AttributeConfigurationTypeMismatch> getTypeMismatches() {
     return typeMismatches;
+  }
+
+  public List<AttributeConfigurationSummary> getCustomAttributes() {
+    return customAttributes;
   }
 
   public AttributeMap getPatchedAttributes() {

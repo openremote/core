@@ -21,6 +21,7 @@ package org.openremote.model.util
 import org.openremote.model.asset.ConfigurationTemplate
 import org.openremote.model.asset.impl.RoomAsset
 import org.openremote.model.asset.impl.ThingAsset
+import org.openremote.model.asset.impl.WeatherAsset
 import org.openremote.model.attribute.Attribute
 import org.openremote.model.attribute.MetaItem
 import org.openremote.model.value.MetaItemType
@@ -37,8 +38,10 @@ class ConfigurationTemplateUtilTest extends Specification {
     ValueUtil.initialise(null)
   }
 
-  static def thingAsset(Map<String, Attribute<?>> attributes = [:]) {
-    def asset = new ThingAsset("Test Thing")
+  /** A weather asset holding only the given attributes, so a test sees no attributes it did not add. */
+  static def weatherAsset(Map<String, Attribute<?>> attributes = [:]) {
+    def asset = new WeatherAsset("Test Weather")
+    asset.getAttributes().clear()
     attributes.each { name, attribute -> asset.getAttributes().put(name, attribute) }
     return asset
   }
@@ -68,9 +71,9 @@ class ConfigurationTemplateUtilTest extends Specification {
 
   def "export holds the type and metadata of attributes that have metadata"() {
     given: "an asset with configured and unconfigured attributes"
-    def asset = thingAsset([
+    def asset = weatherAsset([
       temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature", unknownMetaItem: [nested: 1]]),
-      plain : attribute("plain", ValueType.TEXT)
+      rainfall : attribute("rainfall", ValueType.POSITIVE_NUMBER)
     ])
 
     when: "the configuration is exported"
@@ -78,7 +81,7 @@ class ConfigurationTemplateUtilTest extends Specification {
 
     then: "the document is of the supported version and holds the asset type"
     exported.version == ConfigurationTemplate.CURRENT_VERSION
-    exported.assetType == ThingAsset.DESCRIPTOR.name
+    exported.assetType == WeatherAsset.DESCRIPTOR.name
 
     and: "only the attribute with metadata is held, with its type and its metadata as stored"
     exported.attributes.keySet() == ["temperature"] as Set
@@ -89,18 +92,30 @@ class ConfigurationTemplateUtilTest extends Specification {
 
   def "export limited to a selection holds only the selected attributes"() {
     given: "an asset with two configured attributes"
-    def asset = thingAsset([
+    def asset = weatherAsset([
       temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature"]),
-      humidity : attribute("humidity", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Humidity"])
+      humidity : attribute("humidity", ValueType.POSITIVE_INTEGER, [(MetaItemType.LABEL.name): "Humidity"])
     ])
 
     expect: "the selection is exported"
     ConfigurationTemplateUtil.export(asset, ["humidity"]).attributes.keySet() == ["humidity"] as Set
   }
 
+  def "export leaves out attributes that the asset type does not define"() {
+    given: "an asset with a configured attribute of its type and a configured attribute of its own"
+    def asset = weatherAsset([
+      temperature : attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature"]),
+      serialNumber: attribute("serialNumber", ValueType.TEXT, [(MetaItemType.LABEL.name): "Serial number"])
+    ])
+
+    expect: "only the attribute of the asset type is exported, also when the other one is selected"
+    ConfigurationTemplateUtil.export(asset, null).attributes.keySet() == ["temperature"] as Set
+    ConfigurationTemplateUtil.export(asset, ["serialNumber"]).attributes.isEmpty()
+  }
+
   def "a document that cannot be read is rejected with #failure"() {
     given: "an asset with a configured attribute"
-    def asset = thingAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature"])])
+    def asset = weatherAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature"])])
 
     expect: "the import is rejected"
     ConfigurationTemplateUtil.preview(asset, documentText).failure == failure
@@ -130,7 +145,7 @@ class ConfigurationTemplateUtilTest extends Specification {
 
   def "a document whose constraints the current value breaks is rejected"() {
     given: "an asset whose attribute holds a value"
-    def asset = thingAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature"])])
+    def asset = weatherAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature"])])
     asset.getAttributes().get("temperature").get().setValue(21.5d)
 
     when: "a document holding a minimum above that value is previewed"
@@ -147,7 +162,7 @@ class ConfigurationTemplateUtilTest extends Specification {
 
   def "a value that already breaks its constraints does not reject an import that keeps them"() {
     given: "an asset whose attribute value already breaks its minimum"
-    def asset = thingAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.CONSTRAINTS.name): [new ValueConstraint.Min(30)] as ValueConstraint[]])])
+    def asset = weatherAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.CONSTRAINTS.name): [new ValueConstraint.Min(30)] as ValueConstraint[]])])
     asset.getAttributes().get("temperature").get().setValue(21.5d)
 
     when: "a document holding the same minimum and a label is previewed"
@@ -162,7 +177,7 @@ class ConfigurationTemplateUtilTest extends Specification {
 
   def "a rejected document names where it fails: #attribute, #metaItem, #parameter"() {
     given: "an asset with a configured attribute"
-    def asset = thingAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature"])])
+    def asset = weatherAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature"])])
 
     when: "the document is previewed"
     def location = ConfigurationTemplateUtil.preview(asset, documentText).failureLocation
@@ -190,7 +205,7 @@ class ConfigurationTemplateUtilTest extends Specification {
 
   def "a document rejected as a whole has no location"() {
     expect: "the rejection holds no location"
-    ConfigurationTemplateUtil.preview(thingAsset(), documentText).failureLocation == null
+    ConfigurationTemplateUtil.preview(weatherAsset(), documentText).failureLocation == null
 
     where:
     documentText << ["not json at all", "[]", document(ThingAsset.DESCRIPTOR.name, [:], 2)]
@@ -198,9 +213,9 @@ class ConfigurationTemplateUtilTest extends Specification {
 
   def "export leaves out metadata that grants access or links attributes"() {
     given: "an asset whose attributes hold access and attribute link metadata"
-    def asset = thingAsset([
+    def asset = weatherAsset([
       temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature", (MetaItemType.ACCESS_PUBLIC_WRITE.name): true]),
-      linked: attribute("linked", ValueType.NUMBER, [(MetaItemType.ACCESS_RESTRICTED_READ.name): true, (MetaItemType.ATTRIBUTE_LINKS.name): []])
+      rainfall : attribute("rainfall", ValueType.POSITIVE_NUMBER, [(MetaItemType.ACCESS_RESTRICTED_READ.name): true, (MetaItemType.ATTRIBUTE_LINKS.name): []])
     ])
 
     when: "the configuration is exported"
@@ -215,7 +230,7 @@ class ConfigurationTemplateUtilTest extends Specification {
 
   def "import keeps the access and attribute link metadata of the asset and ignores that of the document"() {
     given: "an asset whose attribute is publicly readable"
-    def asset = thingAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature", (MetaItemType.ACCESS_PUBLIC_READ.name): true])])
+    def asset = weatherAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature", (MetaItemType.ACCESS_PUBLIC_READ.name): true])])
 
     when: "a document granting public write access is previewed"
     def preview = ConfigurationTemplateUtil.preview(asset, document(ThingAsset.DESCRIPTOR.name, [
@@ -234,7 +249,7 @@ class ConfigurationTemplateUtilTest extends Specification {
 
   def "an attribute missing on the target asset is skipped and reported"() {
     given: "an asset without the imported attribute"
-    def asset = thingAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature"])])
+    def asset = weatherAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature"])])
 
     when: "a document holding a known and an unknown attribute is previewed"
     def preview = ConfigurationTemplateUtil.preview(asset, document(ThingAsset.DESCRIPTOR.name, [
@@ -249,9 +264,47 @@ class ConfigurationTemplateUtilTest extends Specification {
     !preview.patchedAttributes.has("humidity")
   }
 
+  def "an attribute that the asset type does not define is skipped and reported as custom"() {
+    given: "an asset holding an attribute of its type and one added to the asset alone"
+    def asset = weatherAsset([
+      temperature : attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature"]),
+      serialNumber: attribute("serialNumber", ValueType.TEXT)
+    ])
+
+    when: "a document holding both is previewed"
+    def preview = ConfigurationTemplateUtil.preview(asset, document(WeatherAsset.DESCRIPTOR.name, [
+      temperature : '{"type": "number", "meta": {"label": "Imported"}}',
+      serialNumber: '{"type": "text", "meta": {"label": "Imported"}}'
+    ]))
+
+    then: "only the attribute of the asset type is importable and the other one is reported as custom"
+    preview.failure == null
+    preview.importableAttributes*.name == ["temperature"]
+    preview.customAttributes*.name == ["serialNumber"]
+    !preview.missingAttributes
+    !preview.typeMismatches
+
+    and: "the custom attribute keeps its metadata"
+    !preview.patchedAttributes.get("serialNumber").get().hasMeta(MetaItemType.LABEL)
+  }
+
+  def "a document holding only custom attributes of the asset is rejected"() {
+    given: "an asset holding an attribute added to the asset alone"
+    def asset = weatherAsset([serialNumber: attribute("serialNumber", ValueType.TEXT)])
+
+    when: "a document holding that attribute is previewed"
+    def preview = ConfigurationTemplateUtil.preview(asset, document(WeatherAsset.DESCRIPTOR.name, [
+      serialNumber: '{"type": "text", "meta": {"label": "Imported"}}'
+    ]))
+
+    then: "nothing can be imported, with the custom attribute reported"
+    preview.failure == NO_IMPORTABLE_ATTRIBUTES
+    preview.customAttributes*.name == ["serialNumber"]
+  }
+
   def "an attribute whose type differs is skipped and reported"() {
     given: "an asset holding the imported attribute as text"
-    def asset = thingAsset([temperature: attribute("temperature", ValueType.TEXT, [(MetaItemType.LABEL.name): "Temperature"])])
+    def asset = weatherAsset([temperature: attribute("temperature", ValueType.TEXT, [(MetaItemType.LABEL.name): "Temperature"])])
 
     when: "a document holding the attribute as a number is previewed"
     def preview = ConfigurationTemplateUtil.preview(asset, document(ThingAsset.DESCRIPTOR.name, [
@@ -267,7 +320,7 @@ class ConfigurationTemplateUtilTest extends Specification {
 
   def "type comparison is case sensitive"() {
     given: "an asset holding a number attribute"
-    def asset = thingAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature"])])
+    def asset = weatherAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature"])])
 
     when: "a document spelling the same type differently is previewed"
     def preview = ConfigurationTemplateUtil.preview(asset, document(ThingAsset.DESCRIPTOR.name, [
@@ -283,7 +336,7 @@ class ConfigurationTemplateUtilTest extends Specification {
 
   def "a document exported from another asset type can still be imported"() {
     given: "a thing asset holding a configured attribute"
-    def asset = thingAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature"])])
+    def asset = weatherAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature"])])
 
     when: "a document exported from a room asset is previewed"
     def preview = ConfigurationTemplateUtil.preview(asset, document(RoomAsset.DESCRIPTOR.name, [
@@ -297,16 +350,16 @@ class ConfigurationTemplateUtilTest extends Specification {
 
   def "the metadata of an importable attribute is replaced as a whole"() {
     given: "an asset whose attribute holds metadata that the document does not"
-    def asset = thingAsset([
+    def asset = weatherAsset([
       temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature", (MetaItemType.READ_ONLY.name): true]),
-      plain : attribute("plain", ValueType.TEXT)
+      notes : attribute("notes", ValueType.TEXT)
     ])
     asset.getAttributes().get("temperature").get().setValue(21.5d)
 
     when: "a document holding other metadata for that attribute is previewed"
     def preview = ConfigurationTemplateUtil.preview(asset, document(ThingAsset.DESCRIPTOR.name, [
       temperature: '{"type": "number", "meta": {"unitType": ["celsius"]}}',
-      plain : '{"type": "text", "meta": {"label": "Plain"}}'
+      notes : '{"type": "text", "meta": {"label": "Notes"}}'
     ]))
 
     then: "the imported metadata replaces the existing metadata entirely"
@@ -316,7 +369,7 @@ class ConfigurationTemplateUtilTest extends Specification {
     !patchedTemperature.hasMeta(MetaItemType.READ_ONLY)
 
     and: "an attribute without metadata gets the imported metadata added"
-    preview.patchedAttributes.get("plain").get().getMetaValue(MetaItemType.LABEL).orElse(null) == "Plain"
+    preview.patchedAttributes.get("notes").get().getMetaValue(MetaItemType.LABEL).orElse(null) == "Notes"
 
     and: "the type and the value of the attribute are untouched"
     patchedTemperature.type == ValueType.NUMBER
@@ -324,12 +377,12 @@ class ConfigurationTemplateUtilTest extends Specification {
 
     and: "the asset itself is not modified"
     asset.getAttributes().get("temperature").get().getMeta().has(MetaItemType.LABEL.name)
-    !asset.getAttributes().get("plain").get().getMeta().has("label")
+    !asset.getAttributes().get("notes").get().getMeta().has("label")
   }
 
   def "an internal name field within an entry is ignored"() {
     given: "an asset holding a configured attribute"
-    def asset = thingAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature"])])
+    def asset = weatherAsset([temperature: attribute("temperature", ValueType.NUMBER, [(MetaItemType.LABEL.name): "Temperature"])])
 
     when: "a document whose entry names another attribute is previewed"
     def preview = ConfigurationTemplateUtil.preview(asset, document(ThingAsset.DESCRIPTOR.name, [

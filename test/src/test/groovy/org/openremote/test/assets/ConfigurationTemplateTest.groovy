@@ -24,8 +24,8 @@ import org.openremote.manager.setup.SetupService
 import org.openremote.model.asset.AssetResource
 import org.openremote.model.asset.ConfigurationTemplateImportPreview
 import org.openremote.model.asset.ConfigurationTemplateImportRequest
+import org.openremote.model.asset.impl.LightAsset
 import org.openremote.model.asset.impl.RoomAsset
-import org.openremote.model.asset.impl.ThingAsset
 import org.openremote.model.attribute.Attribute
 import org.openremote.model.attribute.MetaItem
 import org.openremote.model.util.ValueUtil
@@ -106,45 +106,45 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
 
   def "Export and import a configuration template as superuser"() {
     given: "a configured source asset and a target asset of the same type"
-    def source = adminResource.create(null, new ThingAsset("Configuration source")
+    def source = adminResource.create(null, new LightAsset("Configuration source")
             .setRealm(keycloakTestSetup.realmMaster.name)
             .addOrReplaceAttributes(
-                    new Attribute<>("temperature", ValueType.NUMBER)
-                    .addMeta(new MetaItem<>(MetaItemType.LABEL, "Source temperature"))
+                    new Attribute<>(LightAsset.BRIGHTNESS)
+                    .addMeta(new MetaItem<>(MetaItemType.LABEL, "Source brightness"))
                     .addMeta(new MetaItem<>(MetaItemType.READ_ONLY, true)),
+                    new Attribute<>(LightAsset.COLOUR_TEMPERATURE)
+                    .addMeta(new MetaItem<>(MetaItemType.LABEL, "Source colour temperature")),
                     new Attribute<>("customValue", ValueType.TEXT)
-                    .addMeta(new MetaItem<>(MetaItemType.LABEL, "Source custom value")),
-                    new Attribute<>("plain", ValueType.TEXT)
+                    .addMeta(new MetaItem<>(MetaItemType.LABEL, "Source custom value"))
             ))
-    def target = adminResource.create(null, new ThingAsset("Configuration target")
+    def target = adminResource.create(null, new LightAsset("Configuration target")
             .setRealm(keycloakTestSetup.realmMaster.name)
             .addOrReplaceAttributes(
-                    new Attribute<>("temperature", ValueType.NUMBER, 21.5d)
-                    .addMeta(new MetaItem<>(MetaItemType.LABEL, "Target temperature")),
-                    new Attribute<>("customValue", ValueType.NUMBER),
-                    new Attribute<>("plain", ValueType.TEXT)
+                    new Attribute<>(LightAsset.BRIGHTNESS, 50)
+                    .addMeta(new MetaItem<>(MetaItemType.LABEL, "Target brightness")),
+                    new Attribute<>("customValue", ValueType.NUMBER)
             ))
     createdAssetIds.addAll([source.id, target.id])
 
     when: "a configuration template of the source asset is exported"
     def document = adminResource.exportConfigurationTemplate(null, source.id, [])
 
-    then: "only the attributes holding metadata are exported, with their type and metadata"
+    then: "only the attributes that the asset type defines and that hold metadata are exported, with their type and metadata"
     document.version == 1
-    document.assetType == ThingAsset.DESCRIPTOR.name
-    document.attributes.keySet() == ["temperature", "customValue"] as Set
-    document.attributes.temperature.type == ValueType.NUMBER.name
-    document.attributes.temperature.getMetaValue(MetaItemType.LABEL).orElse(null) == "Source temperature"
-    document.attributes.temperature.getMetaValue(MetaItemType.READ_ONLY).orElse(false)
+    document.assetType == LightAsset.DESCRIPTOR.name
+    document.attributes.keySet() == ["brightness", "colourTemperature"] as Set
+    document.attributes.brightness.type == ValueType.POSITIVE_INTEGER.name
+    document.attributes.brightness.getMetaValue(MetaItemType.LABEL).orElse(null) == "Source brightness"
+    document.attributes.brightness.getMetaValue(MetaItemType.READ_ONLY).orElse(false)
 
     when: "a subset of the attributes is exported"
-    def subset = adminResource.exportConfigurationTemplate(null, source.id, ["temperature"])
+    def subset = adminResource.exportConfigurationTemplate(null, source.id, ["brightness"])
 
     then: "only the requested attribute is exported"
-    subset.attributes.keySet() == ["temperature"] as Set
+    subset.attributes.keySet() == ["brightness"] as Set
 
     when: "only an attribute without metadata is selected"
-    adminResource.exportConfigurationTemplate(null, source.id, ["plain"])
+    adminResource.exportConfigurationTemplate(null, source.id, ["onOff"])
 
     then: "the export is rejected as there is nothing to export"
     WebApplicationException nothingToExport = thrown()
@@ -153,29 +153,38 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
       return true
     }
 
+    when: "only an attribute that the asset type does not define is selected"
+    adminResource.exportConfigurationTemplate(null, source.id, ["customValue"])
+
+    then: "the export is rejected as there is nothing to export"
+    WebApplicationException customOnly = thrown()
+    customOnly.response.withCloseable { r ->
+      assert r.status == BAD_REQUEST.statusCode
+      return true
+    }
+
     when: "the exported document is imported into the target asset"
     def preview = adminResource.previewConfigurationTemplateImport(null, target.id,
             new ConfigurationTemplateImportRequest(target, ValueUtil.asJSON(document).orElseThrow()))
 
-    then: "the attribute with a matching type is importable and the one with another type is reported"
+    then: "both attributes are importable and nothing is skipped"
     preview.failure == null
-    preview.importableAttributes*.name == ["temperature"]
-    preview.typeMismatches*.name == ["customValue"]
-    preview.typeMismatches*.importedType == [ValueType.TEXT.name]
-    preview.typeMismatches*.targetType == [ValueType.NUMBER.name]
+    preview.importableAttributes*.name == ["brightness", "colourTemperature"]
+    !preview.missingAttributes
+    !preview.typeMismatches
 
     and: "the patched attributes hold the imported metadata, keeping the attribute value"
-    def patched = preview.patchedAttributes.get("temperature").get()
-    patched.getMetaValue(MetaItemType.LABEL).orElse(null) == "Source temperature"
+    def patched = preview.patchedAttributes.get("brightness").get()
+    patched.getMetaValue(MetaItemType.LABEL).orElse(null) == "Source brightness"
     patched.getMetaValue(MetaItemType.READ_ONLY).orElse(false)
-    patched.value.orElse(null) == 21.5d
+    patched.value.orElse(null) == 50
 
     and: "the attributes that are not imported are returned untouched"
     preview.patchedAttributes.get("customValue").get().type == ValueType.NUMBER
 
     and: "the target asset is not stored by the preview"
-    adminResource.get(null, target.id).getAttribute("temperature").get().getMeta()
-            .getValue(MetaItemType.LABEL.name, String.class).orElse(null) == "Target temperature"
+    adminResource.get(null, target.id).getAttribute("brightness").get().getMeta()
+            .getValue(MetaItemType.LABEL.name, String.class).orElse(null) == "Target brightness"
 
     when: "a document of an unsupported version is imported"
     adminResource.previewConfigurationTemplateImport(null, target.id,
@@ -191,7 +200,7 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
 
     when: "a document holding a configuration item that breaks a constraint is imported"
     adminResource.previewConfigurationTemplateImport(null, target.id,
-            new ConfigurationTemplateImportRequest(target, '{"version": 1, "assetType": "ThingAsset", "attributes": {"temperature": {"type": "number", "meta": {"forecast": {"type": "wea", "pastPeriod": "P1D", "pastCount": 0, "forecastPeriod": "PT1H", "forecastCount": 1}}}}}'))
+            new ConfigurationTemplateImportRequest(target, '{"version": 1, "assetType": "LightAsset", "attributes": {"brightness": {"type": "positiveInteger", "meta": {"forecast": {"type": "wea", "pastPeriod": "P1D", "pastCount": 0, "forecastPeriod": "PT1H", "forecastCount": 1}}}}}'))
 
     then: "the import is rejected with the reason and where it fails"
     WebApplicationException invalidMetaItem = thrown()
@@ -199,7 +208,7 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
       assert r.status == BAD_REQUEST.statusCode
       def rejected = r.readEntity(ConfigurationTemplateImportPreview.class)
       assert rejected.failure == INVALID_META_ITEM
-      assert rejected.failureLocation.attribute == "temperature"
+      assert rejected.failureLocation.attribute == "brightness"
       assert rejected.failureLocation.metaItem == MetaItemType.FORECAST.name
       assert rejected.failureLocation.parameter == "pastCount"
       return true
@@ -207,7 +216,7 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
 
     when: "a document holding a minimum above the current value of the target attribute is imported"
     adminResource.previewConfigurationTemplateImport(null, target.id,
-            new ConfigurationTemplateImportRequest(target, '{"version": 1, "assetType": "ThingAsset", "attributes": {"temperature": {"type": "number", "meta": {"constraints": [{"type": "min", "min": 30}]}}}}'))
+            new ConfigurationTemplateImportRequest(target, '{"version": 1, "assetType": "LightAsset", "attributes": {"brightness": {"type": "positiveInteger", "meta": {"constraints": [{"type": "min", "min": 60}]}}}}'))
 
     then: "the import is rejected, as saving the asset would fail"
     WebApplicationException valueViolatesConstraints = thrown()
@@ -215,13 +224,13 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
       assert r.status == BAD_REQUEST.statusCode
       def rejected = r.readEntity(ConfigurationTemplateImportPreview.class)
       assert rejected.failure == VALUE_VIOLATES_CONSTRAINTS
-      assert rejected.failureLocation.attribute == "temperature"
+      assert rejected.failureLocation.attribute == "brightness"
       return true
     }
 
     when: "a document holding no attribute of the target asset is imported"
     adminResource.previewConfigurationTemplateImport(null, target.id,
-            new ConfigurationTemplateImportRequest(target, '{"version": 1, "assetType": "ThingAsset", "attributes": {"absent": {"type": "text", "meta": {"label": "Absent"}}}}'))
+            new ConfigurationTemplateImportRequest(target, '{"version": 1, "assetType": "LightAsset", "attributes": {"absent": {"type": "text", "meta": {"label": "Absent"}}}}'))
 
     then: "the import is rejected and the skipped attribute is reported"
     WebApplicationException noneImportable = thrown()
@@ -230,6 +239,20 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
       def rejected = r.readEntity(ConfigurationTemplateImportPreview.class)
       assert rejected.failure == NO_IMPORTABLE_ATTRIBUTES
       assert rejected.missingAttributes*.name == ["absent"]
+      return true
+    }
+
+    when: "a document holding only an attribute that the target asset type does not define is imported"
+    adminResource.previewConfigurationTemplateImport(null, target.id,
+            new ConfigurationTemplateImportRequest(target, '{"version": 1, "assetType": "LightAsset", "attributes": {"customValue": {"type": "number", "meta": {"label": "Custom"}}}}'))
+
+    then: "the import is rejected and the attribute is reported as custom"
+    WebApplicationException customImport = thrown()
+    customImport.response.withCloseable { r ->
+      assert r.status == BAD_REQUEST.statusCode
+      def rejected = r.readEntity(ConfigurationTemplateImportPreview.class)
+      assert rejected.failure == NO_IMPORTABLE_ATTRIBUTES
+      assert rejected.customAttributes*.name == ["customValue"]
       return true
     }
 
@@ -258,17 +281,26 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
   }
 
   def "Configuration template import requires asset write access"() {
-    when: "a user that can read but not write assets exports a configuration template of an asset of its realm"
-    def document = readOnlyUserResource.exportConfigurationTemplate(null, managerTestSetup.apartment1LivingroomId, [])
+    given: "a configured asset in the realm of a user that can read but not write assets"
+    def asset = adminResource.create(null, new LightAsset("Configured light")
+            .setRealm(keycloakTestSetup.realmBuilding.name)
+            .addOrReplaceAttributes(
+                    new Attribute<>(LightAsset.BRIGHTNESS)
+                    .addMeta(new MetaItem<>(MetaItemType.LABEL, "Brightness"))
+            ))
+    createdAssetIds.add(asset.id)
+
+    when: "that user exports a configuration template of the asset"
+    def document = readOnlyUserResource.exportConfigurationTemplate(null, asset.id, [])
 
     then: "the configuration is returned"
     document.version == 1
-    !document.attributes.isEmpty()
+    document.attributes.keySet() == ["brightness"] as Set
 
     when: "the same user previews an import"
-    readOnlyUserResource.previewConfigurationTemplateImport(null, managerTestSetup.apartment1LivingroomId,
+    readOnlyUserResource.previewConfigurationTemplateImport(null, asset.id,
             new ConfigurationTemplateImportRequest(
-                    readOnlyUserResource.get(null, managerTestSetup.apartment1LivingroomId),
+                    readOnlyUserResource.get(null, asset.id),
                     ValueUtil.asJSON(document).orElseThrow()))
 
     then: "access is forbidden"

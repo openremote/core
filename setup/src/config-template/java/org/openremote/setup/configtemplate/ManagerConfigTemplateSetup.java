@@ -59,17 +59,22 @@ import org.openremote.model.asset.agent.DefaultAgentLink;
 import org.openremote.model.asset.impl.ThingAsset;
 import org.openremote.model.attribute.Attribute;
 import org.openremote.model.attribute.MetaItem;
+import org.openremote.model.value.AttributeDescriptor;
 import org.openremote.model.value.ValueConstraint;
-import org.openremote.model.value.ValueDescriptor;
+import org.openremote.setup.configtemplate.model.AgentLinksAsset;
+import org.openremote.setup.configtemplate.model.MixerAsset;
 import org.openremote.setup.configtemplate.model.PumpAsset;
 
 /**
  * Seeds one configured pump and three targets to copy its configuration onto, so exporting and
  * importing a configuration template can be tried end to end. Every target shows a different
- * outcome: a full import, an import that skips attributes, and an import from another asset type.
- * The pump's agent links follow the template parameter concept: three Modbus links share an agent
- * and two of them a unit id, and two simulator links use different agents. A separate asset holds
- * one attribute per agent link type, and another holds every agent.
+ * outcome: a full import, an import that skips missing attributes, and an import into another asset
+ * type that also skips an attribute of another value type and a custom attribute. Custom
+ * attributes, added to an asset rather than defined by its asset type, take no part in a template,
+ * so the pump's maintenance note is not exported. The pump's agent links follow the template
+ * parameter concept: three Modbus links share an agent and two of them a unit id, and two simulator
+ * links use different agents. A separate asset holds one attribute per agent link type, and another
+ * holds every agent.
  */
 public class ManagerConfigTemplateSetup extends ManagerSetup {
 
@@ -140,78 +145,73 @@ public class ManagerConfigTemplateSetup extends ManagerSetup {
                 new MetaItem<>(
                     AGENT_LINK,
                     modbusLink(modbusAgentId, 2, ReadMemoryArea.COIL, ModbusDataType.BOOL, 1))),
-        // Not a descriptor attribute, so a target asset can be missing it
-        new Attribute<>("errorCode", TEXT)
+        new Attribute<>(PumpAsset.ERROR_CODE)
             .addOrReplaceMeta(
                 new MetaItem<>(LABEL, "Error code"),
                 new MetaItem<>(RULE_STATE, true),
                 new MetaItem<>(AGENT_LINK, new SimulatorAgentLink(simulator1AgentId))),
-        // Not a descriptor attribute, so a target asset can hold it with another value type
-        new Attribute<>("serialNumber", TEXT)
+        new Attribute<>(PumpAsset.SERIAL_NUMBER)
             .addOrReplaceMeta(
                 new MetaItem<>(LABEL, "Serial number"),
                 new MetaItem<>(READ_ONLY, true),
-                new MetaItem<>(AGENT_LINK, new SimulatorAgentLink(simulator2AgentId))));
+                new MetaItem<>(AGENT_LINK, new SimulatorAgentLink(simulator2AgentId))),
+        // A custom attribute, so it takes no part in a template
+        new Attribute<>("maintenanceNote", TEXT)
+            .addOrReplaceMeta(new MetaItem<>(LABEL, "Maintenance note")));
     assetStorageService.merge(configured);
 
     // Holds every attribute of the configured pump, so the whole configuration can be imported
     PumpAsset bare = new PumpAsset("Pump 2 (import target)");
     bare.setRealm(MASTER_REALM);
     bare.addOrReplaceAttributes(
-        new Attribute<>("errorCode", TEXT), new Attribute<>("serialNumber", TEXT));
+        new Attribute<>(PumpAsset.ERROR_CODE), new Attribute<>(PumpAsset.SERIAL_NUMBER));
     assetStorageService.merge(bare);
 
-    // Misses errorCode and holds serialNumber as a number, so the import reports both as skipped
+    // Misses the optional errorCode and serialNumber, so the import reports both as skipped
     PumpAsset partial = new PumpAsset("Pump 3 (partially compatible)");
     partial.setRealm(MASTER_REALM);
-    partial.addOrReplaceAttributes(new Attribute<>("serialNumber", NUMBER));
     assetStorageService.merge(partial);
 
-    // Another asset type, sharing only some attributes with the pump
-    ThingAsset otherType = new ThingAsset("Mixer 1 (other asset type)");
+    // Another asset type, sharing flowRate and pressure with the pump and holding serialNumber as a
+    // number; running is a custom attribute of the mixer, so the import skips both
+    MixerAsset otherType = new MixerAsset("Mixer 1 (other asset type)");
     otherType.setRealm(MASTER_REALM);
-    otherType.addOrReplaceAttributes(
-        new Attribute<>("flowRate", NUMBER), new Attribute<>("pressure", NUMBER));
+    otherType.addOrReplaceAttributes(new Attribute<>("running", BOOLEAN));
     assetStorageService.merge(otherType);
 
     // One attribute per agent link type; "(requirements)" marks links with fields that must be set
-    ThingAsset agentLinks = new ThingAsset("Agent links (all types)");
+    AgentLinksAsset agentLinks = new AgentLinksAsset("Agent links (all types)");
     agentLinks.setRealm(MASTER_REALM);
     agentLinks.addOrReplaceAttributes(
         linked(
-            "bluetoothMesh",
-            BOOLEAN,
+            AgentLinksAsset.BLUETOOTH_MESH,
             "Bluetooth mesh (requirements)",
             new BluetoothMeshAgentLink(bluetoothMeshAgentId, 0, "0002", "GenericOnOffServer")),
-        linked("default", TEXT, "Default", new DefaultAgentLink(tcpAgentId)),
-        linked("http", TEXT, "HTTP (requirements)", new HTTPAgentLink(httpAgentId)),
+        linked(AgentLinksAsset.DEFAULT, "Default", new DefaultAgentLink(tcpAgentId)),
+        linked(AgentLinksAsset.HTTP, "HTTP (requirements)", new HTTPAgentLink(httpAgentId)),
         linked(
-            "knx",
-            BOOLEAN,
+            AgentLinksAsset.KNX,
             "KNX (requirements)",
             new KNXAgentLink(knxAgentId, "1.001", "1/0/1", "1/0/2")),
-        linked("mail", TEXT, "Mail", new MailAgentLink(mailAgentId)),
-        linked("modbus", NUMBER, "Modbus", new ModbusAgentLink(modbusAgentId)),
-        linked("mqtt", TEXT, "MQTT", new MQTTAgentLink(mqttAgentId)),
+        linked(AgentLinksAsset.MAIL, "Mail", new MailAgentLink(mailAgentId)),
+        linked(AgentLinksAsset.MODBUS, "Modbus", new ModbusAgentLink(modbusAgentId)),
+        linked(AgentLinksAsset.MQTT, "MQTT", new MQTTAgentLink(mqttAgentId)),
         linked(
-            "openWeatherMap",
-            NUMBER,
+            AgentLinksAsset.OPEN_WEATHER_MAP,
             "OpenWeatherMap (requirements)",
             new OpenWeatherMapAgentLink(openWeatherMapAgentId)
                 .setWeatherProperty(OpenWeatherMapProperty.TEMPERATURE)),
-        linked("simulator", NUMBER, "Simulator", new SimulatorAgentLink(simulator1AgentId)),
+        linked(AgentLinksAsset.SIMULATOR, "Simulator", new SimulatorAgentLink(simulator1AgentId)),
         linked(
-            "snmp",
-            TEXT,
+            AgentLinksAsset.SNMP,
             "SNMP (requirements)",
             new SNMPAgentLink(snmpAgentId, "1.3.6.1.2.1.1.3.0")),
         linked(
-            "velbus",
-            BOOLEAN,
+            AgentLinksAsset.VELBUS,
             "Velbus (requirements)",
             new VelbusAgentLink(velbusAgentId, 48, "CH1")),
-        linked("websocket", TEXT, "Websocket", new WebsocketAgentLink(websocketAgentId)),
-        linked("zWave", BOOLEAN, "Z-Wave", new ZWaveAgentLink(zWaveAgentId, 2, 0, "Basic")));
+        linked(AgentLinksAsset.WEBSOCKET, "Websocket", new WebsocketAgentLink(websocketAgentId)),
+        linked(AgentLinksAsset.Z_WAVE, "Z-Wave", new ZWaveAgentLink(zWaveAgentId, 2, 0, "Basic")));
     assetStorageService.merge(agentLinks);
   }
 
@@ -236,8 +236,8 @@ public class ManagerConfigTemplateSetup extends ManagerSetup {
   }
 
   protected static Attribute<?> linked(
-      String name, ValueDescriptor<?> type, String label, AgentLink<?> agentLink) {
-    return new Attribute<>(name, type)
+      AttributeDescriptor<?> descriptor, String label, AgentLink<?> agentLink) {
+    return new Attribute<>(descriptor)
         .addOrReplaceMeta(new MetaItem<>(LABEL, label), new MetaItem<>(AGENT_LINK, agentLink));
   }
 }
