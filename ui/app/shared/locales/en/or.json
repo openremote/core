@@ -479,15 +479,16 @@
   "retryingConnection": "Retrying in {{seconds}} seconds",
   "reconnecting": "Reconnecting",
   "managerError": {
-    "MANAGER_FAILED_TO_LOAD": "Manager failed to load (see console logs)",
-    "AUTH_FAILED": "Auth failed to load (see console logs)",
+    "MANAGER_FAILED_TO_LOAD": "Could not load the app, try again later",
+    "AUTH_FAILED": "Could not sign in, try again later",
     "AUTH_TYPE_UNSUPPORTED": "Requested auth type not supported",
-    "CONSOLE_ERROR": "Console error (see console logs)",
-    "EVENTS_CONNECTION_ERROR": "Event bus connection error (see console logs)",
-    "TRANSLATION_ERROR": "Translations error (see console logs)"
+    "CONSOLE_ERROR": "Could not start the console, try again later",
+    "EVENTS_CONNECTION_ERROR": "Could not connect to the manager, try again later",
+    "TRANSLATION_ERROR": "Could not load the translations, try again later"
   },
   "appError": {
     "noConfig": "No app config provided",
+    "noRealmConfig": "No realm config provided",
     "noReduxStore": "No Redux store provided",
     "noPages": "No pages provided"
   },
