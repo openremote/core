@@ -39,9 +39,6 @@ export enum EventProviderStatus {
   CONNECTING = "CONNECTING",
 }
 
-/**
- * Subscriptions survive a reconnect, so subscribing again without unsubscribing first delivers every event twice.
- */
 export interface EventProvider {
   status: EventProviderStatus;
 
@@ -53,6 +50,10 @@ export interface EventProvider {
 
   unsubscribeStatusChange(callback: (status: EventProviderStatus) => void): void;
 
+  /**
+   * The subscription is kept across reconnects, so subscribing again on reconnect without unsubscribing first
+   * delivers every event twice.
+   */
   subscribe<T extends SharedEvent>(
     eventSubscription: EventSubscription<T>,
     callback: (event: T) => void
