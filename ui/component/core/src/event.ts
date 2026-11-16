@@ -238,7 +238,6 @@ abstract class EventProviderImpl implements EventProvider {
           if (subscription.cancelled) {
             this._doUnsubscribe(subscriptionId);
           } else {
-            // Store subscriptionId and callback
             this._subscriptionMap.set(subscriptionId, subscription);
           }
 
