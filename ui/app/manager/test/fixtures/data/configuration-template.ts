@@ -98,3 +98,12 @@ export const partlyImportableTemplate = {
     dimLevel: { type: "number", meta: { label: "Dim level" } },
   },
 };
+
+/** A template of another asset type, which shares no attribute with a light. */
+export const pumpTemplate = {
+  version: 1,
+  assetType: "PumpAsset",
+  attributes: {
+    flowRate: { type: "number", meta: { label: "Flow rate" } },
+  },
+};

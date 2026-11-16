@@ -24,6 +24,7 @@ import {
   configuredLight,
   lightTemplate,
   partlyImportableTemplate,
+  pumpTemplate,
   targetLight,
 } from "./fixtures/data/configuration-template.js";
 
@@ -211,6 +212,39 @@ test("should reject a file that is not a configuration template", async ({
   await selectTemplateFile(page, assetViewer, "notes.json", "not a template");
 
   await expect(page.getByText("The selected file does not hold valid JSON.")).toBeVisible();
+});
+
+/**
+ * @given A light to import into is set up in the "smartcity" realm
+ * @when Importing a template that shares no attribute with the light
+ * @then The import is rejected with the reason
+ * @when Going back
+ * @then Another file can be selected and previewed
+ */
+test("should go back to the file selection from a template that cannot be imported", async ({
+  page,
+  manager,
+  assetsPage,
+  assetViewer,
+}) => {
+  await manager.setup("smartcity", { assets: [targetLight] });
+  await assetsPage.gotoAssetId("smartcity", manager.assets[0].id!, true);
+  await selectTemplateFile(page, assetViewer, "pumps.json", JSON.stringify(pumpTemplate));
+  await expect(
+    page.getByText("None of the attributes in the selected file can be imported into this asset.")
+  ).toBeVisible();
+
+  // A rejected file used to offer only Close, so another file meant starting the import over
+  await page.getByRole("button", { name: "Back" }).click();
+  await assetViewer.getConfigurationTemplateFileInput().setInputFiles({
+    name: "lights.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(lightTemplate)),
+  });
+  await page.getByRole("dialog").getByRole("button", { name: "Next" }).click();
+
+  const matched = assetViewer.getConfigurationTemplateSection("Matched attributes");
+  await expect(assetViewer.getConfigurationTemplateAttribute(matched, "Dimmer")).toBeVisible();
 });
 
 /**

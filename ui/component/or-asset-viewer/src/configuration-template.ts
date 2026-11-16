@@ -22,6 +22,7 @@ import { live } from "lit/directives/live.js";
 import manager, { Util } from "@openremote/core";
 import {
   AssetModelUtil,
+  ConfigurationTemplateImportFailure,
   WellknownMetaItems,
   type Asset,
   type Attribute,
@@ -47,7 +48,11 @@ import {
   dialogRenderer,
   showDialog,
 } from "@openremote/or-vaadin-components/or-vaadin-dialog";
-import { showErrorDialog } from "@openremote/or-vaadin-components/or-vaadin-confirm-dialog";
+import {
+  getConfirmDialogContent,
+  showConfirmDialog,
+  showErrorDialog,
+} from "@openremote/or-vaadin-components/or-vaadin-confirm-dialog";
 import { showSnackbar } from "@openremote/or-mwc-components/or-mwc-snackbar";
 
 export type AssetAttributes = { [index: string]: Attribute<any> };
@@ -463,7 +468,7 @@ async function previewImport(
     });
     showImportPreviewDialog(host, asset, fileName, configuration, response.data, onImported, onBack);
   } catch (error) {
-    showImportFailureDialog(host, asset, configuration, error);
+    showImportFailureDialog(host, asset, configuration, error, onBack);
   }
 }
 
@@ -544,24 +549,47 @@ function showImportPreviewDialog(
   );
 }
 
-/** Reports a document that cannot be imported, with whatever the server could tell about it. */
-function showImportFailureDialog(host: Node, asset: Asset, configuration: string, error: unknown) {
+/**
+ * Reports a document that cannot be imported, with whatever the server could tell about it. A rejected file can be
+ * swapped for another one by going back.
+ */
+function showImportFailureDialog(host: Node, asset: Asset, configuration: string, error: unknown, onBack: () => void) {
   const preview = getFailurePreview(error);
   const forbidden = (error as { response?: { status?: number } })?.response?.status === 403;
   const message = preview
     ? i18next.t(`configurationTemplate.failure.${preview.failure}`)
     : i18next.t(forbidden ? "configurationTemplate.forbidden" : "errorOccurred");
   const location = getFailureLocation(asset, preview?.failureLocation);
+  const content = html`${dialogStyle}
+    <div class="ac-body">
+      <span>${message}</span>
+      ${location ? html`<span>${location}</span>` : ``}
+      ${preview ? getSkippedTemplate(asset, preview, configuration) : ``}
+    </div>`;
 
-  showErrorDialog(
+  // Only a rejected file is helped by picking another one, not a changed asset, denied access or another error
+  if (!preview || preview.failure === ConfigurationTemplateImportFailure.DRAFT_MISMATCH) {
+    showErrorDialog(host, content, "configurationTemplate.importHeading");
+    return;
+  }
+
+  showConfirmDialog(
     host,
-    html`${dialogStyle}
-      <div class="ac-body">
-        <span>${message}</span>
-        ${location ? html`<span>${location}</span>` : ``}
-        ${preview ? getSkippedTemplate(asset, preview, configuration) : ``}
-      </div>`,
-    "configurationTemplate.importHeading"
+    html`
+      <or-vaadin-confirm-dialog>
+        ${getConfirmDialogContent(
+          "error tertiary",
+          "configurationTemplate.importHeading",
+          content,
+          "close",
+          html`
+            <or-vaadin-button theme="tertiary contrast" slot="cancel-button" @click=${() => onBack()}>
+              <or-translate value="configurationTemplate.back"></or-translate>
+            </or-vaadin-button>
+          `
+        )}
+      </or-vaadin-confirm-dialog>
+    `
   );
 }
 
