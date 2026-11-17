@@ -67,6 +67,8 @@ public class ManagerWebService extends WebService {
   public static final String OR_ROOT_REDIRECT_PATH_DEFAULT = "/manager";
 
   public static final String API_PATH = "/api";
+  public static final String SHARED_PATH = "/shared";
+  public static final Path SHARED_SOURCE_DOCROOT = Paths.get("ui/app/shared");
   private static final Logger LOG = Logger.getLogger(ManagerWebService.class.getName());
   protected boolean initialised;
   protected Path builtInAppDocRoot;
@@ -111,6 +113,18 @@ public class ManagerWebService extends WebService {
     Application application = new WebApplication(container, apiClasses, singletons);
 
     deployJaxRsApplication(application, API_PATH, "Manager HTTP API", 0, true, null);
+
+    // In dev mode serve the shared files from source so a change needs no rebuild
+    if (Config.isDevMode() && Files.isDirectory(SHARED_SOURCE_DOCROOT)) {
+      LOG.info("Serving shared files from: " + SHARED_SOURCE_DOCROOT.toAbsolutePath());
+      deployFileServlet(
+          SHARED_PATH,
+          "Shared Files",
+          new ResourceSource[] {new FileResource(SHARED_SOURCE_DOCROOT)},
+          null,
+          null,
+          null);
+    }
 
     if (Files.isDirectory(builtInAppDocRoot)) {
       resourceSources.add(new FileResource(builtInAppDocRoot));
