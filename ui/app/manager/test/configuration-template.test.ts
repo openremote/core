@@ -47,6 +47,7 @@ async function selectTemplateFile(page: Page, assetViewer: AssetViewer, name: st
     .getConfigurationTemplateFileInput()
     .setInputFiles({ name, mimeType: "application/json", buffer: Buffer.from(content) });
   await page.getByRole("dialog").getByRole("button", { name: "Next" }).click();
+  await expect(page.getByRole("dialog").getByRole("button", { name: "Select file" })).toHaveCount(0);
 }
 
 /**

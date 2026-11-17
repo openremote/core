@@ -95,7 +95,7 @@ Stories call `getORStorybookHelpers(tagName)` (from `ui/component/storybook-util
 - **Test Naming:** `test.describe` blocks describe a feature. Tests should be named starting with "should ...".
 - **Test Structure:** Keep tests flat by default. Omit top-level `test.describe` blocks. If grouping is needed, target a specific feature (e.g., filtering notifications) rather than a parent concept like the whole page. Example: `test.describe("Filter Notifications", ...)` instead of `test.describe("Notifications", ...)`.
 - **Regression Tests:** Every bug fix ships with a test that fails without it. Name it after the behaviour that should hold rather than the defect, and record what used to go wrong in a comment on the assertion that catches it.
-- **Dialogs:** A Vaadin dialog renders its overlay in the top layer, so the `role="dialog"` host itself never counts as visible; assert on elements inside it, or use `toHaveCount`. Confirm dialogs have the role `alertdialog`.
+- **Dialogs:** A Vaadin dialog renders its overlay in the top layer, so the `role="dialog"` host itself never counts as visible; assert on elements inside it, or use `toHaveCount`. A closed dialog stays in the page until its closing animation ends, so wait for it to go before locating a dialog again. Confirm dialogs have the role `alertdialog`.
 - **Translated text:** `getByText` cannot find text rendered by `or-translate`; locate the element with a `hasText` filter instead, or use role names, which do include it.
 
 ### Fixtures
