@@ -367,7 +367,7 @@ public class EmailNotificationHandler implements NotificationHandler {
     }
 
     if (devMode && mappedTargets.isEmpty() && targets != null && !targets.isEmpty()) {
-      // Keep the no-targets behaviour identical to production but make the dropped notification
+      // Keep the no-targets behavior identical to production but make the dropped notification
       // visible
       LOG.info(
           "Dev mode: no email recipients mapped for email notification, original targets=["

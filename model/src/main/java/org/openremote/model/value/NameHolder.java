@@ -28,7 +28,7 @@ import com.fasterxml.jackson.databind.util.StdConverter;
  */
 public interface NameHolder {
 
-  /** This class handles serialising {@link ValueDescriptor}s as strings */
+  /** This class handles serializing {@link ValueDescriptor}s as strings */
   class NameHolderToStringConverter extends StdConverter<NameHolder, String> {
 
     @Override

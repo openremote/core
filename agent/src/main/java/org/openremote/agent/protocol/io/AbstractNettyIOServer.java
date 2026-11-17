@@ -121,7 +121,7 @@ public abstract class AbstractNettyIOServer<
                 }
 
                 if (future.isSuccess()) {
-                  LOG.log(Level.INFO, "Connection initialising: " + getSocketAddressString());
+                  LOG.log(Level.INFO, "Connection initializing: " + getSocketAddressString());
                   reconnectTask = null;
                   reconnectDelayMilliseconds = INITIAL_RECONNECT_DELAY_MILLIS;
                 } else if (future.cause() != null) {
@@ -147,7 +147,7 @@ public abstract class AbstractNettyIOServer<
               });
 
     } catch (Exception e) {
-      LOG.log(Level.SEVERE, "An error occurred whilst starting the server so shutting down", e);
+      LOG.log(Level.SEVERE, "An error occurred while starting the server so shutting down", e);
       stop();
     }
   }
@@ -301,10 +301,10 @@ public abstract class AbstractNettyIOServer<
   }
 
   /**
-   * Initialise the specified client channel (will be called when a new client connection is made)
+   * Initialize the specified client channel (will be called when a new client connection is made)
    */
   protected void initClientChannel(U channel) {
-    LOG.fine("Client initialising: " + getClientDescriptor(channel));
+    LOG.fine("Client initializing: " + getClientDescriptor(channel));
 
     // Add handler to track when a channel becomes active and to handle exceptions
     channel
@@ -366,7 +366,7 @@ public abstract class AbstractNettyIOServer<
 
   protected void onClientDisconnected(U client) {
     LOG.fine("Client disconnected: " + getClientDescriptor(client));
-    // Channel group manages removal of stale channels but whilst we're here
+    // Channel group manages removal of stale channels but while we're here
     allChannels.remove(client);
     sendClientConnectionStatus(client, ConnectionStatus.DISCONNECTED);
   }

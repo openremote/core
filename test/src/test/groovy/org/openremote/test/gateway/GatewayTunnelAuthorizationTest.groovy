@@ -278,7 +278,7 @@ class GatewayTunnelAuthorizationTest extends Specification implements ManagerCon
     SharedEvent response
     String messageId = request.messageID
     if (request instanceof GatewayInitStartEvent) {
-      // The gateway has no assets of its own to synchronise
+      // The gateway has no assets of its own to synchronize
       response = new AssetsEvent([])
       messageId = GatewayConnector.ASSET_READ_EVENT_NAME_INITIAL
     } else if (request instanceof GatewayCapabilitiesRequestEvent) {

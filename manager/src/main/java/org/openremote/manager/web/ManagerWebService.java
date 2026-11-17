@@ -170,7 +170,7 @@ public class ManagerWebService extends WebService {
   public void addApiClasses(Class<?> apiClass) {
     if (this.initialised) {
       throw new IllegalStateException(
-          "API classes must be added before the service is initialised");
+          "API classes must be added before the service is initialized");
     }
     apiClasses.add(apiClass);
   }
@@ -179,7 +179,7 @@ public class ManagerWebService extends WebService {
   public void addApiSingleton(Object singleton) {
     if (this.initialised) {
       throw new IllegalStateException(
-          "API singletons must be added before the service is initialised");
+          "API singletons must be added before the service is initialized");
     }
     apiSingletons.add(singleton);
   }

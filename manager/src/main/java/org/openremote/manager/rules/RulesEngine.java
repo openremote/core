@@ -532,7 +532,7 @@ public class RulesEngine<T extends Ruleset> {
     Set<AttributeInfo> updateInfosCopy;
     Set<AttributeInfo> retractInfosCopy;
 
-    // Synchronise attribute events and states
+    // Synchronize attribute events and states
     synchronized (insertInfos) {
       insertInfosCopy = new HashSet<>(insertInfos);
       updateInfosCopy = new HashSet<>(updateInfos);

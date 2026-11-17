@@ -571,7 +571,7 @@ public class HTTPProtocol extends AbstractProtocol<HTTPAgent, HTTPAgentLink> {
                     LOG.log(
                         Level.WARNING,
                         prefixLogMessage(
-                            "Exception thrown whilst processing polling response ["
+                            "Exception thrown while processing polling response ["
                                 + (e.getCause() != null
                                     ? e.getCause().getMessage()
                                     : e.getMessage())
@@ -583,7 +583,7 @@ public class HTTPProtocol extends AbstractProtocol<HTTPAgent, HTTPAgentLink> {
             LOG.log(
                 Level.WARNING,
                 prefixLogMessage(
-                    "Exception thrown whilst processing polling response ["
+                    "Exception thrown while processing polling response ["
                         + (e.getCause() != null ? e.getCause().getMessage() : e.getMessage())
                         + "]: "
                         + clientRequest.requestTarget.getUriBuilder().build().toString()));
@@ -616,7 +616,7 @@ public class HTTPProtocol extends AbstractProtocol<HTTPAgent, HTTPAgentLink> {
       LOG.log(
           Level.WARNING,
           prefixLogMessage(
-              "Exception thrown whilst doing polling request ["
+              "Exception thrown while doing polling request ["
                   + (e.getCause() != null ? e.getCause().getMessage() : e.getMessage())
                   + "]: "
                   + clientRequest.requestTarget.getUriBuilder().build().toString()));
@@ -651,7 +651,7 @@ public class HTTPProtocol extends AbstractProtocol<HTTPAgent, HTTPAgentLink> {
     try (Response response = clientRequest.invoke(valueStr)) {
       responseConsumer.accept(response);
     } catch (Exception e) {
-      LOG.log(Level.SEVERE, "Exception thrown whilst doing attribute write request", e);
+      LOG.log(Level.SEVERE, "Exception thrown while doing attribute write request", e);
     }
   }
 
@@ -680,7 +680,7 @@ public class HTTPProtocol extends AbstractProtocol<HTTPAgent, HTTPAgentLink> {
           value = response.readEntity(String.class);
         }
       } catch (Exception e) {
-        LOG.log(Level.WARNING, "Error occurred whilst trying to read response body", e);
+        LOG.log(Level.WARNING, "Error occurred while trying to read response body", e);
         response.close();
       }
     } else {

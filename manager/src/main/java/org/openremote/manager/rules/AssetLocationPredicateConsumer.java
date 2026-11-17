@@ -24,7 +24,7 @@ import java.util.List;
 public interface AssetLocationPredicateConsumer {
 
   /**
-   * Called when one or more asset's location predicate rules change; the initialising flag
+   * Called when one or more asset's location predicate rules change; the initializing flag
    * indicates if the
    */
   void accept(RulesEngine t, List<RulesEngine.AssetLocationPredicates> u);

@@ -175,7 +175,7 @@ public class InputProcessor extends ChannelProcessor {
   @Override
   public List<VelbusPacket> getStatusRequestPackets(VelbusDevice device) {
 
-    // Initialise basic state as disabled addresses don't broadcast this info
+    // Initialize basic state as disabled addresses don't broadcast this info
     for (int i = 1; i <= getMaxChannelNumber(device.getDeviceType()); i++) {
       device.setProperty("CH" + i, ChannelState.RELEASED);
       device.setProperty("CH" + i + "_ENABLED", false);
