@@ -16,6 +16,7 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
+import { normalizeTimePresetKey } from "@openremote/core";
 import { css, html, type TemplateResult } from "lit";
 import { customElement, query } from "lit/decorators.js";
 import { WidgetSettings } from "../util/widget-settings";
@@ -204,10 +205,10 @@ export class ChartSettings extends WidgetSettings {
       ];
     };
     // Determine the selected timeframe
+    const timePresetKey = normalizeTimePresetKey(this.widgetConfig?.defaultTimePresetKey);
     const timePrefix =
-      this.timePrefixOptions.find((prefix) => this.widgetConfig?.defaultTimePresetKey?.startsWith(prefix)) ??
-      this.timePrefixOptions[0];
-    let [_, timeWindow] = this.widgetConfig?.defaultTimePresetKey?.split(timePrefix);
+      this.timePrefixOptions.find((prefix) => timePresetKey.startsWith(prefix)) ?? this.timePrefixOptions[0];
+    let [_, timeWindow] = timePresetKey.split(timePrefix);
     if (!timeWindow || !this.timeWindowOptions.has(timeWindow))
       timeWindow = Array.from(this.timeWindowOptions.keys())[0];
 
@@ -697,7 +698,7 @@ export class ChartSettings extends WidgetSettings {
   }
 
   protected onTimePrefixSelect(ev: Event) {
-    let oldValue = this.widgetConfig.defaultTimePresetKey;
+    let oldValue = normalizeTimePresetKey(this.widgetConfig.defaultTimePresetKey);
     const newPrefix = (ev.currentTarget as OrVaadinSelect).value;
     const prefixOptions = this.timePrefixOptions;
     if (!prefixOptions.find((o) => oldValue.includes(o))) {
@@ -711,7 +712,7 @@ export class ChartSettings extends WidgetSettings {
   }
 
   protected onTimeWindowSelect(ev: Event) {
-    let oldValue = this.widgetConfig.defaultTimePresetKey;
+    let oldValue = normalizeTimePresetKey(this.widgetConfig.defaultTimePresetKey);
     const newWindow = (ev.currentTarget as OrVaadinSelect).value;
     const windowOptions = Array.from(this.timeWindowOptions.keys()).sort((a, b) => b.length - a.length);
     if (!windowOptions.find((o) => oldValue.includes(o))) {

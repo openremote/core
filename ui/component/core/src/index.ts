@@ -35,6 +35,7 @@ export * from "./asset-mixin";
 export * from "./console";
 export * from "./event";
 export * from "./defaults";
+export * from "./time-window";
 
 export const DEFAULT_ICONSET = "mdi";
 export const OPENREMOTE_CLIENT_ID = "openremote";

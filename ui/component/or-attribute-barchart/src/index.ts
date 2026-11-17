@@ -31,7 +31,17 @@ import {
   DatapointInterval,
   type ValueDatapoint,
 } from "@openremote/model";
-import manager, { DefaultColor3, DefaultColor4, Util } from "@openremote/core";
+import manager, {
+  DefaultColor3,
+  DefaultColor4,
+  getTimeWindowDates,
+  normalizeTimePrefix,
+  shiftTimeWindowDates,
+  TIME_PREFIXES,
+  type TimeDirection,
+  TimePrefix,
+  Util,
+} from "@openremote/core";
 import * as echarts from "echarts/core";
 import {
   type DatasetComponentOption,
@@ -639,9 +649,11 @@ export class OrAttributeBarChart extends OrElement {
     const menuItems: MenuBarItem[] = [
       {
         component: createMenuBarItem(
-          html`<or-translate value=${this.timeframe ? "dashboard.customTimeSpan" : this.timePrefixKey}></or-translate>`
+          html`<or-translate
+            value=${this.timeframe ? "dashboard.customTimeSpan" : normalizeTimePrefix(this.timePrefixKey ?? "")}
+          ></or-translate>`
         ),
-        children: this.timePrefixOptions.map((o) => ({
+        children: this.timePrefixOptions.map(normalizeTimePrefix).map((o) => ({
           type: "prefix",
           value: o,
           component: createMenuBarItem(html`<or-translate value=${o}></or-translate>`),
@@ -694,14 +706,14 @@ export class OrAttributeBarChart extends OrElement {
           class="button button-icon"
           ?disabled="${disabled}"
           icon="chevron-left"
-          @click="${() => this._shiftTimeframe(this.timeframe ? this.timeframe[0] : new Date(this._startOfPeriod!), this.timeframe ? this.timeframe[1] : new Date(this._endOfPeriod!), this.timeWindowKey!, "previous")}"
+          @click="${() => this._shiftTimeframe(this.timeframe ? this.timeframe[0] : new Date(this._startOfPeriod!), this.timeframe ? this.timeframe[1] : new Date(this._endOfPeriod!), this.timeWindowKey!, TimePrefix.LAST)}"
         ></or-icon>
         <!-- Scroll right button -->
         <or-icon
           class="button button-icon"
           ?disabled="${disabled}"
           icon="chevron-right"
-          @click="${() => this._shiftTimeframe(this.timeframe ? this.timeframe[0] : new Date(this._startOfPeriod!), this.timeframe ? this.timeframe[1] : new Date(this._endOfPeriod!), this.timeWindowKey!, "next")}"
+          @click="${() => this._shiftTimeframe(this.timeframe ? this.timeframe[0] : new Date(this._startOfPeriod!), this.timeframe ? this.timeframe[1] : new Date(this._endOfPeriod!), this.timeWindowKey!, TimePrefix.NEXT)}"
         ></or-icon>
         <!-- Button that opens custom time selection or restores to widget setting-->
         <or-icon
@@ -998,63 +1010,34 @@ export class OrAttributeBarChart extends OrElement {
   }
 
   protected _getTimeSelectionDates(timePrefixSelected: string, timeWindowSelected: string): [Date, Date] {
-    let startDate: moment.Moment = moment();
-    let endDate: moment.Moment = moment();
-
-    const timeWindow: [moment.unitOfTime.DurationConstructor, number] | undefined =
-      this.timeWindowOptions?.get(timeWindowSelected);
+    const timeWindow = this.timeWindowOptions?.get(timeWindowSelected);
 
     if (!timeWindow) {
       throw new Error(`Unsupported time window selected: ${timeWindowSelected}`);
     }
 
-    const [unit, value]: [moment.unitOfTime.DurationConstructor, number] = timeWindow;
-
-    switch (timePrefixSelected) {
-      case "this": {
-        if (value === 1) {
-          // For singulars like this hour
-          startDate = moment().startOf(unit);
-          endDate = moment().endOf(unit);
-        } else {
-          // For multiples like this 5 min, put now in the middle
-          startDate = moment().subtract(value * 0.5, unit);
-          endDate = moment().add(value * 0.5, unit);
-        }
-        break;
-      }
-      case "last": {
-        startDate = moment().subtract(value, unit).startOf(unit);
-        if (value === 1) {
-          // For singulars like last hour
-          endDate = moment().startOf(unit);
-        } else {
-          // For multiples like last 5 min
-          endDate = moment();
-        }
-        break;
-      }
-      default: {
-        console.error("Could not get time selection dates. The time prefix was not set correctly.");
-        break;
-      }
-    }
-    return [startDate.toDate(), endDate.toDate()];
+    // A chart of bars keeps its window on whole units, so that the bars fit it
+    return getTimeWindowDates(timePrefixSelected, timeWindow, true);
   }
 
-  protected _shiftTimeframe(currentStart: Date, currentEnd: Date, timeWindowSelected: string, direction: string) {
+  protected _shiftTimeframe(
+    currentStart: Date,
+    currentEnd: Date,
+    timeWindowSelected: string,
+    direction: TimeDirection
+  ) {
     const timeWindow = this.timeWindowOptions.get(timeWindowSelected);
 
     if (!timeWindow) {
       throw new Error(`Unsupported time window selected: ${timeWindowSelected}`);
     }
 
-    const [unit, value] = timeWindow;
-    const newStart = moment(currentStart);
-    direction === "previous" ? newStart.subtract(value, unit) : newStart.add(value, unit);
-    const newEnd = moment(currentEnd);
-    direction === "previous" ? newEnd.subtract(value, unit) : newEnd.add(value, unit);
-    this.timeframe = [newStart.toDate(), newEnd.toDate()];
+    this.timeframe = shiftTimeWindowDates(
+      currentStart,
+      currentEnd,
+      this._isCustomWindow ? undefined : timeWindow,
+      direction
+    );
   }
 
   protected _getInterval(
@@ -1083,8 +1066,8 @@ export class OrAttributeBarChart extends OrElement {
           momentFormat: "minutes",
           millis: 1800000,
         };
-      } else if (diffInHours <= 24) {
-        // hour if up to one day
+      } else if (diffInHours <= 25) {
+        // hour if up to one day, which lasts 25 hours when the clocks go back
         return {
           displayName: "hour-auto",
           steps: 1,
@@ -1092,8 +1075,8 @@ export class OrAttributeBarChart extends OrElement {
           momentFormat: "hours",
           millis: 3600000,
         };
-      } else if (diffInHours <= 744) {
-        // one day if up to one month
+      } else if (diffInHours <= 745) {
+        // one day if up to one month, which lasts 745 hours when the clocks go back in a 31 day month
         return {
           displayName: "day-auto",
           steps: 1,
@@ -1101,8 +1084,8 @@ export class OrAttributeBarChart extends OrElement {
           momentFormat: "days",
           millis: 86400000,
         };
-      } else if (diffInHours <= 8760) {
-        // one week if up to 1 year
+      } else if (diffInHours <= 8784) {
+        // one week if up to 1 year, which lasts 8784 hours in a leap year
         return {
           displayName: "week-auto",
           steps: 1,
@@ -1367,19 +1350,6 @@ export class OrAttributeBarChart extends OrElement {
       console.error("Could not update bar chart data; the bar chart is not initialized yet.");
       return;
     }
-    // When data retrieved from HTTP API uses different start-end times, update them.
-    // For example, if 'endOfPeriod' is 18:03, but the interval is 15 min, the latest API datapoint will be from 18:15.
-    const firstEntry = this._data?.[0]?.data as [number, number][] | undefined;
-    if (firstEntry) {
-      const firstTimestamp = firstEntry[0][0];
-      if (firstTimestamp !== this._startOfPeriod) {
-        this._startOfPeriod = firstTimestamp;
-      }
-      const endTimestamp = [...firstEntry].reverse()[0][0];
-      if (endTimestamp !== this._endOfPeriod) {
-        this._endOfPeriod = endTimestamp;
-      }
-    }
 
     // Update ticks / labels
     const xAxisTicks = Math.max(1, (this._endOfPeriod! - this._startOfPeriod!) / this._intervalConfig!.millis - 1);
@@ -1578,8 +1548,9 @@ export class OrAttributeBarChart extends OrElement {
     } as BarChartData;
   }
 
-  public static getDefaultTimePrefixOptions(): string[] {
-    return ["this", "last"];
+  public static getDefaultTimePrefixOptions(): TimePrefix[] {
+    // A bar chart only reads stored datapoints, so it has nothing to show for the next window
+    return TIME_PREFIXES.filter((prefix) => prefix !== TimePrefix.NEXT);
   }
 
   public static getDefaultTimeWindowOptions(): Map<string, [moment.unitOfTime.DurationConstructor, number]> {
