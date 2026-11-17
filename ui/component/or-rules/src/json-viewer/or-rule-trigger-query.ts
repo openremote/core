@@ -17,26 +17,21 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 import { type GeoJSONPoint, type RuleCondition, SunPositionTriggerPosition } from "@openremote/model";
-import { InputType, OrInputChangedEvent } from "@openremote/or-mwc-components/or-mwc-input";
-import { css, html, type PropertyValues } from "lit";
+import { css, html, type TemplateResult, type PropertyValues } from "lit";
 import { OrElement } from "@openremote/or-element";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, property, query, state } from "lit/decorators.js";
 import moment from "moment";
 import { buttonStyle } from "../style";
 import { OrRulesJsonRuleChangedEvent } from "./or-rule-json-viewer";
 import { TimeTriggerType } from "../index";
 import { Util } from "@openremote/core";
-import {
-  type DialogAction,
-  type OrMwcDialog,
-  OrMwcDialogOpenedEvent,
-} from "@openremote/or-mwc-components/or-mwc-dialog";
 import { type OrMap, OrMapClickedEvent } from "@openremote/or-map";
 import { i18next } from "@openremote/or-translate";
 import type { OrVaadinSelect } from "@openremote/or-vaadin-components/or-vaadin-select";
 import { when } from "lit/directives/when.js";
 import { ifDefined } from "lit/directives/if-defined.js";
 import type { OrVaadinTimePicker } from "@openremote/or-vaadin-components/or-vaadin-time-picker";
+import type { OrVaadinDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
 
 // language=CSS
 const style = css`
@@ -90,6 +85,9 @@ export class OrRuleTriggerQuery extends OrElement {
   @state()
   protected triggerOptions: TimeTrigger[];
 
+  @query("#map-modal")
+  protected _mapDialogElem?: OrVaadinDialog;
+
   constructor() {
     super();
     this.triggerOptions = [];
@@ -100,8 +98,6 @@ export class OrRuleTriggerQuery extends OrElement {
       this.triggerOptions.push({ key: opt, value: this.triggerToString(opt) });
     });
     this.selectedTrigger = this.triggerOptions[0];
-
-    this.addEventListener(OrMwcDialogOpenedEvent.NAME, this.initMap);
   }
 
   updated(changedProperties: PropertyValues) {
@@ -123,91 +119,73 @@ export class OrRuleTriggerQuery extends OrElement {
   /* ---------------------- */
 
   initMap() {
-    const modal = this.shadowRoot!.getElementById("map-modal");
-    if (!modal) return;
-
-    const map = modal.shadowRoot!.querySelector(".or-map") as OrMap;
-    if (map) {
-      map.addEventListener(OrMapClickedEvent.NAME, (evt: CustomEvent) => {
-        const lngLat: any = evt.detail.lngLat;
-        this.setLocation({ type: "Point", coordinates: [lngLat.lat, lngLat.lng] });
-        const latElement = modal.shadowRoot!.querySelector(".location-lat") as HTMLInputElement;
-        const lngElement = modal.shadowRoot!.querySelector(".location-lng") as HTMLInputElement;
-        latElement.value = lngLat.lat;
-        lngElement.value = lngLat.lng;
-      });
+    if (!this._mapDialogElem) {
+      console.warn("Could not find map dialog element!");
+      return;
     }
+    const map = this._mapDialogElem.querySelector(".or-map") as OrMap;
+    if (!map) {
+      console.warn("Could not find map within dialog element!");
+      return;
+    }
+    map.addEventListener(OrMapClickedEvent.NAME, (evt: CustomEvent) => {
+      const lngLat: any = evt.detail.lngLat;
+      this.setLocation({ type: "Point", coordinates: [lngLat.lat, lngLat.lng] });
+      const latElement = this._mapDialogElem!.querySelector(".location-lat") as HTMLInputElement;
+      const lngElement = this._mapDialogElem!.querySelector(".location-lng") as HTMLInputElement;
+      latElement.value = lngLat.lat;
+      lngElement.value = lngLat.lng;
+    });
   }
 
-  renderDialogHTML(point: GeoJSONPoint | undefined) {
-    const dialog: OrMwcDialog = this.shadowRoot!.getElementById("map-modal") as OrMwcDialog;
-    if (dialog) {
-      dialog.content = html`
-        <div style="display:grid">
-          <or-map
-            class="or-map"
-            type="VECTOR"
-            style="border: 1px solid #d5d5d5; height: 400px; min-width: 300px; margin-bottom: 20px;"
-          >
-            ${
-              point && point.coordinates
-                ? html`
-                    <or-map-marker
-                      class="or-map-marker"
-                      active
-                      color="#FF0000"
-                      icon="white-balance-sunny"
-                      lat="${point.coordinates[0]}"
-                      lng="${point.coordinates[1]}"
-                    ></or-map-marker>
-                  `
-                : undefined
-            }
-          </or-map>
-          <div class="layout horizontal">
-            <input
-              hidden
-              class="location-lng"
-              required
-              placeholder=" "
-              type="text"
-              .value="${point && point.coordinates ? point.coordinates[0] : null}"
-            />
-            <input
-              hidden
-              class="location-lat"
-              required
-              placeholder=" "
-              type="text"
-              .value="${point && point.coordinates ? point.coordinates[1] : null}"
-            />
-          </div>
+  renderDialogHTML(point: GeoJSONPoint | undefined): TemplateResult {
+    return html`
+      <div style="display:grid">
+        <or-map class="or-map" type="VECTOR" zoom="12" style="border: 1px solid #d5d5d5; aspect-ratio: 1/1;">
+          ${
+            point && point.coordinates
+              ? html`
+                  <or-map-marker
+                    class="or-map-marker"
+                    active
+                    color="#FF0000"
+                    icon="white-balance-sunny"
+                    lat="${point.coordinates[0]}"
+                    lng="${point.coordinates[1]}"
+                  ></or-map-marker>
+                `
+              : undefined
+          }
+        </or-map>
+        <div class="layout horizontal">
+          <input
+            hidden
+            class="location-lng"
+            required
+            placeholder=" "
+            type="text"
+            .value="${point && point.coordinates ? point.coordinates[0] : null}"
+          />
+          <input
+            hidden
+            class="location-lat"
+            required
+            placeholder=" "
+            type="text"
+            .value="${point && point.coordinates ? point.coordinates[1] : null}"
+          />
         </div>
-      `;
-    }
+      </div>
+    `;
   }
 
   /* ----------------------------- */
 
   render() {
-    const modalActions: DialogAction[] = [
-      {
-        actionName: "close",
-        default: true,
-        content: html`<or-mwc-input class="button" .type="${InputType.BUTTON}" label="close"></or-mwc-input>`,
-        action: () => {},
-      },
-    ];
-    const onMapModalOpen = () => {
-      const dialog: OrMwcDialog = this.shadowRoot!.getElementById("map-modal") as OrMwcDialog;
-      if (dialog) {
-        dialog.dismissAction = null;
-        dialog.open();
-        this.renderDialogHTML(this.condition.sun?.location);
-      }
+    const openModal = () => {
+      this._mapDialogElem?.open();
+      this.initMap();
     };
-    // Render dialog on every update (for example when changing location in the modal itself)
-    this.renderDialogHTML(this.condition.sun?.location);
 
     return html`
       <div class="trigger-group">
@@ -249,14 +227,20 @@ export class OrRuleTriggerQuery extends OrElement {
                     >
                       <or-translate slot="label" value="offsetInMinutes"></or-translate>
                     </or-vaadin-number-field>
-                    <or-vaadin-button class="min-width" @click=${() => onMapModalOpen()}>
+                    <or-vaadin-button class="min-width" @click=${() => openModal()}>
                       <or-translate value="location"></or-translate>
                     </or-vaadin-button>
-                    <or-mwc-dialog
-                      id="map-modal"
-                      heading="${i18next.t("pickLocation")}"
-                      .actions="${modalActions}"
-                    ></or-mwc-dialog>
+                    <or-vaadin-dialog id="map-modal" width="512px">
+                      <h2 slot="header-content">
+                        <or-translate value="pickLocation"></or-translate>
+                      </h2>
+                      ${this.renderDialogHTML(this.condition.sun?.location)}
+                      <div slot="footer" style="width: 100%; display: flex; justify-content: end;">
+                        <or-vaadin-button theme="primary" @click=${() => this._mapDialogElem?.close()}>
+                          <or-translate value="close"></or-translate>
+                        </or-vaadin-button>
+                      </div>
+                    </or-vaadin-dialog>
                   `
             }
           `

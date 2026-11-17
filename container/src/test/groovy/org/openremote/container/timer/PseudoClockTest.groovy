@@ -23,15 +23,60 @@ import spock.lang.Specification
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
+import java.util.concurrent.TimeUnit
 
 class PseudoClockTest extends Specification {
 
   TimerService.Clock clock
+  TimeZone originalTimeZone
 
   def setup() {
+    originalTimeZone = TimeZone.getDefault()
     clock = TimerService.Clock.PSEUDO
+    clock.reset()
     clock.init()
     clock.stop()
+  }
+
+  def cleanup() {
+    try {
+      clock.reset()
+    } finally {
+      TimeZone.setDefault(originalTimeZone)
+    }
+  }
+
+  def "initializing the pseudo clock preserves the JVM time zone #zone"() {
+    given:
+    def timeZone = TimeZone.getTimeZone(zone)
+    TimeZone.setDefault(timeZone)
+
+    when:
+    clock.init()
+
+    then:
+    TimeZone.getDefault() == timeZone
+
+    where:
+    zone << ["Europe/Brussels", "America/New_York", "Asia/Kathmandu"]
+  }
+
+  def "setTime respects the #hours hour day on #date in Europe/Brussels"() {
+    given:
+    def zone = ZoneId.of("Europe/Brussels")
+    def startDate = LocalDate.parse(date)
+    def start = clock.setTime(startDate, LocalTime.MIDNIGHT, zone)
+
+    when:
+    def end = clock.setTime(startDate.plusDays(1), LocalTime.MIDNIGHT, zone)
+
+    then:
+    end - start == TimeUnit.HOURS.toMillis(hours)
+
+    where:
+    date | hours
+    "2026-03-29" | 23
+    "2026-10-25" | 25
   }
 
   def "setTime sets #date at midnight in #zone to #expected milliseconds"() {

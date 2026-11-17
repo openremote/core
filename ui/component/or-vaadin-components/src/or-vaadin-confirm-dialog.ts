@@ -55,6 +55,7 @@ export function showConfirmDialog(host: Node, dialog: TemplateResult) {
     return;
   }
   host.appendChild(container);
+  return dialogElem;
 }
 
 /**
@@ -63,50 +64,53 @@ export function showConfirmDialog(host: Node, dialog: TemplateResult) {
  * Example: `getConfirmDialogContent("areYouSure", "deleteWarning", "remove", "cancel")`
  *
  * @param theme - Optional theme to use for the dialog and its buttons (for example 'error').
- * @param header - Dialog header that is either a translation key, or a {@link TemplateResult}
+ * @param header - Dialog header that is either a translation key, or a {@link TemplateResult}. If `undefined` no header is added; set `theme="no-header"` on the dialog to hide the empty header.
  * @param content - Dialog content that is either a translation key, or a {@link TemplateResult}
- * @param confirmKey - Translation key to display inside the "confirm" button. If `undefined` the button will not be visible.
- * @param cancelKey - Translation key to display inside the "cancel" button. If `undefined` the button will not be visible.
- * @param rejectKey - Translation key to display inside the "reject" button. If `undefined` the button will not be visible.
+ * @param confirm - {@link TemplateResult} or translation key to display inside the "confirm" button. If `undefined` the button will not be visible.
+ * @param cancel - {@link TemplateResult} or translation key to display inside the "cancel" button. If `undefined` the button will not be visible.
+ * @param reject - {@link TemplateResult} or translation key to display inside the "reject" button. If `undefined` the button will not be visible.
  */
 export function getConfirmDialogContent(
   theme: string | undefined,
-  header: TemplateResult | string,
+  header: TemplateResult | string | undefined,
   content: TemplateResult | string,
-  confirmKey?: string,
-  cancelKey?: string,
-  rejectKey?: string
+  confirm?: TemplateResult | string,
+  cancel?: TemplateResult | string,
+  reject?: TemplateResult | string
 ): TemplateResult {
   return html`
     ${
       typeof header === "string"
         ? html`<or-translate slot="header" value=${header}></or-translate>`
-        : html`<div slot="header">${header}</div>`
+        : header && html`<div slot="header">${header}</div>`
     }
     ${typeof content === "string" ? html`<or-translate value=${content}></or-translate>` : content}
     ${when(
-      confirmKey,
+      typeof confirm === "string",
       () => html`
         <or-vaadin-button theme=${theme && theme.includes(" ") ? theme : theme + " primary"} slot="confirm-button">
-          <or-translate value=${confirmKey}></or-translate>
+          <or-translate value=${confirm}></or-translate>
         </or-vaadin-button>
-      `
+      `,
+      confirm ? () => confirm : undefined
     )}
     ${when(
-      cancelKey,
+      typeof cancel === "string",
       () => html`
-        <or-vaadin-button theme=${theme ? `tertiary ${theme}` : "tertiary"} slot="cancel-button">
-          <or-translate value=${cancelKey}></or-translate>
+        <or-vaadin-button theme="tertiary contrast" slot="cancel-button">
+          <or-translate value=${cancel}></or-translate>
         </or-vaadin-button>
-      `
+      `,
+      cancel ? () => cancel : undefined
     )}
     ${when(
-      rejectKey,
+      typeof reject === "string",
       () => html`
         <or-vaadin-button theme=${theme ? `tertiary ${theme}` : "tertiary"} slot="reject-button">
-          <or-translate value=${rejectKey}></or-translate>
+          <or-translate value=${reject}></or-translate>
         </or-vaadin-button>
-      `
+      `,
+      reject ? () => reject : undefined
     )}
   `;
 }
@@ -150,10 +154,10 @@ export class OrVaadinConfirmDialog
         }
         ::part(header),
         ::part(footer) {
-          padding: var(--lumo-space-l);
+          padding: var(--lumo-space-m);
         }
         ::part(content) {
-          padding: 0 var(--lumo-space-l);
+          padding: var(--lumo-space-s) var(--lumo-space-m);
         }
       `,
     ];

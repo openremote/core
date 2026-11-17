@@ -60,6 +60,13 @@ public class UsersFacade<T extends Ruleset> extends Users {
 
   @Override
   public Stream<String> getResults(UserQuery userQuery) {
+    // Rule targets can reuse the caller's query. Isolate nested predicates as well, since the
+    // facade and identity provider both modify filters during execution.
+    if (userQuery == null) {
+      throw new IllegalArgumentException("Unable to copy user query");
+    }
+    userQuery = new UserQuery(userQuery);
+
     // Do security checks to ensure correct scoping
     // No restriction for global rulesets
     if (RealmRuleset.class.isAssignableFrom(rulesEngineId.getScope())) {
@@ -71,7 +78,13 @@ public class UsersFacade<T extends Ruleset> extends Users {
                   .orElseThrow(
                       () -> new IllegalArgumentException("Realm ID missing: " + rulesEngineId)));
     } else if (AssetRuleset.class.isAssignableFrom(rulesEngineId.getScope())) {
-      userQuery.realmPredicate = null;
+      // Asset links must not expose users from outside the rule's realm.
+      userQuery.realmPredicate =
+          new RealmPredicate(
+              rulesEngineId
+                  .getRealm()
+                  .orElseThrow(
+                      () -> new IllegalArgumentException("Realm ID missing: " + rulesEngineId)));
       String assetId =
           rulesEngineId
               .getAssetId()
@@ -80,17 +93,35 @@ public class UsersFacade<T extends Ruleset> extends Users {
 
       if (userQuery.pathPredicate == null || userQuery.pathPredicate.path == null) {
         userQuery.pathPredicate = new PathPredicate(assetId);
-      } else {
+      } else if (!Arrays.asList(userQuery.pathPredicate.path).contains(assetId)) {
+        // Retain caller restrictions without duplicating an already supplied scope asset.
         List<String> path = new ArrayList<>(Arrays.asList(userQuery.pathPredicate.path));
         path.add(assetId);
         userQuery.pathPredicate.path = path.toArray(new String[0]);
       }
     }
 
-    // Prevent system users being retrieved
-    userQuery.attributes(
+    // Preserve caller filters and avoid duplicating a full exclusion already supplied by the
+    // caller.
+    UserQuery.AttributeValuePredicate systemAccountExclusion =
         new UserQuery.AttributeValuePredicate(
-            true, new StringPredicate(User.SYSTEM_ACCOUNT_ATTRIBUTE), null));
+            true, new StringPredicate(User.SYSTEM_ACCOUNT_ATTRIBUTE), null);
+    boolean excludesSystemAccounts =
+        userQuery.attributes != null
+            && Arrays.stream(userQuery.attributes)
+                .anyMatch(
+                    attribute ->
+                        attribute.negated
+                            && attribute.value == null
+                            && systemAccountExclusion.name.equals(attribute.name));
+    if (!excludesSystemAccounts) {
+      UserQuery.AttributeValuePredicate[] attributes =
+          userQuery.attributes == null
+              ? new UserQuery.AttributeValuePredicate[1]
+              : Arrays.copyOf(userQuery.attributes, userQuery.attributes.length + 1);
+      attributes[attributes.length - 1] = systemAccountExclusion;
+      userQuery.attributes(attributes);
+    }
 
     // Prevent service users being retrieved
     userQuery.serviceUsers(false);

@@ -1,7 +1,28 @@
-# This workflow only exists to allow manual deployments e.g. to test servers.
+# ---------------------------------------------------------------------------------------------------------------------
+# This environment workflow runs for manual deployments of this repo, it handles:
 #
-# It leverages existing reusable workflows similar to the staging.yml environment workflow but unlike the staging.yml workflow
-# it only includes the required jobs for deployments: install-dist, build-manager-image and deploy.
+# - Building and deploying the selected commit (see deployment.yml for how deployments work)
+#
+# MANUAL TRIGGER
+#
+# The following inputs are available, they override secrets with the same name but not values from the '.ci_cd/env'
+# files:
+#
+# - ENVIRONMENT           - Which environment to deploy (equivalent to deploy/environment in '.ci_cd/ci_cd.json')
+# - MANAGER_TAG           - Which manager docker tag to deploy (equivalent to deploy/managerTag in '.ci_cd/ci_cd.json'),
+#                           leave empty to build a manager image from the checked out commit
+# - CLEAN_INSTALL         - Should the .ci_cd/host_init/clean.sh script be run during deployment (warning this will delete
+#                           assets, rules, etc.)
+# - COMMIT                - Which branch/SHA should be checked out for the deployment (defaults to trigger commit)
+# - OR_HOSTNAME           - FQDN of host to deploy to (e.g. demo.openremote.app)
+# - OR_ADMIN_PASSWORD     - The admin password to set for clean installs
+#
+# When triggered on a tag the 'workflow_dispatch' deploy entry in '.ci_cd/ci_cd.json' is used instead of ENVIRONMENT
+# and MANAGER_TAG.
+#
+# Custom projects use custom-deploy.yml instead.
+# ---------------------------------------------------------------------------------------------------------------------
+
 name: Deploy
 
 on:

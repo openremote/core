@@ -16,7 +16,7 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
-import { GridStack, type GridStackNode } from "gridstack";
+import { GridStack } from "gridstack";
 import { css, html, type PropertyValues, type TemplateResult, unsafeCSS } from "lit";
 import { OrElement } from "@openremote/or-element";
 import { customElement, property, query, state } from "lit/decorators.js";
@@ -25,6 +25,7 @@ import { widgetTypes } from "./index";
 import type { WidgetManifest } from "./util/or-widget";
 import { when } from "lit/directives/when.js";
 import { repeat } from "lit/directives/repeat.js";
+import { keyed } from "lit/directives/keyed.js";
 import type { DashboardGridNode } from "./or-dashboard-preview";
 
 // TODO: Add webpack/rollup to build so consumers aren't forced to use the same tooling
@@ -74,13 +75,16 @@ export class OrDashboardBrowser extends OrElement {
   public itemSize = 134;
 
   @state()
-  protected sidebarGrid?: GridStack;
+  protected sidebarGrid?: GridStack | null;
 
   @state()
-  protected backgroundGrid?: GridStack;
+  protected backgroundGrid?: GridStack | null;
 
   @state()
   protected items: Map<string, WidgetManifest> = new Map(widgetTypes);
+
+  @state()
+  protected rebuildNonce = 0;
 
   @query("#sidebarElement")
   protected sidebarElem?: HTMLDivElement;
@@ -110,9 +114,7 @@ export class OrDashboardBrowser extends OrElement {
   /* --------------------------------- */
 
   protected renderGrid() {
-    if (this.sidebarGrid !== undefined) {
-      this.sidebarGrid.destroy(false);
-    }
+    this.sidebarGrid?.destroy(false);
     this.sidebarGrid = GridStack.init(
       {
         acceptWidgets: false,
@@ -130,25 +132,16 @@ export class OrDashboardBrowser extends OrElement {
       this.sidebarElem
     );
 
-    // If an item gets dropped on the main grid, the dragged item needs to be reset to the sidebar.
-    // This is done by removing the Widget type from the list, waiting for a Lit lifecycle, and adding it back again.
-    // Unfortunately, this is required due to HTML elements having to be rendered before it can "initialize the grid")
-    // @ts-ignore typechecking since we assume they are not undefined
-    this.sidebarGrid.on("removed", (_event: Event, items: GridStackNode[]) => {
-      const originalItems = new Map(this.items);
-      const removedTypes = items.map((i) => (i as DashboardGridNode).widgetTypeId);
-      removedTypes.forEach((typeId) => this.items.delete(typeId));
-      this.items = new Map(this.items);
-      this.updateComplete.then(() => {
-        this.items = originalItems;
-        this.updateComplete.then(() => this.renderGrid());
-      });
+    // If an item gets dropped on the main grid, the dragged card needs to be reset to the sidebar.
+    // Therefore, we bump the nonce variable, and rebuild both grids from scratch using the keyed() in render().
+    // A clean rebuild lets GridStack auto-position every card back in its original slot.
+    this.sidebarGrid?.on("removed", () => {
+      this.rebuildNonce++;
+      this.updateComplete.then(() => this.renderGrid());
     });
 
     // Separate Static Background grid (to make it look like the items duplicate)
-    if (this.backgroundGrid !== undefined) {
-      this.backgroundGrid.destroy(false);
-    }
+    this.backgroundGrid?.destroy(false);
     this.backgroundGrid = GridStack.init(
       {
         acceptWidgets: false,
@@ -165,22 +158,27 @@ export class OrDashboardBrowser extends OrElement {
   protected render() {
     return html`
       <div id="sidebar">
-        <div id="sidebarElement" class="grid-stack" style="width: 100%; z-index: 3;">
-          ${repeat(
-            this.items,
-            ([type]) => type,
-            ([type, manifest]) => this._getSidebarItemTemplate(type, type, manifest)
-          )}
-          ${when(this.items.size % 2 !== 0, () => this._getEmptyItemTemplate())}
-        </div>
-        <div id="sidebarBgElement" class="grid-stack" style="width: 100%; z-index: 2">
-          ${repeat(
-            this.items,
-            ([type]) => type,
-            ([type, manifest]) => this._getSidebarItemTemplate(`bg-${type}`, type, manifest)
-          )}
-          ${when(this.items.size % 2 !== 0, () => this._getEmptyItemTemplate())}
-        </div>
+        ${keyed(
+          this.rebuildNonce,
+          html`
+            <div id="sidebarElement" class="grid-stack" style="width: 100%; z-index: 3;">
+              ${repeat(
+                this.items,
+                ([type]) => type,
+                ([type, manifest]) => this._getSidebarItemTemplate(type, type, manifest)
+              )}
+              ${when(this.items.size % 2 !== 0, () => this._getEmptyItemTemplate())}
+            </div>
+            <div id="sidebarBgElement" class="grid-stack" style="width: 100%; z-index: 2">
+              ${repeat(
+                this.items,
+                ([type]) => type,
+                ([type, manifest]) => this._getSidebarItemTemplate(`bg-${type}`, type, manifest)
+              )}
+              ${when(this.items.size % 2 !== 0, () => this._getEmptyItemTemplate())}
+            </div>
+          `
+        )}
       </div>
     `;
   }

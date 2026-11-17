@@ -22,6 +22,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import org.openremote.model.ContainerService;
 import org.openremote.model.datapoint.ValueDatapoint;
+import org.openremote.model.datapoint.query.AssetDatapointQuery;
 
 public interface ProtocolDatapointService extends ContainerService {
 
@@ -34,4 +35,7 @@ public interface ProtocolDatapointService extends ContainerService {
   void upsertValues(
       String assetId, String attributeName, List<ValueDatapoint<?>> valuesAndTimestamps)
       throws IllegalStateException;
+
+  List<ValueDatapoint<?>> queryDatapoints(
+      String assetId, String attributeName, AssetDatapointQuery datapointQuery);
 }

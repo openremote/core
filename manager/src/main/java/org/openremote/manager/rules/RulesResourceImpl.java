@@ -41,6 +41,7 @@ import org.openremote.model.rules.*;
 import org.openremote.model.rules.geofence.GeofenceDefinition;
 import org.openremote.model.security.ClientRole;
 import org.openremote.model.security.Realm;
+import org.openremote.model.util.TextUtil;
 
 public class RulesResourceImpl extends ManagerWebResource implements RulesResource {
 
@@ -117,6 +118,18 @@ public class RulesResourceImpl extends ManagerWebResource implements RulesResour
   protected void rejectLegacyJavascriptCreate(Ruleset ruleset) {
     if (ruleset != null && ruleset.getLang() == Ruleset.Lang.JAVASCRIPT) {
       throw new WebApplicationException(LEGACY_JAVASCRIPT_RULESET_MUTATION_ERROR, BAD_REQUEST);
+    }
+  }
+
+  /**
+   * A create must not carry an ID, otherwise the merge would overwrite whichever ruleset holds that
+   * ID, bypassing the access checks done on the existing ruleset by the update endpoints.
+   */
+  protected void rejectIdOnCreate(Ruleset ruleset) {
+    if (ruleset.getId() != null) {
+      throw new WebApplicationException(
+          "Ruleset ID must not be set on create, use update to modify an existing ruleset",
+          BAD_REQUEST);
     }
   }
 
@@ -242,6 +255,7 @@ public class RulesResourceImpl extends ManagerWebResource implements RulesResour
     if (!isSuperUser()) {
       throw new WebApplicationException(Response.Status.FORBIDDEN);
     }
+    rejectIdOnCreate(ruleset);
     rejectLegacyJavascriptCreate(ruleset);
     ruleset = rulesetStorageService.merge(ruleset);
     return ruleset.getId();
@@ -295,6 +309,7 @@ public class RulesResourceImpl extends ManagerWebResource implements RulesResour
               + getUsername());
       throw new WebApplicationException(Response.Status.FORBIDDEN);
     }
+    rejectIdOnCreate(ruleset);
     rejectLegacyJavascriptCreate(ruleset);
 
     // Only super users can create/modify groovy rules
@@ -387,7 +402,7 @@ public class RulesResourceImpl extends ManagerWebResource implements RulesResour
   @Override
   public long createAssetRuleset(@BeanParam RequestParams requestParams, AssetRuleset ruleset) {
     String assetId = ruleset.getAssetId();
-    if (assetId == null || assetId.length() == 0) {
+    if (TextUtil.isNullOrEmpty(assetId)) {
       throw new WebApplicationException("Missing asset identifier value", BAD_REQUEST);
     }
     Asset<?> asset = assetStorageService.find(assetId, false);
@@ -400,6 +415,7 @@ public class RulesResourceImpl extends ManagerWebResource implements RulesResour
     if (isRestrictedUser() && !assetStorageService.isUserAsset(getUserId(), asset.getId())) {
       throw new WebApplicationException(Response.Status.FORBIDDEN);
     }
+    rejectIdOnCreate(ruleset);
     rejectLegacyJavascriptCreate(ruleset);
 
     // Only super users can create/modify groovy rules

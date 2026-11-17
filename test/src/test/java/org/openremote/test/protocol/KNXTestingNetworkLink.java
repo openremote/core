@@ -34,8 +34,8 @@ public class KNXTestingNetworkLink extends AbstractLink {
 
   private static final Logger LOG = Logger.getLogger(KNXTestingNetworkLink.class.getName());
 
-  private static KNXTestingNetworkLink instance;
-  private String lastDataReceived;
+  private static volatile KNXTestingNetworkLink instance;
+  private volatile String lastDataReceived;
 
   public KNXTestingNetworkLink(Object... args) throws KNXFormatException {
     super(

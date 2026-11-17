@@ -56,6 +56,10 @@ public class NameValuePredicate {
   public static class Path {
     @JsonValue Object[] paths; // ints for index, string for keys
 
+    public Path(Path source) {
+      paths = source.paths == null ? null : source.paths.clone();
+    }
+
     @JsonCreator
     protected Path(@JsonProperty("paths") Object[] paths) {
       this.paths = paths;
@@ -95,6 +99,14 @@ public class NameValuePredicate {
   public ValuePredicate value;
 
   public NameValuePredicate() {}
+
+  /** Copies the name, value and path so later edits do not affect the source predicate. */
+  public NameValuePredicate(NameValuePredicate source) {
+    name = (StringPredicate) ValuePredicate.copy(source.name);
+    negated = source.negated;
+    path = source.path == null ? null : new Path(source.path);
+    value = ValuePredicate.copy(source.value);
+  }
 
   public NameValuePredicate(NameHolder nameHolder, ValuePredicate value) {
     this(nameHolder.getName(), value);

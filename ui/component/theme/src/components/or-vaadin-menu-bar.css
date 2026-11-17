@@ -18,6 +18,13 @@
  */
 @import "@vaadin/vaadin-lumo-styles/components/menu-bar.css";
 
+/* The menu bar clips its buttons at its edges, so draw their focus ring inside */
+@media lumo_components_menu-bar-button-internal {
+  :host([focus-ring]) {
+    box-shadow: inset 0 0 0 var(--_focus-ring-width) var(--_focus-ring-color);
+  }
+}
+
 :root::before,
 :host::before {
   --_lumo-vaadin-menu-bar-inject: 1;
@@ -36,5 +43,6 @@
     lumo_components_item, lumo_components_context-menu-item, lumo_components_menu-bar-item;
 
   --_lumo-vaadin-menu-bar-button-inject: 1;
-  --_lumo-vaadin-menu-bar-button-inject-modules: lumo_components_button, lumo_components_menu-bar-button;
+  --_lumo-vaadin-menu-bar-button-inject-modules:
+    lumo_components_button, lumo_components_menu-bar-button, lumo_components_menu-bar-button-internal;
 }

@@ -246,7 +246,7 @@ export class OrDashboardPreview extends translate(i18next)(OrElement) {
   @state()
   protected isLoading: boolean = false;
 
-  protected grid?: GridStack;
+  protected grid?: GridStack | null;
   protected latestDragWidgetStart?: Date;
 
   /* ------------------------------------------- */
@@ -459,7 +459,7 @@ export class OrDashboardPreview extends translate(i18next)(OrElement) {
           draggable: {
             appendTo: "parent", // Required to work, seems to be Shadow DOM related.
           },
-          float: true,
+          mode: "float",
           margin: 5,
           resizable: {
             handles: "all",
@@ -471,15 +471,17 @@ export class OrDashboardPreview extends translate(i18next)(OrElement) {
         gridElement!
       );
 
-      gridElement!.style.backgroundSize = "" + this.grid.cellWidth() + "px " + this.grid.getCellHeight() + "px";
+      if (this.grid) {
+        gridElement!.style.backgroundSize = "" + this.grid.cellWidth() + "px " + this.grid.getCellHeight() + "px";
+      }
       gridElement!.style.height = "100%";
 
       // When an item gets dropped ontop of the grid. GridStack docs say:
       // "called when an item has been dropped and accepted over a grid. If the item came from another grid, the previous widget node info will also be sent (but dom item long gone)."
-      this.grid.on("dropped", (ev: Event, prevWidget: any, newWidget: GridStackNode | undefined) =>
+      this.grid?.on("dropped", (ev: Event, prevWidget: any, newWidget: GridStackNode | undefined) =>
         this.onWidgetDrop(ev, prevWidget, newWidget as DashboardGridNode)
       );
-      this.grid.on("change", (_event: Event, items: any) => {
+      this.grid?.on("change", (_event: Event, items: any) => {
         if (this.template != null && this.template.widgets != null) {
           (items as GridStackNode[]).forEach((node) => {
             const foundWidget: DashboardWidget | undefined = this.template?.widgets?.find((widget) => {
@@ -493,10 +495,10 @@ export class OrDashboardPreview extends translate(i18next)(OrElement) {
           this.dispatchEvent(new CustomEvent("changed", { detail: { template: this.template } }));
         }
       });
-      this.grid.on("resizestart", (_event: Event) => {
+      this.grid?.on("resizestart", (_event: Event) => {
         this.latestDragWidgetStart = new Date();
       });
-      this.grid.on("resizestop", (_event: Event) => {
+      this.grid?.on("resizestop", (_event: Event) => {
         setTimeout(() => {
           this.latestDragWidgetStart = undefined;
         }, 200);

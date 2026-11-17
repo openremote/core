@@ -20,9 +20,14 @@ package org.openremote.test.provisioning
 
 import com.hivemq.client.internal.mqtt.mqtt3.Mqtt3AsyncClientView
 import com.hivemq.client.internal.mqtt.mqtt3.Mqtt3ClientConfigView
+import com.hivemq.client.mqtt.datatypes.MqttQos
 import com.hivemq.client.mqtt.MqttClientConfig
 import com.hivemq.client.mqtt.MqttClientConnectionConfig
 import io.netty.channel.socket.SocketChannel
+import org.bouncycastle.openssl.PEMKeyPair
+import org.bouncycastle.openssl.PEMParser
+import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter
+import org.openremote.model.protocol.mqtt.Topic
 import org.apache.activemq.artemis.spi.core.protocol.RemotingConnection
 import org.keycloak.admin.client.resource.RealmResource
 import org.keycloak.representations.idm.RoleRepresentation
@@ -59,7 +64,10 @@ import org.openremote.setup.integration.ManagerTestSetup
 import spock.lang.Specification
 import spock.util.concurrent.PollingConditions
 
+import java.nio.charset.StandardCharsets
+import java.security.Signature
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
 import java.util.function.Consumer
 
 import static org.openremote.manager.mqtt.MQTTBrokerService.getConnectionIDString
@@ -100,7 +108,7 @@ class UserAndAssetProvisioningTest extends Specification implements ManagerConta
     // asynchronously and a response published before then is lost, so requests must await the broker side
     def responseSubscribed = { String clientId, String responseTopic ->
       def brokerConnection = mqttBrokerService.getConnectionFromClientID(clientId)
-      brokerConnection != null && userAssetProvisioningMQTTHandler.responseSubscribedConnections.get(responseTopic) === brokerConnection
+      brokerConnection != null && userAssetProvisioningMQTTHandler.responseTopicOwners.get(responseTopic) === brokerConnection
     }
 
     and: "a realm is created with some custom realm roles"
@@ -193,11 +201,19 @@ class UserAndAssetProvisioningTest extends Specification implements ManagerConta
 
     when: "the client subscribes to the provisioning endpoints"
     List<ProvisioningMessage> device1Responses = new CopyOnWriteArrayList<>()
-    Consumer<MQTTMessage<String>> device1MessageConsumer = { MQTTMessage<String> msg ->
-      device1Responses.add(ValueUtil.parse(msg.payload, ProvisioningMessage.class).orElse(null))
-    }
+    List<X509ProvisioningMessage> device1Proofs = new CopyOnWriteArrayList<>()
     def device1RequestTopic = "$PROVISIONING_TOKEN/$device1UniqueId/$REQUEST_TOKEN".toString()
     def device1ResponseTopic = "$PROVISIONING_TOKEN/$device1UniqueId/$RESPONSE_TOKEN".toString()
+    Consumer<MQTTMessage<String>> device1MessageConsumer = { MQTTMessage<String> msg ->
+      def response = ValueUtil.parse(msg.payload, ProvisioningMessage.class).orElse(null)
+      if (response instanceof X509ProvisioningChallengeResponseMessage) {
+        def proof = signChallenge(response, "device1")
+        device1Proofs.add(proof)
+        device1Client.sendMessage(new MQTTMessage<String>(device1RequestTopic, ValueUtil.asJSON(proof).orElseThrow()))
+      } else {
+        device1Responses.add(response)
+      }
+    }
     device1Client.addMessageConsumer(device1ResponseTopic, device1MessageConsumer)
 
     then: "the subscriptions should succeed"
@@ -235,12 +251,28 @@ class UserAndAssetProvisioningTest extends Specification implements ManagerConta
       assert responseSubscribed(mqttDevice1ClientId, device1ResponseTopic)
     }
 
+    when: "a public certificate alone is submitted before the device has been provisioned"
+    device1Client.sendMessage(new MQTTMessage<String>(device1RequestTopic, ValueUtil.asJSON(
+                    new X509ProvisioningMessage(getClass().getResource("/org/openremote/test/provisioning/device1.pem").text)
+            ).orElseThrow()))
+
+    then: "enrollment is rejected without creating a service user or asset"
+    conditions.eventually {
+      assert device1Responses.size() == 1
+      assert device1Responses[0] instanceof ErrorResponseMessage
+      assert device1Responses[0].error == ErrorResponseMessage.Error.UNAUTHORIZED
+    }
+    assert identityService.identityProvider.getUserByUsername(managerTestSetup.realmBuildingName,
+    User.SERVICE_ACCOUNT_PREFIX + PROVISIONING_USER_PREFIX + device1UniqueId) == null
+    assert assetStorageService.find(UniqueIdentifierGenerator.generateId(provisioningConfig.realm + device1UniqueId)) == null
+
     when: "the client publishes a valid x509 certificate that has been signed by the CA stored in the provisioning config"
+    device1Responses.clear()
     subscribeFailures.clear()
     def existingConnection = mqttBrokerService.getConnectionFromClientID(mqttDevice1ClientId)
     device1Client.sendMessage(
             new MQTTMessage<String>(device1RequestTopic, ValueUtil.asJSON(
-                    new X509ProvisioningMessage(getClass().getResource("/org/openremote/test/provisioning/device1.pem").text)
+                    new X509ProvisioningChallengeRequestMessage(getClass().getResource("/org/openremote/test/provisioning/device1.pem").text)
                     ).orElse(null))
     )
 
@@ -265,6 +297,66 @@ class UserAndAssetProvisioningTest extends Specification implements ManagerConta
       assert mqttBrokerService.getConnectionFromClientID(mqttDevice1ClientId) == existingConnection
     }
 
+    when: "an unrelated anonymous client that does not own the response topic publishes requests"
+    def device1ServiceUser = identityService.identityProvider.getUserByUsername(
+            managerTestSetup.realmBuildingName,
+            User.SERVICE_ACCOUNT_PREFIX + PROVISIONING_USER_PREFIX + device1UniqueId)
+    def attackerConnection = mqttBrokerService.getConnectionFromClientID(mqttDevice1SnoopClientId)
+    def attackerSubject = attackerConnection.subject
+    def device1Pem = getClass().getResource("/org/openremote/test/provisioning/device1.pem").text
+    device1Responses.clear()
+    def proofCount = device1Proofs.size()
+    [
+      new X509ProvisioningMessage(device1Pem),
+      new X509ProvisioningChallengeRequestMessage(device1Pem),
+      device1Proofs.last()
+    ].each { message ->
+      device1SnoopClient.sendMessage(new MQTTMessage<String>(device1RequestTopic,
+              ValueUtil.asJSON(message).orElseThrow()))
+    }
+
+    then: "the broker refuses the publishes so the device's own exchange is never disturbed"
+    // This asserts an absence, so it is a quiet period rather than a wait for something to happen:
+    // the initial delay gives any wrongly processed publish time to produce a response, and the
+    // block then passes on its first poll if nothing arrived.
+    new PollingConditions(initialDelay: 2, timeout: 10, delay: 0.5).eventually {
+      assert device1Responses.isEmpty()
+      assert device1Proofs.size() == proofCount
+    }
+
+    and: "the attacker remains anonymous"
+    assert attackerConnection.subject.is(attackerSubject)
+    assert !mqttBrokerService.getUserConnections(device1ServiceUser.id).contains(attackerConnection)
+    assert !userAssetProvisioningMQTTHandler.canPublish(attackerConnection, null, Topic.parse(device1RequestTopic))
+    assert !defaultMQTTHandler.checkCanPublish(attackerConnection,
+    defaultMQTTHandler.getAuthContextFromConnection(attackerConnection).orElse(null), Topic.parse(
+            "$provisioningConfig.realm/$mqttDevice1SnoopClientId/$DefaultMQTTHandler.ATTRIBUTE_VALUE_WRITE_TOPIC/customAttribute/${weatherAsset.id}"))
+
+    when: "the anonymous attacker attempts the original restricted attribute write"
+    def originalAttributeValue = assetStorageService.find(weatherAsset.id).getAttribute("customAttribute")
+            .flatMap { it.getValue() }.orElse(null)
+    conditions.eventually {
+      assert device1SnoopClient.getConnectionStatus() == ConnectionStatus.CONNECTED
+    }
+    device1SnoopClient.client.publishWith()
+            .topic("$provisioningConfig.realm/$mqttDevice1SnoopClientId/$DefaultMQTTHandler.ATTRIBUTE_VALUE_WRITE_TOPIC/customAttribute/${weatherAsset.id}")
+            .payload("31337".getBytes(StandardCharsets.UTF_8))
+            .qos(MqttQos.AT_LEAST_ONCE).send()
+            .orTimeout(5, TimeUnit.SECONDS)
+            .handle { publish, error -> error }.get(10, TimeUnit.SECONDS)
+
+    then: "the protected attribute remains unchanged"
+    assert assetStorageService.find(weatherAsset.id).getAttribute("customAttribute")
+    .flatMap { it.getValue() }.orElse(null) == originalAttributeValue
+
+    when: "the attacker connection is removed"
+    device1SnoopClient.disconnect()
+
+    then: "the attacker connection is removed from the broker"
+    conditions.eventually {
+      assert mqttBrokerService.getConnectionFromClientID(mqttDevice1SnoopClientId) == null
+    }
+
     when: "the client gets abruptly disconnected"
     device1Responses.clear()
     existingConnection = mqttBrokerService.getConnectionFromClientID(mqttDevice1ClientId)
@@ -285,10 +377,24 @@ class UserAndAssetProvisioningTest extends Specification implements ManagerConta
       assert mqttBrokerService.getConnectionFromClientID(mqttDevice1ClientId) != null
     }
 
+    when: "the reconnected client replays the proof from its previous connection"
+    device1Client.sendMessage(new MQTTMessage<String>(device1RequestTopic,
+            ValueUtil.asJSON(device1Proofs.last()).orElseThrow()))
+
+    then: "reusing the MQTT client ID does not make an old proof valid"
+    conditions.eventually {
+      assert device1Responses.size() == 1
+      assert device1Responses[0] instanceof ErrorResponseMessage
+      assert device1Responses[0].error == ErrorResponseMessage.Error.UNAUTHORIZED
+    }
+    assert !mqttBrokerService.getUserConnections(device1ServiceUser.id)
+    .contains(mqttBrokerService.getConnectionFromClientID(mqttDevice1ClientId))
+
     when: "the client publishes a valid x509 certificate that has been signed by the CA stored in the provisioning config"
+    device1Responses.clear()
     device1Client.sendMessage(
             new MQTTMessage<String>(device1RequestTopic, ValueUtil.asJSON(
-                    new X509ProvisioningMessage(getClass().getResource("/org/openremote/test/provisioning/device1.pem").text)
+                    new X509ProvisioningChallengeRequestMessage(getClass().getResource("/org/openremote/test/provisioning/device1.pem").text)
                     ).orElse(null))
     )
 
@@ -420,7 +526,7 @@ class UserAndAssetProvisioningTest extends Specification implements ManagerConta
     conditions.eventually {
       assert !defaultMQTTHandler.sessionSubscriptionConsumers.containsKey(getConnectionIDString(connection))
       assert device1Client.getConnectionStatus() == ConnectionStatus.DISCONNECTED
-      assert userAssetProvisioningMQTTHandler.responseSubscribedConnections.isEmpty()
+      assert userAssetProvisioningMQTTHandler.responseTopicOwners.isEmpty()
     }
 
     and: "the connected attribute of the provisioned asset should show as not connected"
@@ -457,7 +563,7 @@ class UserAndAssetProvisioningTest extends Specification implements ManagerConta
     device1Responses.clear()
     device1Client.sendMessage(
             new MQTTMessage<String>(device1RequestTopic, ValueUtil.asJSON(
-                    new X509ProvisioningMessage(getClass().getResource("/org/openremote/test/provisioning/device1.pem").text)
+                    new X509ProvisioningChallengeRequestMessage(getClass().getResource("/org/openremote/test/provisioning/device1.pem").text)
                     ).orElse(null))
     )
 
@@ -514,7 +620,13 @@ class UserAndAssetProvisioningTest extends Specification implements ManagerConta
     when: "the client subscribes to the provisioning endpoints"
     List<ProvisioningMessage> deviceNResponses = new CopyOnWriteArrayList<>()
     Consumer<MQTTMessage<String>> deviceNMessageConsumer = { MQTTMessage<String> msg ->
-      deviceNResponses.add(ValueUtil.parse(msg.payload, ProvisioningMessage.class).orElse(null))
+      def response = ValueUtil.parse(msg.payload, ProvisioningMessage.class).orElse(null)
+      if (response instanceof X509ProvisioningChallengeResponseMessage) {
+        def proof = signChallenge(response, "device3_caexpired")
+        deviceNClient.sendMessage(new MQTTMessage<String>(deviceNRequestTopic, ValueUtil.asJSON(proof).orElseThrow()))
+      } else {
+        deviceNResponses.add(response)
+      }
     }
     deviceNClient.addMessageConsumer(deviceNResponseTopic, deviceNMessageConsumer)
 
@@ -529,7 +641,7 @@ class UserAndAssetProvisioningTest extends Specification implements ManagerConta
     when: "the client publishes an expired but valid x509 certificate that has been signed by the CA stored in the provisioning config"
     deviceNClient.sendMessage(
             new MQTTMessage<String>(deviceNRequestTopic, ValueUtil.asJSON(
-                    new X509ProvisioningMessage(getClass().getResource("/org/openremote/test/provisioning/device2_expired.pem").text)
+                    new X509ProvisioningChallengeRequestMessage(getClass().getResource("/org/openremote/test/provisioning/device2_expired.pem").text)
                     ).orElse(null))
     )
 
@@ -538,6 +650,19 @@ class UserAndAssetProvisioningTest extends Specification implements ManagerConta
       assert deviceNResponses.size() == 1
       assert deviceNResponses.get(0) instanceof ErrorResponseMessage
       assert ((ErrorResponseMessage)deviceNResponses.get(0)).error == ErrorResponseMessage.Error.UNAUTHORIZED
+    }
+
+    when: "a valid certificate is submitted on a different device's topic"
+    deviceNResponses.clear()
+    deviceNClient.sendMessage(new MQTTMessage<String>(deviceNRequestTopic, ValueUtil.asJSON(
+                    new X509ProvisioningChallengeRequestMessage(getClass().getResource("/org/openremote/test/provisioning/device1.pem").text)
+            ).orElseThrow()))
+
+    then: "the certificate common name must still match the topic"
+    conditions.eventually {
+      assert deviceNResponses.size() == 1
+      assert deviceNResponses[0] instanceof ErrorResponseMessage
+      assert deviceNResponses[0].error == ErrorResponseMessage.Error.UNIQUE_ID_MISMATCH
     }
 
     when: "the client disconnects"
@@ -579,7 +704,7 @@ class UserAndAssetProvisioningTest extends Specification implements ManagerConta
     when: "the client publishes a forged x509 certificate that has been signed by a forged CA"
     deviceNClient.sendMessage(
             new MQTTMessage<String>(deviceNRequestTopic, ValueUtil.asJSON(
-                    new X509ProvisioningMessage(getClass().getResource("/org/openremote/test/provisioning/device4_forged.pem").text)
+                    new X509ProvisioningChallengeRequestMessage(getClass().getResource("/org/openremote/test/provisioning/device4_forged.pem").text)
                     ).orElse(null))
     )
 
@@ -629,7 +754,7 @@ class UserAndAssetProvisioningTest extends Specification implements ManagerConta
     when: "the client publishes a valid x509 certificate that has been signed by the CA stored in the provisioning config but against an expired certificate"
     deviceNClient.sendMessage(
             new MQTTMessage<String>(deviceNRequestTopic, ValueUtil.asJSON(
-                    new X509ProvisioningMessage(getClass().getResource("/org/openremote/test/provisioning/device3_caexpired.pem").text)
+                    new X509ProvisioningChallengeRequestMessage(getClass().getResource("/org/openremote/test/provisioning/device3_caexpired.pem").text)
                     ).orElse(null))
     )
 
@@ -680,7 +805,7 @@ class UserAndAssetProvisioningTest extends Specification implements ManagerConta
     device1Responses.clear()
     device1Client.sendMessage(
             new MQTTMessage<String>(device1RequestTopic, ValueUtil.asJSON(
-                    new X509ProvisioningMessage(getClass().getResource("/org/openremote/test/provisioning/device1.pem").text)
+                    new X509ProvisioningChallengeRequestMessage(getClass().getResource("/org/openremote/test/provisioning/device1.pem").text)
                     ).orElse(null))
     )
 
@@ -717,7 +842,7 @@ class UserAndAssetProvisioningTest extends Specification implements ManagerConta
     when: "the client publishes a valid x509 certificate that has been signed by the CA stored in the provisioning config but against an expired certificate"
     deviceNClient.sendMessage(
             new MQTTMessage<String>(deviceNRequestTopic, ValueUtil.asJSON(
-                    new X509ProvisioningMessage(getClass().getResource("/org/openremote/test/provisioning/device3_caexpired.pem").text)
+                    new X509ProvisioningChallengeRequestMessage(getClass().getResource("/org/openremote/test/provisioning/device3_caexpired.pem").text)
                     ).orElse(null))
     )
 
@@ -749,7 +874,7 @@ class UserAndAssetProvisioningTest extends Specification implements ManagerConta
     }
     device1Client.sendMessage(
             new MQTTMessage<String>(device1RequestTopic, ValueUtil.asJSON(
-                    new X509ProvisioningMessage(getClass().getResource("/org/openremote/test/provisioning/device1.pem").text)
+                    new X509ProvisioningChallengeRequestMessage(getClass().getResource("/org/openremote/test/provisioning/device1.pem").text)
                     ).orElse(null))
     )
 
@@ -787,7 +912,7 @@ class UserAndAssetProvisioningTest extends Specification implements ManagerConta
     device1Responses.clear()
     device1Client.sendMessage(
             new MQTTMessage<String>(device1RequestTopic, ValueUtil.asJSON(
-                    new X509ProvisioningMessage(getClass().getResource("/org/openremote/test/provisioning/device1.pem").text)
+                    new X509ProvisioningChallengeRequestMessage(getClass().getResource("/org/openremote/test/provisioning/device1.pem").text)
                     ).orElse(null))
     )
 
@@ -824,7 +949,7 @@ class UserAndAssetProvisioningTest extends Specification implements ManagerConta
     when: "the client publishes a valid x509 certificate that has been signed by the CA stored in the provisioning config but against an expired certificate"
     deviceNClient.sendMessage(
             new MQTTMessage<String>(deviceNRequestTopic, ValueUtil.asJSON(
-                    new X509ProvisioningMessage(getClass().getResource("/org/openremote/test/provisioning/device3_caexpired.pem").text)
+                    new X509ProvisioningChallengeRequestMessage(getClass().getResource("/org/openremote/test/provisioning/device3_caexpired.pem").text)
                     ).orElse(null))
     )
 
@@ -845,7 +970,7 @@ class UserAndAssetProvisioningTest extends Specification implements ManagerConta
     device1Responses.clear()
     device1Client.sendMessage(
             new MQTTMessage<String>(device1RequestTopic, ValueUtil.asJSON(
-                    new X509ProvisioningMessage(getClass().getResource("/org/openremote/test/provisioning/device1.pem").text)
+                    new X509ProvisioningChallengeRequestMessage(getClass().getResource("/org/openremote/test/provisioning/device1.pem").text)
                     ).orElse(null))
     )
 
@@ -875,5 +1000,33 @@ class UserAndAssetProvisioningTest extends Specification implements ManagerConta
     if (internalConsumer != null) {
       clientEventService.removeSubscription {internalConsumer}
     }
+  }
+
+  /**
+   * The test certificates don't all have their own key; device3_caexpired was issued for the
+   * key of device2.
+   */
+  static final Map<String, String> CERTIFICATE_KEYS = [
+    "device1": "device1",
+    "device2_expired": "device2",
+    "device3_caexpired": "device2",
+    "device4_forged": "device4"
+  ]
+
+  static X509ProvisioningMessage signChallenge(X509ProvisioningChallengeResponseMessage challenge,
+          String certificateName) {
+    def keyName = CERTIFICATE_KEYS[certificateName]
+    assert keyName != null
+    def privateKey
+    UserAndAssetProvisioningTest.getResource("/org/openremote/test/provisioning/${keyName}.key").withReader { reader ->
+      def keyPair = new PEMParser(reader).readObject() as PEMKeyPair
+      privateKey = new JcaPEMKeyConverter().getKeyPair(keyPair).private
+    }
+    def signer = Signature.getInstance(challenge.algorithm)
+    signer.initSign(privateKey)
+    signer.update(challenge.challenge.getBytes(StandardCharsets.UTF_8))
+    return new X509ProvisioningMessage(
+            UserAndAssetProvisioningTest.getResource("/org/openremote/test/provisioning/${certificateName}.pem").text,
+            Base64.encoder.encodeToString(signer.sign()))
   }
 }

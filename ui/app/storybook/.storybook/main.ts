@@ -30,6 +30,11 @@ const storybookConfig: StorybookConfig = {
   rsbuildFinal: (config, { configType }) => {
     config.output ??= {};
     config.output.assetPrefix = "/storybook/";
+    // Dev asset names use [path], which points outside the output directory for files in the root node_modules
+    if (configType === "DEVELOPMENT") {
+      const name = "static/media/[name].[contenthash:8][ext]";
+      config.output.filename = { ...config.output.filename, image: name, font: name, media: name };
+    }
     return config;
   },
 };

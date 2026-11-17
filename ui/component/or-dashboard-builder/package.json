@@ -46,7 +46,7 @@
     "@openremote/or-translate": "workspace:*",
     "@openremote/or-vaadin-components": "workspace:*",
     "@openremote/rest": "workspace:*",
-    "gridstack": "^12.4.2",
+    "gridstack": "~14.0.0",
     "lit": "^3.3.1",
     "lodash.debounce": "^4.0.8",
     "lodash.throttle": "^4.1.1",

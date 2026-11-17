@@ -79,7 +79,7 @@ dependencies {
 
 sourceSets {
   test {
-    groovy.srcDirs = ['test/src/groovy']
+    groovy.srcDirs = ['src/test/groovy', 'test/src/groovy']
   }
 }
 

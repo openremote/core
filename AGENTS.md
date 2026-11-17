@@ -34,6 +34,8 @@ ex.response.withCloseable { r ->
 
 When running integration tests, part of the stack (PostgreSQL and Keycloak) must be running. Start it with `docker compose -f profile/dev-testing.yml -p openremote up -d --no-build`.
 
+Spock snapshots are stored under `model/src/test/resources/snapshots`. Rewrite them with `./gradlew :model:test -PupdateSnapshots` and review the resulting diff, since a mismatch is only reported as a test failure otherwise.
+
 ## REST resources
 
 ### Endpoint roles
@@ -44,6 +46,14 @@ Annotate every endpoint with the resource role of its domain, e.g. `read:alarms`
 
 Access control belongs in the resource implementation, not in the service. Extend `ManagerWebResource` and use its checks rather than reaching for the identity provider: `throwIfNotRealmActiveAndAccessible` and `throwIfRestrictedUser` reject with a 403, and `isRealmActiveAndAccessible` and `isRestrictedUser` are there for conditions that need more than a rejection. Resolve the entity first and return 404 when it is missing, then require access to its realm, and apply restricted user rules in the same place. Service methods take already authorised input and state that in their javadoc with "Callers are responsible for enforcing realm authorization." Alarms and notifications are the reference for this shape; equivalent endpoints across the two must enforce the same way. Flows that never pass through a resource, such as notifications published to the message broker, authorise inside the service instead.
 
+## Spelling
+
+Write code, comments and docs in US English, e.g. `color`, not `colour`.
+
 ## UI
 
 Frontend conventions live in `ui/AGENTS.md`. Read it before changing anything under `ui/`.
+
+## CI/CD pipeline
+
+Pipeline concepts and conventions live in the [CI/CD pipeline guide](https://docs.openremote.io/docs/developer-guide/ci-cd-pipeline). Read it before changing anything under `.github/` or `.ci_cd/`; the deployment scripts and their variables are covered by `.ci_cd/README.md`.

@@ -54,9 +54,6 @@ import spock.lang.Specification
 import spock.util.concurrent.PollingConditions
 
 import java.time.Instant
-import java.time.LocalDateTime
-import java.time.ZoneId
-import java.time.temporal.ChronoField
 import java.time.temporal.ChronoUnit
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
@@ -70,14 +67,10 @@ import static org.openremote.model.util.ValueUtil.parse
 class ResidenceNotifyAlarmTriggerTest extends Specification implements ManagerContainerTrait {
 
   def getOccurrenceFromTo(long baseTime, int occurrence) {
-    def tomorrowMidnight = Instant.ofEpochMilli(baseTime).truncatedTo(ChronoUnit.DAYS).plus(1, ChronoUnit.DAYS).atZone(ZoneId.systemDefault())
-    def from = LocalDateTime.of(tomorrowMidnight.get(ChronoField.YEAR), tomorrowMidnight.get(ChronoField.MONTH_OF_YEAR), tomorrowMidnight.get(ChronoField.DAY_OF_MONTH), 6, 0, 0)
-    from = from.plus(occurrence, ChronoUnit.WEEKS)
-    def to = from.plus(2, ChronoUnit.HOURS)
-    return [
-      from.atZone(ZoneId.systemDefault()).toDate(),
-      to.atZone(ZoneId.systemDefault()).toDate()
-    ]
+    // CalendarEvent evaluates recurrences in UTC, so expected windows must also stay in UTC across DST.
+    def from = Instant.ofEpochMilli(baseTime).truncatedTo(ChronoUnit.DAYS)
+            .plus(1 + occurrence * 7L, ChronoUnit.DAYS).plus(6, ChronoUnit.HOURS)
+    return [Date.from(from), Date.from(from.plus(2, ChronoUnit.HOURS))]
   }
 
   def "Trigger notification when presence is detected and alarm enabled"() {

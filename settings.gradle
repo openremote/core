@@ -25,7 +25,7 @@ plugins {
   id 'org.jetbrains.gradle.plugin.idea-ext' version "$ideaExtPluginVersion" apply false
 }
 
-rootProject.name = "openremote"
+rootProject.name = "core"
 
 // Include sub-projects dynamically, every directory with a build.gradle (and no .buildignore)
 fileTree(

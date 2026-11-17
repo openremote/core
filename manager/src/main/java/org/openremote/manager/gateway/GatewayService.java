@@ -120,7 +120,7 @@ public class GatewayService extends RouteBuilder implements ContainerService {
    */
   protected final Map<String, GatewayConnector> gatewayConnectorMap = new ConcurrentHashMap<>();
 
-  protected final Map<String, String> assetIdGatewayIdMap = new HashMap<>();
+  protected final Map<String, String> assetIdGatewayIdMap = new ConcurrentHashMap<>();
   protected boolean active;
   protected List<String> realmIds = new ArrayList<>();
   protected Map<String, GatewayTunnelInfo> tunnelInfos = new ConcurrentHashMap<>();
@@ -746,7 +746,8 @@ public class GatewayService extends RouteBuilder implements ContainerService {
 
   /** Check if the specified asset ID or parent ID is a known gateway or descendant of a gateway. */
   public String getLocallyRegisteredGatewayId(String assetId, String parentId) {
-    String gatewayId = assetIdGatewayIdMap.get(assetId);
+    // ConcurrentHashMap rejects null keys so preserve HashMap behaviour of mapping to null
+    String gatewayId = assetId != null ? assetIdGatewayIdMap.get(assetId) : null;
 
     if (gatewayId != null) {
       return gatewayId;
@@ -924,16 +925,9 @@ public class GatewayService extends RouteBuilder implements ContainerService {
     // The asset would have been modified by the gateway connector so all we need to do here is
     // update the id map
     switch (persistenceEvent.getCause()) {
-      case CREATE, UPDATE -> {
-        synchronized (assetIdGatewayIdMap) {
-          assetIdGatewayIdMap.put(childAsset.getId(), gatewayId);
-        }
-      }
-      case DELETE -> {
-        synchronized (assetIdGatewayIdMap) {
-          assetIdGatewayIdMap.remove(childAsset.getId());
-        }
-      }
+      // ConcurrentHashMap operations are individually thread safe so no synchronization needed
+      case CREATE, UPDATE -> assetIdGatewayIdMap.put(childAsset.getId(), gatewayId);
+      case DELETE -> assetIdGatewayIdMap.remove(childAsset.getId());
     }
   }
 

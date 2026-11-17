@@ -17,7 +17,7 @@
     "@typescript-eslint/parser": "8.40.0",
     "@wc-toolkit/cem-inheritance": "~1.2.2",
     "@wc-toolkit/jsx-types": "~1.5.3",
-    "@wc-toolkit/storybook-helpers": "^10.5.1",
+    "@wc-toolkit/storybook-helpers": "^10.7.7",
     "@webcomponents/webcomponentsjs": "^2.6.0",
     "cross-env": "^10.1.0",
     "css-loader": "^7.1.2",
@@ -38,7 +38,7 @@
     "source-map-loader": "^5.0.0",
     "ts-loader": "~9.5.2",
     "typescript": "~5.9.3",
-    "webpack": "^5.108.3"
+    "webpack": "^5.112.2"
   },
   "publishConfig": {
     "access": "public"

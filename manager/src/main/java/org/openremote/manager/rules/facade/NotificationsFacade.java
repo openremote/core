@@ -43,7 +43,7 @@ public class NotificationsFacade<T extends Ruleset> extends Notifications {
 
   public void send(Notification notification) {
     Notification.Source source;
-    String sourceId = null;
+    String sourceId = "";
 
     if (rulesEngineId.getScope() == GlobalRuleset.class) {
       source = GLOBAL_RULESET;

@@ -19,6 +19,7 @@
 import { customElement } from "lit/decorators.js";
 import { RadioGroup } from "@vaadin/radio-group";
 import type { OrVaadinComponent } from "./util";
+import "./or-vaadin-radio-button";
 
 @customElement("or-vaadin-radio-group")
 export class OrVaadinRadioGroup extends RadioGroup implements OrVaadinComponent {}

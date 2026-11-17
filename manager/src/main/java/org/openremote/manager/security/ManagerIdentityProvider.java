@@ -113,22 +113,6 @@ public interface ManagerIdentityProvider extends IdentityProvider {
     List<Object> parameters = new ArrayList<>();
     final UserQuery userQuery = query != null ? query : new UserQuery();
 
-    // Limit to regular/service users
-    if (userQuery.serviceUsers != null) {
-      // Not ideal mutating the query but seems excessive cloning it
-      if (userQuery.usernames == null) {
-        userQuery.usernames = new StringPredicate[1];
-        userQuery.usernames(
-            new StringPredicate(AssetQuery.Match.BEGIN, User.SERVICE_ACCOUNT_PREFIX)
-                .negate(!userQuery.serviceUsers));
-      } else {
-        userQuery.usernames = Arrays.copyOf(userQuery.usernames, userQuery.usernames.length + 1);
-        userQuery.usernames[userQuery.usernames.length - 1] =
-            new StringPredicate(AssetQuery.Match.BEGIN, User.SERVICE_ACCOUNT_PREFIX)
-                .negate(!userQuery.serviceUsers);
-      }
-    }
-
     // BUILD SELECT
     sb.append(
         "SELECT u.*, (SELECT C.SECRET FROM PUBLIC.CLIENT C WHERE C.ID = SERVICE_ACCOUNT_CLIENT_LINK) as secret, r.name as realm");
@@ -162,6 +146,15 @@ public interface ManagerIdentityProvider extends IdentityProvider {
     if (userQuery.ids != null && userQuery.ids.length > 0) {
       sb.append(" AND u.id IN (?").append(parameters.size() + 1).append(")");
       parameters.add(Arrays.asList(userQuery.ids));
+    }
+    if (userQuery.serviceUsers != null) {
+      // Account type must constrain the username alternatives, not add another OR match.
+      StringPredicate serviceUserPredicate =
+          new StringPredicate(AssetQuery.Match.BEGIN, false, User.SERVICE_ACCOUNT_PREFIX)
+              .negate(!userQuery.serviceUsers);
+      sb.append(" AND upper(u.username)");
+      sb.append(toSQLParameter(serviceUserPredicate, parameters.size() + 1, false));
+      parameters.add(serviceUserPredicate.prepareValue());
     }
     if (userQuery.usernames != null && userQuery.usernames.length > 0) {
       sb.append(" and (FALSE");

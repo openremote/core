@@ -26,6 +26,10 @@ import org.openremote.model.query.LogicGroup;
 
 public class LocationAttributePredicate extends AttributePredicate {
 
+  public LocationAttributePredicate(LocationAttributePredicate source) {
+    super(source);
+  }
+
   public LocationAttributePredicate(GeofencePredicate geofencePredicate) {
     super(new StringPredicate(Asset.LOCATION), geofencePredicate);
   }

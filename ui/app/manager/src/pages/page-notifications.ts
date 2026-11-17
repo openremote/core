@@ -536,7 +536,7 @@ export class PageNotifications extends Page<AppStateKeyed> {
         ${dialogRenderer(() => this._renderCreateForm(), [this.realm])}
         ${dialogFooterRenderer(
           () => html`
-            <or-vaadin-button theme="tertiary" @click="${() => this._cancelCreateDialog()}">
+            <or-vaadin-button theme="tertiary contrast" @click="${() => this._cancelCreateDialog()}">
               <or-translate value="cancel"></or-translate>
             </or-vaadin-button>
             <or-vaadin-button

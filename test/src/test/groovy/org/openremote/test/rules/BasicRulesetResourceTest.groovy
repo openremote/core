@@ -1386,4 +1386,57 @@ class BasicRulesetResourceTest extends Specification implements ManagerContainer
     ex = thrown()
     ex.response.status == 404
   }
+
+  def "Realm ruleset create cannot overwrite an existing ruleset in another realm"() {
+
+    given: "the server container is started"
+    def container = startContainer(defaultConfig(), defaultServices())
+    def rulesetStorageService = container.getService(RulesetStorageService.class)
+    def rulesService = container.getService(RulesService.class)
+    def keycloakTestSetup = container.getService(SetupService.class).getTaskOfType(KeycloakTestSetup.class)
+    def managerTestSetup = container.getService(SetupService.class).getTaskOfType(ManagerTestSetup.class)
+    def conditions = new PollingConditions(timeout: 10, delay: 0.2)
+
+    and: "some imported rulesets"
+    def rulesImport = new BasicRulesImport(rulesetStorageService, keycloakTestSetup, managerTestSetup)
+
+    and: "an authenticated test user in the master realm who can write rules"
+    def accessToken = authenticate(
+            container,
+            MASTER_REALM,
+            KEYCLOAK_CLIENT_ID,
+            "testuser1",
+            "testuser1"
+    )
+
+    and: "the ruleset resource"
+    def rulesetResource = getClientApiTarget(serverUri(serverPort), MASTER_REALM, accessToken).proxy(RulesResource.class)
+
+    expect: "the rules engines to be ready"
+    conditions.eventually {
+      rulesImport.assertEnginesReady(rulesService, keycloakTestSetup, managerTestSetup)
+    }
+
+    when: "the user creates a realm ruleset in their own realm carrying the ID and version of the building realm ruleset"
+    def existingRuleset = rulesetStorageService.find(RealmRuleset.class, rulesImport.realmBuildingRulesetId, true)
+    def realmRuleset = new RealmRuleset(MASTER_REALM, "Overwritten realm definition", JSON, "{}")
+    realmRuleset.setId(existingRuleset.id)
+    realmRuleset.setVersion(existingRuleset.version)
+    rulesetResource.createRealmRuleset(null, realmRuleset)
+
+    then: "the request should be rejected"
+    WebApplicationException ex = thrown()
+    ex.response.withCloseable { r ->
+      assert r.status == 400
+      return true
+    }
+
+    and: "the building realm ruleset should be unchanged"
+    def storedRuleset = rulesetStorageService.find(RealmRuleset.class, rulesImport.realmBuildingRulesetId, true)
+    storedRuleset.realm == keycloakTestSetup.realmBuilding.name
+    storedRuleset.name == "Some building realm demo rules"
+    storedRuleset.lang == GROOVY
+    storedRuleset.rules == existingRuleset.rules
+    storedRuleset.version == existingRuleset.version
+  }
 }
