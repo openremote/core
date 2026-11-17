@@ -1,0 +1,16 @@
+{
+  "$schema" : "http://json-schema.org/draft-07/schema#",
+  "type" : "object",
+  "properties" : {
+    "all" : {
+      "type" : "boolean",
+      "format" : "test",
+      "default" : false,
+      "examples" : [ "test" ],
+      "title" : "test",
+      "description" : "test"
+    }
+  },
+  "title" : "Annotations For Fields",
+  "additionalProperties" : true
+}

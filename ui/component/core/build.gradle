@@ -9,3 +9,8 @@ tasks.register('prepareUi') {
 tasks.register('publishUi') {
   dependsOn clean, npmPublish
 }
+
+tasks.register('npmTest', Exec) {
+  dependsOn getYarnInstallTask()
+  commandLine npmCommand("yarn"), "run", "test"
+}

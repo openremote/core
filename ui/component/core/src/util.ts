@@ -83,6 +83,55 @@ export class Deferred<T> {
   }
 }
 
+export interface RetryOptions {
+  /** Wait before the first retry, doubled after each failed retry */
+  initialDelayMillis?: number;
+  maxDelayMillis?: number;
+  /** How long an attempt may take before it counts as failed */
+  attemptTimeoutMillis?: number;
+  /** Rejects with the last failure once no further attempt fits in this time */
+  timeoutMillis?: number;
+}
+
+/**
+ * Calls `request` until it resolves, with an exponential backoff between attempts. An attempt that takes too long
+ * counts as failed, but is not aborted.
+ */
+export async function retryWithBackoff<T>(
+  request: () => Promise<T>,
+  {
+    initialDelayMillis = 1000,
+    maxDelayMillis = 8000,
+    attemptTimeoutMillis = 10000,
+    timeoutMillis = 45000,
+  }: RetryOptions = {}
+): Promise<T> {
+  const deadline = Date.now() + timeoutMillis;
+  let delayMillis = initialDelayMillis;
+
+  for (;;) {
+    let timer: number | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      const millis = Math.min(attemptTimeoutMillis, deadline - Date.now());
+      timer = window.setTimeout(() => reject(new Error(`No response within ${millis} ms`)), millis);
+    });
+
+    try {
+      return await Promise.race([request(), timeout]);
+    } catch (e) {
+      if (Date.now() + delayMillis >= deadline) {
+        throw e;
+      }
+      console.warn(`Request failed, trying again in ${delayMillis} ms`, e);
+    } finally {
+      window.clearTimeout(timer);
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, delayMillis));
+    delayMillis = Math.min(delayMillis * 2, maxDelayMillis);
+  }
+}
+
 export interface GeoNotification {
   predicate: GeofencePredicate;
   notification?: PushNotificationMessage;

@@ -26,9 +26,11 @@ import {
   type HeaderConfig,
   type HeaderItem,
   OrApp,
+  OrAppLoading,
   type PageProvider,
   type RealmAppConfig,
 } from "@openremote/or-app";
+import { Util } from "@openremote/core";
 import {
   headerItemAccount,
   headerItemAssets,
@@ -161,17 +163,21 @@ const managerURL =
     window.location.pathname.replace(/\/[^/]+\/?$/, "");
 const configURL = managerURL + "/api/master/configuration/manager";
 
-fetch(configURL)
-  .then<ManagerAppConfig>(async (result) => {
-    let appConfig: ManagerAppConfig;
+// Shown until the app takes over
+const loading = new OrAppLoading();
+document.body.appendChild(loading);
 
-    if (result.status === 200) {
-      appConfig = (await result.json()) as ManagerAppConfig;
-    }
+Util.retryWithBackoff<ManagerAppConfig>(async () => {
+  const result = await fetch(configURL);
 
-    return { ...appConfig };
-  })
-  .then((appConfig: ManagerAppConfig) => {
+  // A reverse proxy answers with a 5xx while the manager restarts, any other status means there is no config
+  if (result.status >= 500) {
+    throw new Error("The manager app config request failed with status " + result.status);
+  }
+
+  return { ...(result.status === 200 ? ((await result.json()) as ManagerAppConfig) : undefined) };
+}).then(
+  (appConfig: ManagerAppConfig) => {
     // Set locales and load path
     if (!appConfig.manager) {
       appConfig.manager = {};
@@ -332,4 +338,10 @@ fetch(configURL)
 
     // Load app
     document.body.appendChild(orApp);
-  });
+    loading.remove();
+  },
+  (reason) => {
+    console.error("Failed to load the manager app config", reason);
+    loading.failed = true;
+  }
+);

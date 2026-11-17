@@ -11,7 +11,8 @@ jobs:
   ui-app-tests:
     name: UI App Tests
     if: ${{ !inputs.skip }}
-    runs-on: ubuntu-latest
+    # Pinned, as the Playwright version in use has no browser builds for newer Ubuntu images
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
