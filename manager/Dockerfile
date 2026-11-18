@@ -154,11 +154,14 @@ ENV OR_STORAGE_DIR=${OR_STORAGE_DIR}
 ARG OR_GATEWAY_TUNNEL_LOCALHOST_REWRITE=172.17.0.1
 ENV OR_GATEWAY_TUNNEL_LOCALHOST_REWRITE=${OR_GATEWAY_TUNNEL_LOCALHOST_REWRITE}
 
-ARG JAVA_OPTS="-XX:InitialRAMPercentage=75.0 -XX:MaxRAMPercentage=75.0 \
+ARG JAVA_OPTS="-XX:InitialRAMPercentage=50.0 -XX:MaxRAMPercentage=60.0 \
+    -Xss512k \
     -XX:NativeMemoryTracking=summary \
     -Xlog:all=warning:stdout:uptime,level,tags \
-    -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/storage/dump.hprof \
-    -XX:OnOutOfMemoryError=/heapdump-rename.sh"
+    -XX:+HeapDumpOnOutOfMemoryError \
+    -XX:HeapDumpPath=/storage/dump.hprof \
+    -XX:OnOutOfMemoryError=/heapdump-rename.sh \
+    -XX:+ExitOnOutOfMemoryError"
 ENV JAVA_OPTS=${JAVA_OPTS}
 
 ARG JAVA_OPTS_APPEND
