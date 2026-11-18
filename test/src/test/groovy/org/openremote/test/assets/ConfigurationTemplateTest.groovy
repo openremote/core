@@ -24,6 +24,7 @@ import org.openremote.manager.setup.SetupService
 import org.openremote.model.asset.AssetResource
 import org.openremote.model.asset.ConfigurationTemplateImportPreview
 import org.openremote.model.asset.ConfigurationTemplateImportRequest
+import org.openremote.model.asset.UserAssetLink
 import org.openremote.model.asset.impl.LightAsset
 import org.openremote.model.asset.impl.RoomAsset
 import org.openremote.model.attribute.Attribute
@@ -280,22 +281,46 @@ class ConfigurationTemplateTest extends Specification implements ManagerContaine
     }
   }
 
-  def "Configuration template import requires asset write access"() {
-    given: "a configured asset in the realm of a user that can read but not write assets"
+  def "Configuration template export and import follow the asset access of the user"() {
+    given: "a configured asset in the building realm, linked to a restricted user that can read and write only its brightness"
+    def buildingRealm = keycloakTestSetup.realmBuilding.name
     def asset = adminResource.create(null, new LightAsset("Configured light")
-            .setRealm(keycloakTestSetup.realmBuilding.name)
+            .setRealm(buildingRealm)
             .addOrReplaceAttributes(
                     new Attribute<>(LightAsset.BRIGHTNESS)
                     .addMeta(new MetaItem<>(MetaItemType.LABEL, "Brightness"))
+                    .addMeta(new MetaItem<>(MetaItemType.ACCESS_RESTRICTED_READ, true))
+                    .addMeta(new MetaItem<>(MetaItemType.ACCESS_RESTRICTED_WRITE, true)),
+                    new Attribute<>(LightAsset.COLOUR_TEMPERATURE)
+                    .addMeta(new MetaItem<>(MetaItemType.LABEL, "Colour temperature"))
             ))
     createdAssetIds.add(asset.id)
+    adminResource.createUserAssetLinks(null, [new UserAssetLink(buildingRealm, keycloakTestSetup.testuser3Id, asset.id)])
 
-    when: "that user exports a configuration template of the asset"
+    when: "the restricted user exports a configuration template of the asset"
+    def restrictedDocument = restrictedUserResource.exportConfigurationTemplate(null, asset.id, [])
+
+    then: "only the attribute it can read is exported, without its access metadata"
+    restrictedDocument.attributes.keySet() == ["brightness"] as Set
+    restrictedDocument.attributes.brightness.getMetaValue(MetaItemType.LABEL).orElse(null) == "Brightness"
+    restrictedDocument.attributes.brightness.getMetaValue(MetaItemType.ACCESS_RESTRICTED_READ).isEmpty()
+
+    when: "the restricted user previews an import of that template into the asset"
+    def preview = restrictedUserResource.previewConfigurationTemplateImport(null, asset.id,
+            new ConfigurationTemplateImportRequest(
+                    restrictedUserResource.get(null, asset.id),
+                    ValueUtil.asJSON(restrictedDocument).orElseThrow()))
+
+    then: "the attribute is importable"
+    preview.failure == null
+    preview.importableAttributes*.name == ["brightness"]
+
+    when: "a user that can read but not write assets exports a configuration template of the asset"
     def document = readOnlyUserResource.exportConfigurationTemplate(null, asset.id, [])
 
     then: "the configuration is returned"
     document.version == 1
-    document.attributes.keySet() == ["brightness"] as Set
+    document.attributes.keySet() == ["brightness", "colourTemperature"] as Set
 
     when: "the same user previews an import"
     readOnlyUserResource.previewConfigurationTemplateImport(null, asset.id,
