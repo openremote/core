@@ -16,7 +16,7 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
-import { html, type TemplateResult } from "lit";
+import { html, render, type TemplateResult } from "lit";
 import { createRef, ref, type Ref } from "lit/directives/ref.js";
 import { live } from "lit/directives/live.js";
 import manager, { Util } from "@openremote/core";
@@ -42,12 +42,7 @@ import "@openremote/or-vaadin-components/or-vaadin-dialog";
 import "@openremote/or-vaadin-components/or-vaadin-text-field";
 import type { OrVaadinButton } from "@openremote/or-vaadin-components/or-vaadin-button";
 import type { OrVaadinCheckbox } from "@openremote/or-vaadin-components/or-vaadin-checkbox";
-import {
-  dialogFooterRenderer,
-  dialogHeaderRenderer,
-  dialogRenderer,
-  showDialog,
-} from "@openremote/or-vaadin-components/or-vaadin-dialog";
+import { showDialog, type OrVaadinDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
 import {
   getConfirmDialogContent,
   showConfirmDialog,
@@ -269,99 +264,88 @@ export function showExportConfigurationTemplateDialog(host: Node, asset: Asset) 
 
   const selected = new Set<string>(attributes.map((attribute) => attribute.name!));
   let templateName = `${asset.name}-configuration-template.json`;
-  const exportBtn: Ref<OrVaadinButton> = createRef();
+  const dialog: Ref<OrVaadinDialog> = createRef();
 
-  const updateExportBtn = () => {
-    if (exportBtn.value) {
-      exportBtn.value.disabled = selected.size === 0 || templateName.trim() === "";
+  // Renders the dialog again into the container that showDialog made for it
+  const update = () => {
+    if (dialog.value?.parentElement) {
+      render(getDialogTemplate(), dialog.value.parentElement);
     }
   };
 
   const onToggle = (names: string[], checked: boolean) => {
     names.forEach((name) => (checked ? selected.add(name) : selected.delete(name)));
-    updateExportBtn();
-    dialog?.requestContentUpdate();
+    update();
   };
 
   const onTemplateNameChange = (name: string) => {
     templateName = name;
-    updateExportBtn();
+    update();
   };
 
-  const dialog = showDialog(
-    host,
-    html`
-      <or-vaadin-dialog
-        width=${DIALOG_WIDTH}
-        ${dialogHeaderRenderer(() => getHeaderTemplate("configurationTemplate.exportHeading", () => dialog?.close()))}
-        ${dialogRenderer(
-          () => html`
-            ${dialogStyle}
-            <div class="ac-body">
-              <or-translate value="configurationTemplate.exportDescription"></or-translate>
-              <div class="ac-card">
-                <or-vaadin-text-field
-                  label=${i18next.t("configurationTemplate.templateName")}
-                  .value=${templateName}
-                  @value-changed=${(ev: CustomEvent<{ value: string }>) => onTemplateNameChange(ev.detail.value)}
-                ></or-vaadin-text-field>
-              </div>
-              <div class="ac-card">
-                <or-translate class="ac-card-title" value="configurationTemplate.selectAttributes"></or-translate>
-                <or-vaadin-checkbox
-                  class="ac-select-all"
-                  label=${i18next.t("configurationTemplate.selectAll")}
-                  .checked=${live(selected.size === attributes.length)}
-                  .indeterminate=${live(selected.size > 0 && selected.size < attributes.length)}
-                  @change=${(ev: Event) =>
-                    onToggle(
-                      attributes.map((attribute) => attribute.name!),
-                      (ev.currentTarget as OrVaadinCheckbox).checked
-                    )}
-                ></or-vaadin-checkbox>
-                <div class="ac-rows">
-                  ${attributes.map((attribute) =>
-                    getAttributeRowTemplate(
-                      asset,
-                      attribute,
-                      html`
-                        <or-vaadin-checkbox
-                          .checked=${live(selected.has(attribute.name!))}
-                          @change=${(ev: Event) =>
-                            onToggle([attribute.name!], (ev.currentTarget as OrVaadinCheckbox).checked)}
-                        >
-                          <label slot="label" class="ac-name">${getAttributeNameTemplate(asset, attribute)}</label>
-                        </or-vaadin-checkbox>
-                      `
-                    )
-                  )}
-                </div>
-              </div>
-            </div>
-          `
-        )}
-        ${dialogFooterRenderer(
-          () => html`
-            <div class="ac-dialog-actions">
-              <or-vaadin-button theme="tertiary contrast" @click=${() => dialog?.close()}>
-                <or-translate value="cancel"></or-translate>
-              </or-vaadin-button>
-              <or-vaadin-button
-                theme="primary"
-                ${ref(exportBtn)}
-                @click=${() => {
-                  dialog?.close();
-                  downloadConfigurationTemplate(asset, Array.from(selected), templateName);
-                }}
-              >
-                <or-translate value="configurationTemplate.export"></or-translate>
-              </or-vaadin-button>
-            </div>
-          `
-        )}
-      ></or-vaadin-dialog>
-    `
-  );
+  const getDialogTemplate = () => html`
+    <or-vaadin-dialog ${ref(dialog)} width=${DIALOG_WIDTH}>
+      ${dialogStyle} ${getHeaderTemplate("configurationTemplate.exportHeading", () => dialog.value?.close())}
+      <div class="ac-body">
+        <or-translate value="configurationTemplate.exportDescription"></or-translate>
+        <div class="ac-card">
+          <or-vaadin-text-field
+            label=${i18next.t("configurationTemplate.templateName")}
+            value=${templateName}
+            @value-changed=${(ev: CustomEvent<{ value: string }>) => onTemplateNameChange(ev.detail.value)}
+          ></or-vaadin-text-field>
+        </div>
+        <div class="ac-card">
+          <or-translate class="ac-card-title" value="configurationTemplate.selectAttributes"></or-translate>
+          <or-vaadin-checkbox
+            class="ac-select-all"
+            label=${i18next.t("configurationTemplate.selectAll")}
+            ?checked=${live(selected.size === attributes.length)}
+            ?indeterminate=${live(selected.size > 0 && selected.size < attributes.length)}
+            @change=${(ev: Event) =>
+              onToggle(
+                attributes.map((attribute) => attribute.name!),
+                (ev.currentTarget as OrVaadinCheckbox).checked
+              )}
+          ></or-vaadin-checkbox>
+          <div class="ac-rows">
+            ${attributes.map((attribute) =>
+              getAttributeRowTemplate(
+                asset,
+                attribute,
+                html`
+                  <or-vaadin-checkbox
+                    ?checked=${live(selected.has(attribute.name!))}
+                    @change=${(ev: Event) =>
+                      onToggle([attribute.name!], (ev.currentTarget as OrVaadinCheckbox).checked)}
+                  >
+                    <label slot="label" class="ac-name">${getAttributeNameTemplate(asset, attribute)}</label>
+                  </or-vaadin-checkbox>
+                `
+              )
+            )}
+          </div>
+        </div>
+      </div>
+      <div slot="footer" class="ac-dialog-actions">
+        <or-vaadin-button theme="tertiary contrast" @click=${() => dialog.value?.close()}>
+          <or-translate value="cancel"></or-translate>
+        </or-vaadin-button>
+        <or-vaadin-button
+          theme="primary"
+          ?disabled=${selected.size === 0 || templateName.trim() === ""}
+          @click=${() => {
+            dialog.value?.close();
+            downloadConfigurationTemplate(asset, Array.from(selected), templateName);
+          }}
+        >
+          <or-translate value="configurationTemplate.export"></or-translate>
+        </or-vaadin-button>
+      </div>
+    </or-vaadin-dialog>
+  `;
+
+  showDialog(host, getDialogTemplate());
 }
 
 /**
@@ -407,47 +391,37 @@ export function showImportConfigurationTemplateDialog(
   const dialog = showDialog(
     host,
     html`
-      <or-vaadin-dialog
-        width=${DIALOG_WIDTH}
-        ${dialogHeaderRenderer(() => getHeaderTemplate("configurationTemplate.importHeading", () => dialog?.close()))}
-        ${dialogRenderer(
-          () => html`
-            ${dialogStyle}
-            <div class="ac-body">
-              <or-translate value="configurationTemplate.selectFileDescription"></or-translate>
-              <div class="ac-card">
-                <div class="ac-file-row">
-                  <input
-                    ${ref(fileInput)}
-                    type="file"
-                    accept="application/json,.json"
-                    style="display: none"
-                    @change=${() => onFileSelected()}
-                  />
-                  <or-vaadin-button @click=${() => fileInput.value?.click()}>
-                    <or-translate value="selectFile"></or-translate>
-                  </or-vaadin-button>
-                  <span ${ref(fileName)} class=${file ? "" : "ac-placeholder"}>
-                    ${file ? file.name : i18next.t("configurationTemplate.noFileSelected")}
-                  </span>
-                </div>
-              </div>
-            </div>
-          `
-        )}
-        ${dialogFooterRenderer(
-          () => html`
-            <div class="ac-dialog-actions">
-              <or-vaadin-button theme="tertiary contrast" @click=${() => dialog?.close()}>
-                <or-translate value="cancel"></or-translate>
+      <or-vaadin-dialog width=${DIALOG_WIDTH}>
+        ${dialogStyle} ${getHeaderTemplate("configurationTemplate.importHeading", () => dialog?.close())}
+        <div class="ac-body">
+          <or-translate value="configurationTemplate.selectFileDescription"></or-translate>
+          <div class="ac-card">
+            <div class="ac-file-row">
+              <input
+                ${ref(fileInput)}
+                type="file"
+                accept="application/json,.json"
+                style="display: none"
+                @change=${() => onFileSelected()}
+              />
+              <or-vaadin-button @click=${() => fileInput.value?.click()}>
+                <or-translate value="selectFile"></or-translate>
               </or-vaadin-button>
-              <or-vaadin-button theme="primary" ?disabled=${!file} ${ref(nextBtn)} @click=${() => onNext()}>
-                <or-translate value="configurationTemplate.next"></or-translate>
-              </or-vaadin-button>
+              <span ${ref(fileName)} class=${file ? "" : "ac-placeholder"}>
+                ${file ? file.name : i18next.t("configurationTemplate.noFileSelected")}
+              </span>
             </div>
-          `
-        )}
-      ></or-vaadin-dialog>
+          </div>
+        </div>
+        <div slot="footer" class="ac-dialog-actions">
+          <or-vaadin-button theme="tertiary contrast" @click=${() => dialog?.close()}>
+            <or-translate value="cancel"></or-translate>
+          </or-vaadin-button>
+          <or-vaadin-button theme="primary" ?disabled=${!file} ${ref(nextBtn)} @click=${() => onNext()}>
+            <or-translate value="configurationTemplate.next"></or-translate>
+          </or-vaadin-button>
+        </div>
+      </or-vaadin-dialog>
     `
   );
 }
@@ -488,63 +462,53 @@ function showImportPreviewDialog(
   const dialog = showDialog(
     host,
     html`
-      <or-vaadin-dialog
-        width=${DIALOG_WIDTH}
-        ${dialogHeaderRenderer(() => getHeaderTemplate("configurationTemplate.importHeading", () => dialog?.close()))}
-        ${dialogRenderer(
-          () => html`
-            ${dialogStyle}
-            <div class="ac-body">
-              <span class="ac-file-name">${fileName}</span>
-              <div class="ac-alert">
-                <or-icon icon="alert-circle-outline"></or-icon>
-                <or-translate value="configurationTemplate.overwriteWarning"></or-translate>
-              </div>
-              <div class="ac-card">
-                <or-translate value="configurationTemplate.matchedAttributes"></or-translate>
-                <div class="ac-rows">
-                  ${importable.map((summary) => {
-                    const attribute = { ...patchedAttributes[summary.name!], name: summary.name };
-                    return getAttributeRowTemplate(
-                      asset,
-                      attribute,
-                      html`
-                        <or-icon icon="check"></or-icon>
-                        <span class="ac-name">${getAttributeNameTemplate(asset, attribute)}</span>
-                      `
-                    );
-                  })}
-                </div>
-              </div>
-              ${getSkippedTemplate(asset, preview, configuration)}
+      <or-vaadin-dialog width=${DIALOG_WIDTH}>
+        ${dialogStyle} ${getHeaderTemplate("configurationTemplate.importHeading", () => dialog?.close())}
+        <div class="ac-body">
+          <span class="ac-file-name">${fileName}</span>
+          <div class="ac-alert">
+            <or-icon icon="alert-circle-outline"></or-icon>
+            <or-translate value="configurationTemplate.overwriteWarning"></or-translate>
+          </div>
+          <div class="ac-card">
+            <or-translate value="configurationTemplate.matchedAttributes"></or-translate>
+            <div class="ac-rows">
+              ${importable.map((summary) => {
+                const attribute = { ...patchedAttributes[summary.name!], name: summary.name };
+                return getAttributeRowTemplate(
+                  asset,
+                  attribute,
+                  html`
+                    <or-icon icon="check"></or-icon>
+                    <span class="ac-name">${getAttributeNameTemplate(asset, attribute)}</span>
+                  `
+                );
+              })}
             </div>
-          `
-        )}
-        ${dialogFooterRenderer(
-          () => html`
-            <div class="ac-dialog-actions">
-              <or-vaadin-button
-                theme="tertiary contrast"
-                @click=${() => {
-                  dialog?.close();
-                  onBack();
-                }}
-              >
-                <or-translate value="configurationTemplate.back"></or-translate>
-              </or-vaadin-button>
-              <or-vaadin-button
-                theme="primary"
-                @click=${() => {
-                  dialog?.close();
-                  onImported(patchedAttributes);
-                }}
-              >
-                <or-translate value="configurationTemplate.import"></or-translate>
-              </or-vaadin-button>
-            </div>
-          `
-        )}
-      ></or-vaadin-dialog>
+          </div>
+          ${getSkippedTemplate(asset, preview, configuration)}
+        </div>
+        <div slot="footer" class="ac-dialog-actions">
+          <or-vaadin-button
+            theme="tertiary contrast"
+            @click=${() => {
+              dialog?.close();
+              onBack();
+            }}
+          >
+            <or-translate value="configurationTemplate.back"></or-translate>
+          </or-vaadin-button>
+          <or-vaadin-button
+            theme="primary"
+            @click=${() => {
+              dialog?.close();
+              onImported(patchedAttributes);
+            }}
+          >
+            <or-translate value="configurationTemplate.import"></or-translate>
+          </or-vaadin-button>
+        </div>
+      </or-vaadin-dialog>
     `
   );
 }
@@ -629,8 +593,7 @@ function getFailureLocation(
 
 function getHeaderTemplate(titleKey: string, onClose: () => void): TemplateResult {
   return html`
-    ${dialogStyle}
-    <div class="ac-dialog-header">
+    <div slot="header-content" class="ac-dialog-header">
       <h2><or-translate value=${titleKey}></or-translate></h2>
       <or-vaadin-button theme="tertiary icon" @click=${() => onClose()}>
         <or-icon icon="close"></or-icon>

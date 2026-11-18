@@ -1487,7 +1487,7 @@ export class OrAssetViewer extends subscribe(manager)(translate(i18next)(OrEleme
     if (editMode) {
       content = html`
         <div id="edit-container">
-          <or-edit-asset-panel id="editor" .asset="${asset}" .modified="${!!this.isModified()}"></or-edit-asset-panel>
+          <or-edit-asset-panel id="editor" .asset="${asset}" ?modified="${!!this.isModified()}"></or-edit-asset-panel>
         </div>
       `;
 

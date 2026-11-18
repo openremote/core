@@ -26,6 +26,10 @@ Own Lit components extend `OrElement` from `@openremote/or-element` instead of `
 
 A state change should re-render only the part it affects. Re-rendering a whole page, or a large component such as a table, flickers and discards the state that component holds: sort order, pagination, selection, scroll position. Keep those children mounted and update their properties.
 
+## Template bindings
+
+Lit and Vaadin elements read their attributes into properties, so bind to the attribute: `?name=${...}` for a boolean, `name=${...}` or `name="..."` for a string or number. Bind `.name=${...}` only for objects, arrays, functions and properties without an attribute. Native form controls are the exception, as their `value` and `checked` attributes only set the initial state.
+
 ## Spacing
 
 Avoid negative margins that cancel a container's padding. They repeat a value the container owns, so they break silently when it changes. Keep the content inside the padding, or add a theme variant to the container that turns it off.
