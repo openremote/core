@@ -235,6 +235,7 @@ Resources:
             - env_vars
             - dns_updater
             - s3_backup_service
+            - docker_metrics_service
             - deployment_local_dir
             - daily_cleanup
 
@@ -581,7 +582,6 @@ Resources:
                 journalctl --vacuum-time=7d
             "/etc/cron.d/cleanup":
               content: |
-                #!/bin/bash
                 0 3 * * * root /usr/local/bin/daily-cleanup
           commands:
             01_chmod:
@@ -592,7 +592,7 @@ Resources:
           commands:
             01_create_dir:
               command: |
-                mkdir /deployment.local
+                mkdir -p /deployment.local
                 chown ec2-user:ec2-user /deployment.local
 
         s3_backup_service:
@@ -650,6 +650,81 @@ Resources:
                 systemctl daemon-reload
                 systemctl start s3-backup.service
                 systemctl enable s3-backup.timer
+
+        docker_metrics_service:
+          files:
+            "/usr/local/bin/push-docker-metrics":
+              content: !Sub |
+                #!/bin/bash
+                set -euo pipefail
+
+                # ------------------------------------------------------------------------------------------------------
+                #
+                # Script for pushing max Docker container memory percentage to CloudWatch
+                #
+                # ------------------------------------------------------------------------------------------------------
+
+                NAMESPACE="Custom/Docker"
+
+                MAX_MEM_PCT=$(docker stats --no-stream --format "{{.MemPerc}}" \
+                  | tr -d '%' \
+                  | grep -E '^[0-9]+(\.[0-9]+)?$' \
+                  | sort -nr \
+                  | head -n 1 || true)
+
+                if [ -z "$MAX_MEM_PCT" ]; then
+                  exit 0
+                fi
+
+                aws cloudwatch put-metric-data \
+                  --region "${AWS::Region}" \
+                  --namespace "$NAMESPACE" \
+                  --metric-name "MaxContainerMemoryPercent" \
+                  --dimensions "InstanceName=${Host}" \
+                  --value "$MAX_MEM_PCT" \
+                  --unit Percent
+
+            "/lib/systemd/system/docker-metrics.service":
+              content: |
+                [Unit]
+                Description=Push max Docker container memory metric to CloudWatch
+                Wants=docker-metrics.timer
+                After=docker.service
+
+                [Service]
+                Type=oneshot
+                ExecStart=/usr/local/bin/push-docker-metrics
+
+                [Install]
+                WantedBy=multi-user.target
+
+            "/lib/systemd/system/docker-metrics.timer":
+              content: |
+                [Unit]
+                Description=Run Docker CloudWatch metrics push every minute
+                Requires=docker-metrics.service
+
+                [Timer]
+                Unit=docker-metrics.service
+                OnBootSec=1min
+                OnUnitActiveSec=1min
+                AccuracySec=5s
+
+                [Install]
+                WantedBy=timers.target
+
+          commands:
+            01_init_service:
+              command: !If
+                - MetricsEnabled
+                - |
+                  chmod +x /usr/local/bin/push-docker-metrics
+                  systemctl daemon-reload
+                  systemctl enable --now docker-metrics.timer
+                - |
+                  chmod +x /usr/local/bin/push-docker-metrics
+                  systemctl daemon-reload
+                  systemctl disable --now docker-metrics.timer || true
 
         dns_updater:
           packages:
@@ -937,14 +1012,29 @@ Resources:
               owner: root
               group: root
 
-          services:
-            systemd:
-              cfn-hup:
-                enabled: true
-                ensureRunning: true
-                files:
-                  - /etc/cfn/cfn-hup.conf
-                  - /etc/cfn/hooks.d/amazon-cloudwatch-agent-auto-reloader.conf
+            "/lib/systemd/system/cfn-hup.service":
+              content: |
+                [Unit]
+                Description=CloudFormation helper daemon
+                After=network.target
+
+                [Service]
+                Type=simple
+                ExecStart=/opt/aws/bin/cfn-hup --no-daemon --verbose
+                Restart=always
+                RestartSec=10
+
+                [Install]
+                WantedBy=multi-user.target
+              mode: "000644"
+              owner: root
+              group: root
+
+          commands:
+            01_enable_cfn_hup:
+              command: |
+                systemctl daemon-reload
+                systemctl enable --now cfn-hup
 
     Properties:
       InstanceType: !Ref InstanceType
@@ -1459,3 +1549,24 @@ Resources:
           Value: "1000"
         - Name: proc_name
           Value: "_timescaledb_functions.policy_compression"
+
+  ContainerMemoryUtilizationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: MetricsEnabled
+    Properties:
+      AlarmDescription: Docker container memory usage exceeded 85% of container limit
+      Namespace: Custom/Docker
+      MetricName: MaxContainerMemoryPercent
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: 85
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref SnsTopic
+      OKActions:
+        - !Ref SnsTopic
+      Dimensions:
+        - Name: InstanceName
+          Value: !Ref Host
