@@ -14,7 +14,7 @@
     "@rspack/core": "~2.1.10",
     "@types/react": "^18",
     "@typescript-eslint/eslint-plugin": "8.40.0",
-    "@typescript-eslint/parser": "8.40.0",
+    "@typescript-eslint/parser": "8.72.1",
     "@wc-toolkit/cem-inheritance": "~1.2.2",
     "@wc-toolkit/jsx-types": "~1.5.3",
     "@wc-toolkit/storybook-helpers": "^10.7.7",
