@@ -50,14 +50,14 @@ class X509ProvisioningProofTest extends Specification {
       isOpen() >> true
     }
   }
-  def topic = Topic.parse("provisioning/device1/request")
+  def topic = Topic.parse("provisioningv2/device1/request")
   def keyPair = KeyPairGenerator.getInstance("RSA").generateKeyPair()
   def certificate = certificateFor(keyPair)
 
   def setup() {
     handler.isKeycloak = true
-    assert handler.canSubscribe(connection, null, Topic.parse("provisioning/device1/response"))
-    handler.onSubscribe(connection, Topic.parse("provisioning/device1/response"))
+    assert handler.canSubscribe(connection, null, Topic.parse("provisioningv2/device1/response"))
+    handler.onSubscribe(connection, Topic.parse("provisioningv2/device1/response"))
   }
 
   def "a valid #keyAlgorithm proof succeeds exactly once"() {
@@ -105,7 +105,7 @@ class X509ProvisioningProofTest extends Specification {
     def otherCertificate = certificateFor(KeyPairGenerator.getInstance("RSA").generateKeyPair())
 
     expect:
-    !handler.verifyX509Proof(connection, Topic.parse("provisioning/device2/request"), certificate, signature)
+    !handler.verifyX509Proof(connection, Topic.parse("provisioningv2/device2/request"), certificate, signature)
 
     when:
     handler.issueX509Challenge(connection, topic, certificate)
@@ -164,7 +164,7 @@ class X509ProvisioningProofTest extends Specification {
 
     and: "nobody else may, so an attacker cannot inject errors into the device's exchange"
     !handler.canPublish(attacker, null, topic)
-    !handler.canPublish(connection, null, Topic.parse("provisioning/device2/request"))
+    !handler.canPublish(connection, null, Topic.parse("provisioningv2/device2/request"))
     handler.messages.isEmpty()
   }
 
@@ -175,19 +175,19 @@ class X509ProvisioningProofTest extends Specification {
         isOpen() >> true
       }
     }
-    def unsubscribed = Topic.parse("provisioning/device2/request")
+    def unsubscribed = Topic.parse("provisioningv2/device2/request")
 
     expect:
     !handler.canPublish(device2, null, unsubscribed)
 
     when:
-    handler.canSubscribe(device2, null, Topic.parse("provisioning/device2/response"))
+    handler.canSubscribe(device2, null, Topic.parse("provisioningv2/device2/response"))
 
     then:
     handler.canPublish(device2, null, unsubscribed)
 
     when:
-    handler.onUnsubscribe(device2, Topic.parse("provisioning/device2/response"))
+    handler.onUnsubscribe(device2, Topic.parse("provisioningv2/device2/response"))
 
     then:
     !handler.canPublish(device2, null, unsubscribed)
@@ -195,8 +195,8 @@ class X509ProvisioningProofTest extends Specification {
 
   def "a connection can own only one response topic"() {
     given:
-    def device1Response = Topic.parse("provisioning/device1/response")
-    def device2Response = Topic.parse("provisioning/device2/response")
+    def device1Response = Topic.parse("provisioningv2/device1/response")
+    def device2Response = Topic.parse("provisioningv2/device2/response")
 
     expect: "re-authorizing the topic it already owns is allowed"
     handler.canSubscribe(connection, null, device1Response)
@@ -224,10 +224,10 @@ class X509ProvisioningProofTest extends Specification {
     }
 
     expect: "another connection cannot take the owned topic"
-    !handler.canSubscribe(other, null, Topic.parse("provisioning/device1/response"))
+    !handler.canSubscribe(other, null, Topic.parse("provisioningv2/device1/response"))
 
     and: "but can still claim a free one"
-    handler.canSubscribe(other, null, Topic.parse("provisioning/device2/response"))
+    handler.canSubscribe(other, null, Topic.parse("provisioningv2/device2/response"))
   }
 
   def "only the response subscriber can obtain a challenge"() {
@@ -245,8 +245,8 @@ class X509ProvisioningProofTest extends Specification {
   def "a message processed after its connection lost the response topic is dropped silently"() {
     given: "the topic changes hands after the message was authorized but before it is processed"
     def newOwner = openConnection()
-    handler.onUnsubscribe(connection, Topic.parse("provisioning/device1/response"))
-    assert handler.canSubscribe(newOwner, null, Topic.parse("provisioning/device1/response"))
+    handler.onUnsubscribe(connection, Topic.parse("provisioningv2/device1/response"))
+    assert handler.canSubscribe(newOwner, null, Topic.parse("provisioningv2/device1/response"))
 
     when:
     handler.processX509ProvisioningMessage(connection, topic, cert, signature, challengeRequest)
@@ -266,10 +266,10 @@ class X509ProvisioningProofTest extends Specification {
     given:
     handler.issueX509Challenge(connection, topic, certificate)
     def signature = sign(handler.messages.last(), keyPair)
-    handler.onUnsubscribe(connection, Topic.parse("provisioning/device1/response"))
+    handler.onUnsubscribe(connection, Topic.parse("provisioningv2/device1/response"))
     def otherConnection = Stub(RemotingConnection)
-    assert handler.canSubscribe(otherConnection, null, Topic.parse("provisioning/device1/response"))
-    handler.onSubscribe(otherConnection, Topic.parse("provisioning/device1/response"))
+    assert handler.canSubscribe(otherConnection, null, Topic.parse("provisioningv2/device1/response"))
+    handler.onSubscribe(otherConnection, Topic.parse("provisioningv2/device1/response"))
 
     expect:
     !handler.verifyX509Proof(connection, topic, certificate, signature)
@@ -305,18 +305,18 @@ class X509ProvisioningProofTest extends Specification {
     handler.onDisconnect(closing)
 
     expect: "the late subscribe is refused and no claim survives"
-    !handler.canSubscribe(closing, null, Topic.parse("provisioning/device2/response"))
-    !handler.responseTopicOwners.containsKey("provisioning/device2/response")
+    !handler.canSubscribe(closing, null, Topic.parse("provisioningv2/device2/response"))
+    !handler.responseTopicOwners.containsKey("provisioningv2/device2/response")
     !handler.connectionResponseTopics.containsKey(closing)
 
     and: "the topic stays free for the real device"
-    handler.canSubscribe(realDevice, null, Topic.parse("provisioning/device2/response"))
+    handler.canSubscribe(realDevice, null, Topic.parse("provisioningv2/device2/response"))
   }
 
   def "concurrent subscribe and disconnect never leak a claim"() {
     given:
     def executor = Executors.newFixedThreadPool(2)
-    def responseTopic = Topic.parse("provisioning/device2/response")
+    def responseTopic = Topic.parse("provisioningv2/device2/response")
 
     when: "a subscribe and the disconnect cleanup of the same connection race many times"
     def leaks = (1..500).count {
@@ -369,7 +369,7 @@ class X509ProvisioningProofTest extends Specification {
         getTransportConnection() >> transport
       }
     }
-    def responseTopic = Topic.parse("provisioning/device2/response")
+    def responseTopic = Topic.parse("provisioningv2/device2/response")
     def executor = Executors.newFixedThreadPool(2)
 
     when:
@@ -383,8 +383,8 @@ class X509ProvisioningProofTest extends Specification {
     handler.responseTopicOwners[responseTopic.toString()].is(connections[results.indexOf(true)])
 
     and: "only the winner may publish the matching request topic"
-    handler.canPublish(connections[results.indexOf(true)], null, Topic.parse("provisioning/device2/request"))
-    !handler.canPublish(connections[results.indexOf(false)], null, Topic.parse("provisioning/device2/request"))
+    handler.canPublish(connections[results.indexOf(true)], null, Topic.parse("provisioningv2/device2/request"))
+    !handler.canPublish(connections[results.indexOf(false)], null, Topic.parse("provisioningv2/device2/request"))
 
     cleanup:
     executor.shutdownNow()
