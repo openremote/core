@@ -31,7 +31,10 @@ import org.openremote.model.util.TsIgnore;
  * <ol>
  *   <li>{@link #init} in registry insertion order
  *   <li>{@link #start} in registry insertion order
+ *   <li>{@link #startIngress} in registry insertion order
  * </ol>
+ *
+ * <p>The container completes each startup phase for all services before moving to the next.
  *
  * <p>Service shutdown lifecycle:
  *
@@ -48,8 +51,8 @@ public interface ContainerService {
   int LOW_PRIORITY = Integer.MAX_VALUE - 1000;
 
   /**
-   * Gets the priority of this service which is used to determine initialization order when services
-   * are auto discovered; services with a lower priority are initialized and started first.
+   * Gets the priority of this service, which determines the order within each startup phase when
+   * services are auto-discovered. Services with a lower priority run first.
    */
   default int getPriority() {
     return DEFAULT_PRIORITY;
@@ -68,6 +71,12 @@ public interface ContainerService {
    * {@link #getPriority}.
    */
   void start(Container container) throws Exception;
+
+  /**
+   * Opens public listeners after every service has completed {@link #start}. Services should prepare
+   * their handlers and event consumers during {@link #init} and {@link #start}.
+   */
+  default void startIngress(Container container) throws Exception {}
 
   /**
    * When the container is shutting down, it stops all services in the reverse order they were

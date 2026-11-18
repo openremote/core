@@ -196,6 +196,11 @@ public class Container implements org.openremote.model.Container {
         LOG.log(INFO, "Starting service: " + service.getClass().getName());
         service.start(Container.this);
       }
+
+      LOG.log(INFO, "Starting runtime ingress");
+      for (ContainerService service : getServices()) {
+        service.startIngress(this);
+      }
     } catch (Exception ex) {
       LOG.log(ERROR, ">>> Runtime container startup failed", ex);
       stop(true);

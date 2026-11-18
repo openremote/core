@@ -46,6 +46,8 @@ import java.util.concurrent.CountDownLatch
 import static java.util.concurrent.TimeUnit.MILLISECONDS
 import static org.openremote.container.Container.OR_EXECUTOR_THREADS_MAX
 import static org.openremote.container.Container.OR_EXECUTOR_THREADS_MIN
+import static org.openremote.container.web.WebService.OR_WEBSERVER_LISTEN_HOST
+import static org.openremote.container.web.WebService.OR_WEBSERVER_LISTEN_PORT
 import static org.openremote.manager.asset.AssetProcessingService.ATTRIBUTE_EVENT_PROCESSOR
 import static org.openremote.manager.mqtt.MQTTBrokerService.MQTT_SERVER_LISTEN_HOST
 import static org.openremote.manager.mqtt.MQTTBrokerService.MQTT_SERVER_LISTEN_PORT
@@ -62,6 +64,8 @@ class ManagerStartupTest extends Specification implements ManagerContainerTrait 
   private StartupMessageBroker messageBroker
   @Shared
   private AssetStorageService storage
+  @Shared
+  private LateStartupProbe lateStartupProbe
 
   def setupSpec() {
     mqttPort = findEphemeralPort()
@@ -71,10 +75,12 @@ class ManagerStartupTest extends Specification implements ManagerContainerTrait 
     def config = defaultConfig() << [
       (MQTT_SERVER_LISTEN_HOST): "127.0.0.1",
       (MQTT_SERVER_LISTEN_PORT): mqttPort.toString(),
+      (OR_WEBSERVER_LISTEN_HOST): "127.0.0.1",
       (OR_EXECUTOR_THREADS_MIN): "1",
       (OR_EXECUTOR_THREADS_MAX): "1"
     ]
-    Iterable<ContainerService> services = defaultServices().collect {
+    lateStartupProbe = new LateStartupProbe(config[OR_WEBSERVER_LISTEN_PORT].toInteger(), mqttPort)
+    Iterable<ContainerService> services = defaultServices(lateStartupProbe).collect {
       if (it instanceof MessageBrokerService) {
         return messageBroker
       }
@@ -92,14 +98,24 @@ class ManagerStartupTest extends Specification implements ManagerContainerTrait 
     stopContainer()
   }
 
-  def "MQTT ingress waits for event processing and reconciles monitored connection state"() {
+  def "public listeners open after all services start"() {
+    expect: "both endpoints stay closed until the ingress phase and accept connections after startup"
+    verifyAll {
+      !messageBroker.mqttPortOpenBeforeCamel
+      !lateStartupProbe.httpPortOpen
+      !lateStartupProbe.mqttPortOpen
+      canConnectToPort(lateStartupProbe.httpPort)
+      canConnectToPort(mqttPort)
+    }
+  }
+
+  def "MQTT connection monitoring reconciles state during startup"() {
     given: "the startup probe ran under executor saturation with stale online values in storage"
     def conditions = statusConditions()
     MQTT_IOClient client
 
-    expect: "the MQTT port stayed closed until Camel started and both stored statuses are offline"
+    expect: "startup completed without consumer waits and both stored statuses are offline"
     verifyAll {
-      !messageBroker.mqttPortOpenBeforeCamel
       mqttBroker.startupConsumerTimeouts == 0
       connectionStatuses(storage, mqttBroker.monitoredAssetId) == [false, false]
     }
@@ -161,7 +177,7 @@ class ManagerStartupTest extends Specification implements ManagerContainerTrait 
     return conditions
   }
 
-  private static boolean canConnectToMqttPort(int port) {
+  private static boolean canConnectToPort(int port) {
     try {
       new Socket().withCloseable {
         it.connect(new InetSocketAddress("127.0.0.1", port), 1000)
@@ -258,7 +274,7 @@ class ManagerStartupTest extends Specification implements ManagerContainerTrait 
         submittedAssetId = storage.merge(asset).id
 
         withSaturatedExecutor(container) {
-          mqttPortOpenBeforeCamel = canConnectToMqttPort(mqttPort)
+          mqttPortOpenBeforeCamel = canConnectToPort(mqttPort)
           int timeoutsBeforeSubmission = direct.startupConsumerTimeouts
           container.getService(AssetProcessingService.class)
             .sendAttributeEvent(new AttributeEvent(submittedAssetId, "submitted", true))
@@ -270,6 +286,35 @@ class ManagerStartupTest extends Specification implements ManagerContainerTrait 
         direct.startupThread = null
       }
     }
+  }
+
+  private static class LateStartupProbe implements ContainerService {
+    final int httpPort
+    private final int mqttPort
+    boolean httpPortOpen
+    boolean mqttPortOpen
+
+    LateStartupProbe(int httpPort, int mqttPort) {
+      this.httpPort = httpPort
+      this.mqttPort = mqttPort
+    }
+
+    @Override
+    int getPriority() {
+      Integer.MAX_VALUE
+    }
+
+    @Override
+    void init(Container container) {}
+
+    @Override
+    void start(Container container) {
+      httpPortOpen = canConnectToPort(httpPort)
+      mqttPortOpen = canConnectToPort(mqttPort)
+    }
+
+    @Override
+    void stop(Container container) {}
   }
 
   private static class StartupDirectComponent extends DirectComponent {
