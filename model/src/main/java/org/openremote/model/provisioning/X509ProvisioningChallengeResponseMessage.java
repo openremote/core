@@ -35,7 +35,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public class X509ProvisioningChallengeResponseMessage extends ProvisioningMessage {
 
   /** Domain separator that every challenge issued by the manager starts with. */
-  public static final String CHALLENGE_PREFIX = "OpenRemote MQTT X509 provisioning v1\n";
+  public static final String CHALLENGE_PREFIX = "OpenRemote MQTT X509 Challenge\n";
 
   protected String challenge;
   protected String algorithm;
