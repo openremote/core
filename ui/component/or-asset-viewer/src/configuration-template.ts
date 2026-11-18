@@ -58,7 +58,7 @@ import { showSnackbar } from "@openremote/or-mwc-components/or-mwc-snackbar";
 export type AssetAttributes = { [index: string]: Attribute<any> };
 
 /** A configuration item of an attribute as the rows show it. */
-interface ConfigurationItem {
+interface ConfigurationItemView {
   label: string;
   /** The value in short, if it has one. */
   value?: string;
@@ -689,7 +689,7 @@ function getAttributeRowTemplate(asset: Asset, attribute: Attribute<any>, lead: 
         </or-vaadin-button>
       </div>
       <div class="ac-row-details">
-        ${getConfigurationItems(asset, attribute).map(
+        ${getConfigurationItemViews(asset, attribute).map(
           (item) => html`
             <div class="ac-item">
               <div class="ac-item-header">
@@ -792,9 +792,9 @@ function attributeName(asset: Asset, attribute: Attribute<any>): string {
 }
 
 /** The configuration items of an attribute that a template holds, sorted by label. */
-function getConfigurationItems(asset: Asset, attribute: Attribute<any>): ConfigurationItem[] {
+function getConfigurationItemViews(asset: Asset, attribute: Attribute<any>): ConfigurationItemView[] {
   return Object.entries(getTemplateMeta(attribute))
-    .map(([name, value]) => getConfigurationItem(asset, name, value))
+    .map(([name, value]) => getConfigurationItemView(asset, name, value))
     .sort((a, b) => a.label.localeCompare(b.label));
 }
 
@@ -803,7 +803,7 @@ function getConfigurationItems(asset: Asset, attribute: Attribute<any>): Configu
  * short form as that, and any other list of plain values comma separated. Any other value only shows as formatted JSON,
  * through its JSON button, which a short form has as well.
  */
-function getConfigurationItem(asset: Asset, name: string, value: unknown): ConfigurationItem {
+function getConfigurationItemView(asset: Asset, name: string, value: unknown): ConfigurationItemView {
   const label = Util.getMetaLabel(undefined, name, asset.type, false);
 
   if (value === null || typeof value !== "object") {
