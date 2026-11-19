@@ -36,11 +36,14 @@ import {
   showJsonEditor,
 } from "../util";
 import { i18next } from "@openremote/or-translate";
-import { OrMwcDialog, showDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
-import "@openremote/or-mwc-components/or-mwc-list";
+import { type OrVaadinDialog, showDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
 import { addItemOrParameterDialogStyle, baseStyle, panelStyle } from "../styles";
-import type { ListItem, OrMwcListChangedEvent } from "@openremote/or-mwc-components/or-mwc-list";
+import type { ListItem } from "@openremote/or-vaadin-components/or-vaadin-list-box";
 import type { OrVaadinButton } from "@openremote/or-vaadin-components/or-vaadin-button";
+import { createRef, type Ref, ref } from "lit/directives/ref.js";
+import "@openremote/or-vaadin-components/or-vaadin-dialog";
+import "@openremote/or-vaadin-components/or-vaadin-list-box";
+import "@openremote/or-vaadin-components/or-vaadin-item";
 import "@openremote/or-vaadin-components/or-vaadin-button";
 import { DefaultColor4, DefaultColor5 } from "@openremote/core";
 import { ControlBaseElement } from "./control-base-element";
@@ -133,7 +136,7 @@ export class ControlArrayElement extends ControlBaseElement {
   protected moveItem!: (fromIndex: number, toIndex: number) => void;
 
   public static get styles() {
-    return [baseStyle, panelStyle, style];
+    return [baseStyle, panelStyle, addItemOrParameterDialogStyle, style];
   }
 
   shouldUpdate(_changedProperties: PropertyValues): boolean {
@@ -319,7 +322,7 @@ export class ControlArrayElement extends ControlBaseElement {
   protected _showJson(ev: Event) {
     ev.stopPropagation();
 
-    showJsonEditor(this.title || this.schema.title || "", this.data, (newValue) => {
+    showJsonEditor(this.shadowRoot!, this.title || this.schema.title || "", this.data, (newValue) => {
       this.handleChange(this.path || "", newValue);
     });
   }
@@ -338,65 +341,61 @@ export class ControlArrayElement extends ControlBaseElement {
 
   protected showAddDialog() {
     let selectedItemInfo: CombinatorInfo | undefined;
+    let dialog: OrVaadinDialog | undefined;
+    const descRef: Ref<HTMLDivElement> = createRef();
+    const addBtnRef: Ref<OrVaadinButton> = createRef();
 
-    const listItems: ListItem[] = this.itemInfos!.map((itemInfo, index) => {
+    const listItems: ListItem[] = this.itemInfos!.map((itemInfo) => {
       const labelStr = itemInfo.title ? computeLabel(itemInfo.title, false, true) : "";
       return {
         text: labelStr,
         value: labelStr,
         data: itemInfo,
       };
-    });
+    }).sort((a, b) => a.text!.localeCompare(b.text!));
 
     const onParamChanged = (itemInfo: CombinatorInfo) => {
       selectedItemInfo = itemInfo;
-      const descElem = dialog.shadowRoot!.getElementById("parameter-desc") as HTMLDivElement;
-      descElem.innerHTML = itemInfo.description || "";
-      (dialog.shadowRoot!.getElementById("add-btn") as OrVaadinButton).disabled = false;
+      descRef.value!.innerHTML = itemInfo.description || "";
+      addBtnRef.value!.disabled = false;
     };
 
-    const dialog = showDialog(
-      new OrMwcDialog()
-        .setContent(html`
-          <div class="col">
-            <form id="mdc-dialog-form-add" class="row">
-              <div id="type-list" class="col">
-                <or-mwc-list
-                  @or-mwc-list-changed="${(evt: OrMwcListChangedEvent) => {
-                    if (evt.detail.length === 1) onParamChanged((evt.detail[0] as ListItem).data as CombinatorInfo);
-                  }}"
-                  .listItems="${listItems.sort((a, b) => a.text!.localeCompare(b.text!))}"
-                  id="parameter-list"
-                ></or-mwc-list>
-              </div>
-              <div id="parameter-desc" class="col"></div>
-            </form>
+    const onAdd = () => {
+      if (selectedItemInfo) {
+        this.addItem(selectedItemInfo.defaultValueCreator());
+      }
+      dialog?.close();
+    };
+
+    dialog = showDialog(
+      this.shadowRoot!,
+      html`
+        <or-vaadin-dialog width="800px">
+          <h2 slot="header-content">
+            ${(this.label ? computeLabel(this.label, this.required, false) + " - " : "") + i18next.t("addItem")}
+          </h2>
+          <div id="dialog-content">
+            <or-vaadin-list-box
+              id="type-list"
+              @selected-changed="${(ev: CustomEvent) => {
+                const selected = listItems[ev.detail.value as number];
+                if (selected) onParamChanged(selected.data as CombinatorInfo);
+              }}"
+            >
+              ${listItems.map((item) => html`<or-vaadin-item>${item.text}</or-vaadin-item>`)}
+            </or-vaadin-list-box>
+            <div id="parameter-desc" ${ref(descRef)}></div>
           </div>
-        `)
-        .setStyles(addItemOrParameterDialogStyle)
-        .setHeading((this.label ? computeLabel(this.label, this.required, false) + " - " : "") + i18next.t("addItem"))
-        .setActions([
-          {
-            actionName: "cancel",
-            content: "cancel",
-          },
-          {
-            default: true,
-            actionName: "add",
-            action: () => {
-              if (selectedItemInfo) {
-                const value = selectedItemInfo.defaultValueCreator();
-                this.addItem(value);
-              }
-            },
-            content: html`
-              <or-vaadin-button id="add-btn" disabled>
-                <or-translate value="add"></or-translate>
-              </or-vaadin-button>
-            `,
-          },
-        ])
-        .setDismissAction(null)
+          <div id="dialog-footer" slot="footer">
+            <or-vaadin-button theme="tertiary" @click="${() => dialog?.close()}">
+              <or-translate value="cancel"></or-translate>
+            </or-vaadin-button>
+            <or-vaadin-button ${ref(addBtnRef)} theme="primary" disabled @click="${() => onAdd()}">
+              <or-translate value="add"></or-translate>
+            </or-vaadin-button>
+          </div>
+        </or-vaadin-dialog>
+      `
     );
   }
 }

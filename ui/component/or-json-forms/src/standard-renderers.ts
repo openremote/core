@@ -57,7 +57,7 @@ import {
   uiTypeIs,
 } from "@jsonforms/core";
 import { html, type TemplateResult } from "lit";
-import "@openremote/or-mwc-components/or-mwc-input";
+import { i18next } from "@openremote/or-translate";
 import "@openremote/or-vaadin-components/or-vaadin-input";
 import type { JsonFormsStateContext } from "./index";
 import {
@@ -247,7 +247,7 @@ export const anyOfOneOfControlRenderer = (state: JsonFormsStateContext, props: C
     //     };
 
     //     return html`
-    //         <div class="item-container no-match-container"><span>${label}:</span><b><or-translate value="validation.noSchemaMatchFound"></b><or-mwc-input .type="${InputType.BUTTON}" outlined label="json" icon="pencil" @or-mwc-input-changed="${(ev: Event) => showJson(ev)}"></or-mwc-input></div>
+    //         <div class="item-container no-match-container"><span>${label}:</span><b><or-translate value="validation.noSchemaMatchFound"></b><or-vaadin-button @click="${(ev: Event) => showJson(ev)}"><or-icon slot="prefix" icon="pencil"></or-icon>json</or-vaadin-button></div>
     //     `;
     // } else {
     // We have no data so show a schema picker
@@ -342,7 +342,7 @@ export function getTemplateWrapper(elementTemplate: TemplateResult, deleteHandle
   const deleteTemplate = !deleteHandler
     ? ``
     : html`
-                <button class="button-clear" @click="${deleteHandler}"><or-icon icon="close-circle"></or-icon></input>
+                <button class="button-clear" aria-label="${i18next.t("delete")}" @click="${deleteHandler}"><or-icon icon="close-circle"></or-icon></input>
             `;
   return html`
     <div class="item-container">
