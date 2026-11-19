@@ -16,13 +16,15 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
-import { expect, type Page } from "@openremote/test";
+import { expect, type Locator, type Page } from "@openremote/test";
+import type { Asset } from "@openremote/model";
 import type { AssetViewer } from "../../../component/or-asset-viewer/test/fixtures";
 import { test, userStatePath } from "./fixtures/manager.js";
 import { agent } from "./fixtures/data/assets.js";
 import {
   configuredLight,
   lightTemplate,
+  linkedLightTemplate,
   partlyImportableTemplate,
   pumpTemplate,
   targetLight,
@@ -246,6 +248,105 @@ test("should go back to the file selection from a template that cannot be import
 
   const matched = assetViewer.getConfigurationTemplateSection("Matched attributes");
   await expect(assetViewer.getConfigurationTemplateAttribute(matched, "Dimmer")).toBeVisible();
+});
+
+/**
+ * Continue from what an import would do to the parameters of its agent links.
+ * @param page The page showing the import
+ * @param assetViewer The asset viewer fixture
+ */
+async function continueToParameters(page: Page, assetViewer: AssetViewer) {
+  const matched = assetViewer.getConfigurationTemplateSection("Matched attributes");
+  await expect(assetViewer.getConfigurationTemplateAttribute(matched, "Power")).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: "Next", exact: true }).click();
+}
+
+/**
+ * Pick an agent for a parameter of the configuration template import.
+ * @param page The page showing the import
+ * @param parameter The parameter
+ * @param agent The agent to pick
+ */
+async function pickAgent(page: Page, parameter: Locator, agent: Asset) {
+  await parameter.getByLabel("Agent ID").click();
+  await page.getByRole("option", { name: `${agent.name} (${agent.id})` }).click();
+}
+
+/**
+ * @given A simulator agent and a light to import into are set up in the "smartcity" realm
+ * @when Importing a template whose agent links point at two agents of another instance
+ * @then An agent is asked for once per template agent, listing the attributes that share it
+ * @and Import is blocked, as the template's agents do not exist here
+ * @when Picking the simulator agent for both, importing and saving the light
+ * @then Every agent link of the light points at the simulator agent
+ */
+test("should ask for an agent for each agent of the template", async ({ page, manager, assetsPage, assetViewer }) => {
+  await manager.setup("smartcity", { assets: [agent, targetLight] });
+  const simulator = manager.assets.find(({ type }) => type === agent.type)!;
+  const light = manager.assets.find(({ name }) => name === targetLight.name)!;
+  await assetsPage.gotoAssetId("smartcity", light.id!, true);
+  await selectTemplateFile(page, assetViewer, "linked.json", JSON.stringify(linkedLightTemplate));
+  await continueToParameters(page, assetViewer);
+
+  const shared = assetViewer.getConfigurationTemplateParameter("Dimmer");
+  const single = assetViewer.getConfigurationTemplateParameter("Power");
+  await expect(shared).toContainText("White tone");
+  await expect(single).not.toContainText("Dimmer");
+  const importButton = page.getByRole("dialog").getByRole("button", { name: "Import", exact: true });
+  for (const parameter of [shared, single]) {
+    await expect(parameter.getByText("The template's agent does not exist here. Pick another one.")).toBeVisible();
+  }
+  await expect(importButton).toBeDisabled();
+
+  await pickAgent(page, shared, simulator);
+  await pickAgent(page, single, simulator);
+  await expect(importButton).toBeEnabled();
+  await importButton.click();
+  const saveButton = page.getByRole("button", { name: "Save" });
+  await saveButton.click();
+  await expect(saveButton).toBeDisabled();
+
+  const { data: saved } = await manager.api.AssetResource.get(light.id!, await manager.adminConfig());
+  for (const name of ["brightness", "colourTemperature", "onOff"]) {
+    expect(saved.attributes![name].meta!.agentLink).toMatchObject({ type: "SimulatorAgentLink", id: simulator.id });
+  }
+});
+
+/**
+ * @given A light to import into is set up in the "smartcity" realm, without a simulator agent
+ * @when Importing a template with simulator agent links
+ * @then Import is blocked, saying that an agent of the link type is needed
+ * @when A simulator agent is added elsewhere
+ * @then It can be picked and the template imported
+ */
+test("should block import until an agent of the link type exists", async ({
+  page,
+  manager,
+  assetsPage,
+  assetViewer,
+}) => {
+  await manager.setup("smartcity", { assets: [targetLight] });
+  await assetsPage.gotoAssetId("smartcity", manager.assets[0].id!, true);
+  await selectTemplateFile(page, assetViewer, "linked.json", JSON.stringify(linkedLightTemplate));
+  await continueToParameters(page, assetViewer);
+
+  const parameters = [
+    assetViewer.getConfigurationTemplateParameter("Dimmer"),
+    assetViewer.getConfigurationTemplateParameter("Power"),
+  ];
+  const importButton = page.getByRole("dialog").getByRole("button", { name: "Import", exact: true });
+  for (const parameter of parameters) {
+    await expect(parameter.getByText(/^There is no agent for a .+ yet/)).toBeVisible();
+  }
+  await expect(importButton).toBeDisabled();
+
+  await manager.setup("smartcity", { assets: [agent] });
+  const simulator = manager.assets.find(({ type }) => type === agent.type)!;
+  for (const parameter of parameters) {
+    await expect(parameter.getByText(/^There is no agent for a .+ yet/)).toHaveCount(0);
+    await pickAgent(page, parameter, simulator);
+  }
+  await expect(importButton).toBeEnabled();
 });
 
 /**
