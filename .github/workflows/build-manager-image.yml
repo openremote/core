@@ -108,9 +108,28 @@ jobs:
           sarif_file: ${{ steps.manager-anchore-scan.outputs.sarif }}
           category: grype-manager
 
-      - name: Inspect Anchore scan SARIF report
-        if: ${{ always() && steps.meta.outputs.should_push == 'true' }}
-        run: cat ${{ steps.manager-anchore-scan.outputs.sarif }}
+      - name: Report critical vulnerabilities
+        if: ${{ !cancelled() && steps.manager-anchore-scan.outcome == 'failure' }}
+        env:
+          SARIF: ${{ steps.manager-anchore-scan.outputs.sarif }}
+        run: |
+          # SARIF levels do not separate critical from high, so read the "Key: value" lines of each rule's help text
+          critical=$(jq -c '
+            .runs[].tool.driver.rules[]
+            | (.help.text | split("\n")) as $lines
+            | ($lines[1:] | map(capture("^(?<key>[^:]+): (?<value>.*)$")) | from_entries)
+            | select(.Severity == "critical")
+            | . + {ID: ($lines[0] | ltrimstr("Vulnerability ")), Fixed: ((."Fix Version" | select(. != "")) // null)}' "$SARIF")
+
+          {
+            echo "### Critical vulnerabilities in the manager image"
+            echo
+            echo "| Vulnerability | Package | Version | Fixed in | Type | Location |"
+            echo "| --- | --- | --- | --- | --- | --- |"
+            jq -r '"| \(.Link) | \(.Package) | \(.Version) | \(.Fixed // "no fix") | \(.Type) | \(.Location) |"' <<< "$critical"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          jq -r '"::error title=\(.ID)::\(.Package) \(.Version) (\(.Type)), \(if .Fixed then "fixed in \(.Fixed)" else "no fix available" end)"' <<< "$critical"
 
       - name: Login to DockerHub
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
