@@ -1,0 +1,242 @@
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+import org.gradle.api.tasks.testing.logging.TestLogEvent
+
+def jacocoToolVersion = libs.versions.jacoco.get()
+
+jacoco {
+  toolVersion = jacocoToolVersion
+}
+
+subprojects.findAll { !it.path.startsWith(':ui') }.each { backendProject ->
+  backendProject.pluginManager.withPlugin('java') {
+    backendProject.pluginManager.apply('jacoco')
+    backendProject.jacoco { toolVersion = jacocoToolVersion }
+  }
+}
+
+tasks.register('testBackendUnit') {
+  group = 'verification'
+  description = 'Runs backend unit tests'
+}
+
+tasks.register('testBackendIntegration') {
+  group = 'verification'
+  description = 'Runs backend integration tests'
+}
+
+tasks.register('testBackend') {
+  group = 'verification'
+  description = 'Runs backend unit tests followed by backend integration tests'
+  dependsOn tasks.named('testBackendUnit'), tasks.named('testBackendIntegration')
+}
+
+tasks.register('testUiComponent') {
+  group = 'verification'
+  description = 'Runs UI component tests'
+}
+
+tasks.register('testUiApp') {
+  group = 'verification'
+  description = 'Runs UI app end-to-end tests'
+}
+
+tasks.register('testUi') {
+  group = 'verification'
+  description = 'Runs UI component tests followed by UI app end-to-end tests'
+  dependsOn tasks.named('testUiComponent'), tasks.named('testUiApp')
+}
+
+tasks.register('test') {
+  group = 'verification'
+  description = 'Runs testBackend followed by testUi for all backend and UI tests'
+  dependsOn tasks.named('testBackend'), tasks.named('testUi')
+}
+
+tasks.register('verifyTestServices', VerifyTestServices) {
+  group = 'verification'
+  description = 'Waits for PostgreSQL and Keycloak before service-backed tests'
+}
+
+gradle.projectsEvaluated {
+  def unitTests = subprojects.findAll { it.path != ':test' && !it.path.startsWith(':ui') }
+  .collect { it.tasks.matching { t -> t.name == 'test' } }
+
+  def integrationTests = subprojects.findAll { it.path == ':test' }
+  .collect { it.tasks.matching { t -> t.name == 'test' } }
+
+  def uiComponentTests = subprojects.findAll { it.path.startsWith(':ui:component') }
+  .collect { it.tasks.matching { t -> t.name == 'npmTest' } }
+
+  def uiAppTests = subprojects.findAll { it.path.startsWith(':ui:app') }
+  .collect { it.tasks.matching { t -> t.name == 'npmTest' } }
+
+  tasks.named('testBackendUnit').configure {
+    dependsOn unitTests
+  }
+
+  tasks.named('testBackendIntegration').configure {
+    dependsOn integrationTests
+  }
+
+  tasks.named('testUiComponent').configure {
+    dependsOn uiComponentTests
+  }
+
+  tasks.named('testUiApp').configure {
+    dependsOn uiAppTests
+  }
+
+  // Order test execution without making standalone UI test commands run backend tests.
+  integrationTests.forEach { group ->
+    group.configureEach { it.mustRunAfter(unitTests) }
+  }
+
+  uiComponentTests.forEach { group ->
+    group.configureEach { it.mustRunAfter(unitTests, integrationTests) }
+  }
+
+  uiAppTests.forEach { group ->
+    group.configureEach { it.mustRunAfter(unitTests, integrationTests, uiComponentTests) }
+  }
+}
+
+dependencies {
+  subprojects.findAll { !it.path.startsWith(':ui') && it.path != ':test' }.each { subproject ->
+    subproject.pluginManager.withPlugin('java') {
+      // Aggregate unit test results spread over different projects
+      testReportAggregation project(subproject.path)
+    }
+  }
+}
+
+reporting {
+  reports {
+    // Task which generates an aggregated unit test report
+    unitTestReport(AggregateTestReport) {
+      testSuiteName = 'test'
+    }
+  }
+}
+
+tasks.named('unitTestReport').configure {
+  doLast {
+    def htmlIndex = new File(destinationDirectory.get().asFile, "index.html")
+    println "Aggregated Unit Test Results: file://${htmlIndex.absolutePath}"
+  }
+}
+
+def backendProjects = subprojects.findAll {
+  !it.path.startsWith(':ui') && it.pluginManager.hasPlugin('java')
+}
+
+def backendTestTasks = backendProjects.collectMany { backendProject ->
+  backendProject.tasks.withType(Test).matching { it.name == 'test' }.toList()
+}
+
+def backendTestTaskPaths = backendTestTasks.collect { it.path }
+
+def jacocoExecutionDataFiles = backendTestTasks.collect { testTask ->
+  testTask.extensions.findByType(JacocoTaskExtension)?.destinationFile
+}.findAll { it != null }
+
+def backendSourceDirs = backendProjects.collectMany {
+  it.sourceSets.main.allJava.srcDirs
+}
+
+def backendClassDirs = backendProjects.collectMany {
+  it.sourceSets.main.output.classesDirs.files
+}
+
+tasks.register('checkCoverageDataExists') {
+  group = 'reporting'
+
+  mustRunAfter backendTestTaskPaths
+
+  inputs.files(jacocoExecutionDataFiles).optional()
+
+  doLast {
+    def missingJacocoResults = jacocoExecutionDataFiles.findAll {
+      !it.exists()
+    }
+
+    if (!missingJacocoResults.empty) {
+      println "Please run the following tasks to be able to generate a report."
+      println "Required tasks: ${backendTestTaskPaths.join(', ')}"
+      println "Run: ./gradlew testBackend checkCoverageDataExists"
+      throw new StopExecutionException()
+    }
+  }
+}
+
+// We replace the 'jacoco-report-aggregation' plugin with the following task to
+// ensure we get a combined coverage report for the unit- and integration tests
+tasks.register('combinedCoverageReport', JacocoReport) {
+  group = 'reporting'
+  description = 'Generates a unified coverage report for all Unit and Integration tests'
+
+  dependsOn tasks.named('checkCoverageDataExists')
+  mustRunAfter backendTestTaskPaths
+
+  reports {
+    xml.required = true
+    html.required = true
+  }
+
+  executionData.setFrom(jacocoExecutionDataFiles)
+
+  sourceDirectories.setFrom(backendSourceDirs)
+
+  classDirectories.setFrom(files(backendClassDirs).asFileTree.matching {
+    include 'org/openremote/**'
+  })
+
+  doLast {
+    def htmlIndex = new File(reports.html.outputLocation.get().asFile, "index.html")
+    println "Combined Code Coverage: file://${htmlIndex.absolutePath}"
+  }
+}
+
+subprojects {
+  // Apply only if the project has a 'test' task
+  tasks.withType(Test).configureEach { testTask ->
+    outputs.upToDateWhen { false } // Always invalidate the test cache
+    useJUnitPlatform()
+
+    systemProperty "junit.jupiter.execution.parallel.enabled", "true"
+    systemProperty "junit.jupiter.execution.parallel.mode.default", "concurrent"
+    systemProperty "junit.jupiter.execution.parallel.mode.classes.default", "concurrent"
+
+    testLogging {
+
+      // set options for log level LIFECYCLE
+      events = [TestLogEvent.FAILED, TestLogEvent.PASSED, TestLogEvent.SKIPPED]
+      exceptionFormat = TestExceptionFormat.FULL
+      showExceptions = true
+      showCauses = true
+      showStackTraces = true
+
+      // set options for log level DEBUG and INFO
+      debug {
+        events = [
+          TestLogEvent.STARTED,
+          TestLogEvent.FAILED,
+          TestLogEvent.PASSED,
+          TestLogEvent.SKIPPED,
+          TestLogEvent.STANDARD_OUT,
+          TestLogEvent.STANDARD_ERROR
+        ]
+        exceptionFormat = TestExceptionFormat.FULL
+      }
+      info.events = debug.events
+      info.exceptionFormat = debug.exceptionFormat
+    }
+
+    addTestListener(new TestSummaryListener())
+  }
+
+  afterEvaluate {
+    tasks.withType(Test).configureEach { testTask ->
+      workingDir = rootProject.projectDir
+    }
+  }
+}

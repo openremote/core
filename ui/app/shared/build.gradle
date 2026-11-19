@@ -162,6 +162,7 @@ tasks.register('extractOpenMapTilesFontsZip', Copy) {
 
 tasks.register('generateSources', Copy) {
   dependsOn extractOpenMapTilesFontsZip
+  dependsOn ":ui:component:or-icon:prepareFonts"
   from fileTree(projectDir) {
     exclude 'build.gradle'
     exclude 'build/**'
@@ -177,7 +178,40 @@ tasks.register('installDist', Copy) {
   into project(':manager').layout.buildDirectory.dir("install/manager/web/${project.name}")
 }
 
-tasks.register('processTranslations', JavaCompile) {
+def checkedTranslationsDir = layout.buildDirectory.dir('checked-translations')
+def localesDir = layout.projectDirectory.dir('locales')
+
+tasks.register('prepareTranslationsCheck', Sync) {
+  from localesDir
+  into checkedTranslationsDir.map { it.dir('locales') }
+}
+
+tasks.register('processTranslations', JavaCompile)
+
+tasks.register('checkTranslations', JavaCompile) {
+  group = 'verification'
+  description = 'Checks that backend translations are up to date without changing source files'
+  dependsOn tasks.named('prepareTranslationsCheck')
+
+  doLast {
+    def generatedLocales = checkedTranslationsDir.get().dir('locales').asFile
+    def outdated = localesDir.asFile.listFiles().findAll { locale ->
+      def original = new File(locale, 'or.json')
+      original.isFile() && original.text != new File(generatedLocales, "${locale.name}/or.json").text
+    }
+    if (!outdated.empty) {
+      throw new GradleException('Translations are outdated. Run ./gradlew :ui:app:shared:processTranslations')
+    }
+  }
+}
+
+tasks.named('check') {
+  dependsOn tasks.named('checkTranslations')
+}
+
+tasks.withType(JavaCompile).matching {
+  it.name in ['processTranslations', 'checkTranslations']
+}.configureEach {
   dependsOn(":agent:classes")
   dependsOn(":model:classes")
   outputs.upToDateWhen { false } // Always invalidate
@@ -187,13 +221,14 @@ tasks.register('processTranslations', JavaCompile) {
 
   source = files(agentSourceSet.allJava, modelSourceSet.allJava)
   classpath = files(agentSourceSet.compileClasspath, modelSourceSet.compileClasspath)
-  destinationDirectory = layout.buildDirectory.dir("generated/i18n") // unused
+  destinationDirectory = layout.buildDirectory.dir("generated/i18n/${name}") // unused
+  def sharedDir = name == 'checkTranslations' ? checkedTranslationsDir.get().asFile : projectDir
   options.compilerArgs += [
     "-proc:only",
     // Only run the processor
     "-processor",
     "org.openremote.model.util.I18nAnnotationProcessor",
-    "-Ashared=${project.getProjectDir()}".toString()
+    "-Ashared=${sharedDir}".toString()
   ]
   // Pass classpath to compiler
   options.annotationProcessorPath = modelSourceSet.output + modelSourceSet.compileClasspath

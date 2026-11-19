@@ -422,7 +422,9 @@ tasks.register('npmServeProduction', Exec) {
 
 // Add typescript tasks
 tasks.register('tscWatch', Exec) {
-  commandLine npmCommand("npx"), "tsc", "-b", "--watch"
+  dependsOn getYarnInstallTask()
+  // TypeScript is a root workspace dependency; keep the build target in this project.
+  commandLine npmCommand("yarn"), "run", "--top-level", "tsc", "-b", projectDir.absolutePath, "--watch"
 }
 
 // Configure Java build
