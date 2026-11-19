@@ -43,7 +43,6 @@ javaxAnnotationApi = "1.3.2"
 jaywayJsonPath = "3.0.0"
 jdom = "2.0.6.1"
 jserialcomm = "2.11.4"
-jsonassert = "1.5.3"
 junit = "6.1.3"
 keycloakAdminClient = "26.0.10"
 keycloakCore = "26.6.4"
@@ -147,7 +146,6 @@ javaxAnnotationApi = { module = "javax.annotation:javax.annotation-api", version
 jaywayJsonPath = { module = "com.jayway.jsonpath:json-path", version.ref = "jaywayJsonPath" }
 jdom2 = { module = "org.jdom:jdom2", version.ref = "jdom" }
 jserialcomm = { module = "com.fazecast:jSerialComm", version.ref = "jserialcomm" }
-jsonassert = { module = "org.skyscreamer:jsonassert", version.ref = "jsonassert" }
 junitJupiterApi = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "junit" }
 junitJupiterEngine = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref = "junit" }
 junitJupiterParams = { module = "org.junit.jupiter:junit-jupiter-params", version.ref = "junit" }

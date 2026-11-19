@@ -70,7 +70,6 @@ export class OrAddAttributePanel extends OrElement {
     return css`
       #attribute-creator {
         min-width: 300px;
-        padding: 20px;
         display: flex;
         flex-direction: column;
         gap: 10px;
@@ -129,11 +128,11 @@ export class OrAddAttributePanel extends OrElement {
                                      @change=${(ev: CustomEvent) => this.onValueTypeChanged((ev.currentTarget as OrVaadinComboBox).value)}>
                     <or-translate slot="label" value="valueType"></or-translate>
                 </or-vaadin-combo-box>
-                <or-vaadin-checkbox id="array-checkbox" ?readonly=${!this.customAttribute} ?checked=${this.isArray} 
+                <or-vaadin-checkbox id="array-checkbox" ?readonly=${!this.customAttribute} ?checked=${this.isArray}
                                     @change=${(ev: Event) => this.onArrayChanged((ev.currentTarget as OrVaadinCheckbox).checked, 1)}>
                     <label slot="label"><or-translate slot="label" value="array"></label></or-translate>
                 </or-vaadin-checkbox>
-                <or-vaadin-number-field id="array-input" ?disabled=${!this.isArray} ?readonly=${!this.customAttribute} value=${this.arrayDimensions} min="1" max="2" 
+                <or-vaadin-number-field id="array-input" ?disabled=${!this.isArray} ?readonly=${!this.customAttribute} value=${this.arrayDimensions} min="1" max="2"
                                         @change=${(ev: Event) => this.onArrayChanged(true, Number((ev.currentTarget as OrVaadinNumberField).value))}>
                     <or-translate slot="label" value="arrayDimensions"></or-translate>
                 </or-vaadin-number-field>

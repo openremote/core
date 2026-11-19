@@ -18,18 +18,18 @@
  */
 package org.openremote.model.rules;
 
-import org.openremote.model.event.shared.SharedEvent;
+import org.openremote.model.event.shared.RealmScopedEvent;
 
 /** Published by the server when a ruleset of a rules engine changes its {@link RulesetStatus}. */
-public class RulesetChangedEvent extends SharedEvent {
+public class RulesetChangedEvent extends RealmScopedEvent {
 
   protected String engineId;
   protected Ruleset ruleset;
 
   protected RulesetChangedEvent() {}
 
-  public RulesetChangedEvent(long timestamp, String engineId, Ruleset ruleset) {
-    super(timestamp);
+  public RulesetChangedEvent(long timestamp, String realm, String engineId, Ruleset ruleset) {
+    super(timestamp, realm);
     this.engineId = engineId;
     this.ruleset = ruleset;
   }

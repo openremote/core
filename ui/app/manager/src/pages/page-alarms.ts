@@ -999,7 +999,7 @@ export class PageAlarms extends Page<AppStateKeyed> {
           ></or-asset-tree>
           <div slot="footer" style="width: 100%; display: flex; justify-content: space-between;">
             <or-vaadin-button
-              theme="tertiary"
+              theme="tertiary contrast"
               @click=${() => {
                 onCancel();
                 dialog?.close();

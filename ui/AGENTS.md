@@ -26,6 +26,10 @@ Own Lit components extend `OrElement` from `@openremote/or-element` instead of `
 
 A state change should re-render only the part it affects. Re-rendering a whole page, or a large component such as a table, flickers and discards the state that component holds: sort order, pagination, selection, scroll position. Keep those children mounted and update their properties.
 
+## Spacing
+
+Avoid negative margins that cancel a container's padding. They repeat a value the container owns, so they break silently when it changes. Keep the content inside the padding, or add a theme variant to the container that turns it off.
+
 ## Adding a new component package
 
 New packages under `ui/component/` are picked up automatically by the yarn workspace and by Gradle (any dir with a `build.gradle`). The rsbuild apps are not automatic: add the package to the `@openremote/*` alias maps in `ui/app/manager/rsbuild.config.ts` and `ui/app/storybook/rsbuild.config.ts`, which resolve workspace packages to their `src` dirs. A missing entry fails the build with "Module not found" for any file importing the package.
@@ -49,6 +53,14 @@ Lumo and `registerStyles` match the element's `static get is()`, while base styl
 Base styles and registered styles ship with the component code. Our Lumo module lists, `@media lumo_` blocks and `::part()` rules live in `@openremote/theme`. An app without that theme therefore gets the base styles, or Lumo's default lists if it loads Lumo itself, plus our registered styles. The hard-coded fallbacks below keep our own components usable there.
 
 **Public API.** Projects may rely on what the custom-elements manifest documents: tags, attributes, properties, events, slots, `--or-*` properties and theme variants, plus the documented Vaadin API of thin wrappers. Do not rename or remove those in one step; keep the old name working with a warning for a release. Shadow structure, internal classes, Lumo module names, `--_*` properties and the parts of our own components are internal, and code that depends on Vaadin internals stays in this repo.
+
+**Following Vaadin.** Compare any Vaadin override, variant, property or wrapper against the Vaadin source at the pinned version, when writing it and in review. The styling documentation in each component's source in [vaadin/web-components](https://github.com/vaadin/web-components) lists its public parts, state attributes and custom properties, and the Lumo styles show its `theme~=` variants and which properties Lumo reads.
+
+- Use what Vaadin offers rather than reimplementing a component, variant or property.
+- Do not stop it from working, e.g. with an `!important` rule that beats `theme="no-padding"`.
+- Do not depend on what that documentation leaves out, such as `--_*` properties. Lumo module lists are the exception.
+
+Document anything that goes against this and why, in a code comment or wherever the next reader will find it.
 
 **Choosing the approach.** Use the first that fits:
 

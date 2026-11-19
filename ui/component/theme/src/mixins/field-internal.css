@@ -30,4 +30,8 @@
   [class$="container"] {
     width: 100%; /* Lumo sets default field container width as 12em */
   }
+  /* Lumo draws the focus ring in the removed padding, so draw it inside the field where no ancestor can clip it */
+  :host([focus-ring]) [part="input-field"] {
+    box-shadow: inset 0 0 0 var(--_focus-ring-width) var(--_focus-ring-color);
+  }
 }
