@@ -84,52 +84,45 @@ jobs:
           DOCKER_BUILD_SUMMARY: false
           DOCKER_BUILD_RECORD_UPLOAD: false
 
+      # The scan action writes one format per run, so run Grype directly to get SARIF and a table from one scan
+      - name: Install Grype
+        uses: anchore/scan-action/download-grype@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        id: grype
+
       - name: Scan manager docker image
-        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
-        id: manager-anchore-scan
-        with:
-          image: ${{ steps.meta.outputs.first_tag }}
-          fail-build: true
-          severity-cutoff: critical
+        id: manager-grype-scan
+        env:
+          GRYPE: ${{ steps.grype.outputs.cmd }}
+          GRYPE_CHECK_FOR_APP_UPDATE: false
+          IMAGE: ${{ steps.meta.outputs.first_tag }}
+        run: |
+          "$GRYPE" "$IMAGE" --fail-on critical -o sarif=grype.sarif -o table=grype.txt
 
       - name: Upload Grype scan report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: grype-critical-vulnerability-report
-          # The scan-action automatically outputs the path to the SARIF file
-          path: ${{ steps.manager-anchore-scan.outputs.sarif }}
+          path: grype.sarif
           retention-days: 7
 
       - name: Upload Anchore scan SARIF report
         uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         if: ${{ always() && steps.meta.outputs.should_push == 'true' }}
         with:
-          sarif_file: ${{ steps.manager-anchore-scan.outputs.sarif }}
+          sarif_file: grype.sarif
           category: grype-manager
 
-      # The scan action writes one format per run, so rescan as a table for the job summary
-      - name: Scan manager docker image for the vulnerability report
-        if: ${{ !cancelled() && steps.manager-anchore-scan.outcome == 'failure' }}
-        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
-        id: manager-anchore-report
-        with:
-          image: ${{ steps.meta.outputs.first_tag }}
-          fail-build: false
-          severity-cutoff: critical
-          output-format: table
-
       - name: Report vulnerabilities
-        if: ${{ !cancelled() && steps.manager-anchore-report.outcome == 'success' }}
-        env:
-          REPORT: ${{ steps.manager-anchore-report.outputs.table }}
+        if: ${{ !cancelled() && steps.manager-grype-scan.outcome == 'failure' && hashFiles('grype.txt') != '' }}
         run: |
           {
             echo "### Vulnerabilities in the manager image"
             echo '```'
-            cat "$REPORT"
+            cat grype.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::Grype found critical vulnerabilities, see the job summary"
 
       - name: Login to DockerHub
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
