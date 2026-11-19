@@ -92,7 +92,7 @@ jobs:
 
       - name: Get version details
         id: get-version-details
-        uses: openremote/core/.github/actions/get-version-details@99c5da2e4f277fc2f5473a413e1d9cede71fce8c
+        uses: openremote/core/.github/actions/get-version-details@39f9470fdc93122d5157a9e4a39897ba8b65d2ca
 
       - name: Check if core repo
         id: is_core_repo
