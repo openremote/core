@@ -27,7 +27,6 @@ import { OrAssetAttributePickerPickedEvent, OrAssetAttributePicker } from "@open
 import { type AttributeRef, DatapointExportFormat } from "@openremote/model";
 import moment from "moment";
 import { buttonStyle } from "@openremote/or-rules";
-import { createSelector } from "reselect";
 import { isAxiosError } from "@openremote/rest";
 import { showSnackbar } from "@openremote/or-mwc-components/or-mwc-snackbar";
 import { showDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
@@ -234,11 +233,6 @@ export class PageExport extends Page<AppStateKeyed> {
   private tableRows: TableRow[] = [];
 
   protected _realmSelector = (state: AppStateKeyed) => state.app.realm || manager.displayRealm;
-
-  protected getRealmState = createSelector([this._realmSelector], async (realm) => {
-    this.realm = realm;
-    this.loadConfig();
-  });
 
   get name(): string {
     return "export";
@@ -523,6 +517,10 @@ export class PageExport extends Page<AppStateKeyed> {
   };
 
   public stateChanged(state: AppStateKeyed) {
-    this.getRealmState(state);
+    const realm = this._realmSelector(state);
+    if (realm !== this.realm) {
+      this.realm = realm;
+      this.loadConfig();
+    }
   }
 }

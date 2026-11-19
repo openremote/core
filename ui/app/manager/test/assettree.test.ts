@@ -640,6 +640,116 @@ test.describe(() => {
     await expect(assetTree.getAssetNodes()).toHaveCount(3); // 2 battery assets + 1 console group
     await expect(assetViewer.getHeaderLocator(electricityAssets[0].name!)).not.toBeVisible();
   });
+
+  /**
+   * @given 2 assets are created in the "master" realm
+   * @and 1 asset is created in the "smartcity" realm
+   * @when the user switches from the "master" realm to the "smartcity" realm and back
+   * @then the asset tree should show the assets of the "master" realm again
+   */
+  test("should show the assets of a realm again when switching back to it", async ({
+    manager,
+    assetsPage,
+    assetTree,
+  }) => {
+    const masterAssets = createBatteryAssets(2, "master");
+    const smartCityAssets = createElectricityAssets(1);
+    await manager.setup("master", { assets: masterAssets });
+    await manager.setup("smartcity", { assets: smartCityAssets });
+    const masterNode = assetTree.getAssetNodes().filter({ hasText: masterAssets[0].name! });
+    const smartCityNode = assetTree.getAssetNodes().filter({ hasText: smartCityAssets[0].name! });
+
+    await manager.goToRealmStartPage("master");
+    await assetsPage.goto();
+    await expect(masterNode).toBeVisible();
+
+    await manager.switchToRealmByRealmPicker("smartcity");
+    await expect(smartCityNode).toBeVisible();
+    await expect(masterNode).not.toBeVisible();
+
+    await manager.switchToRealmByRealmPicker("master");
+    // Used to keep the "smartcity" assets, as the page only reacted to the first switch to each realm
+    await expect(masterNode).toBeVisible();
+    await expect(smartCityNode).not.toBeVisible();
+  });
+
+  /**
+   * @given 2 assets are created in the "master" realm
+   * @and 1 asset is created in the "smartcity" realm
+   * @when the user opens the URL of a "master" asset, which filters the asset tree on its ID
+   * @and switches to the "smartcity" realm
+   * @then the filter should be cleared and the asset tree should show the "smartcity" assets
+   * @and the "master" asset should no longer be selected
+   */
+  test("should clear the asset filter and selection when switching realms", async ({
+    page,
+    manager,
+    assetsPage,
+    assetTree,
+    assetViewer,
+  }) => {
+    const masterAssets = createBatteryAssets(2, "master");
+    const smartCityAssets = createElectricityAssets(1);
+    await manager.setup("master", { assets: masterAssets });
+    await manager.setup("smartcity", { assets: smartCityAssets });
+    const id = manager.assets.find((asset) => asset.name === masterAssets[0].name)?.id;
+    expect(id).toBeDefined();
+
+    await assetsPage.gotoAssetId("master", id!);
+    await expect(assetTree.getFilterInput()).toHaveValue(id!);
+    await expect(assetViewer.getHeaderLocator(masterAssets[0].name!)).toBeVisible();
+
+    await manager.switchToRealmByRealmPicker("smartcity");
+    // Used to keep filtering on the "master" asset ID, so the asset tree showed "No assets found"
+    await expect(assetTree.getFilterInput()).toHaveValue("");
+    await expect(assetTree.getAssetNodes().filter({ hasText: smartCityAssets[0].name! })).toBeVisible();
+    await expect(assetViewer.getHeaderLocator(masterAssets[0].name!)).not.toBeVisible();
+    await expect(page).not.toHaveURL(new RegExp(id!));
+  });
+
+  /**
+   * @given 2 assets are created in the "master" realm
+   * @and 1 asset is created in the "smartcity" realm
+   * @when the user switches to the "smartcity" realm while the asset tree is still loading the "master" assets
+   * @then the asset tree should show the "smartcity" assets
+   */
+  test("should show the assets of the new realm when switching realms while the tree is loading", async ({
+    page,
+    manager,
+    assetsPage,
+    assetTree,
+  }) => {
+    const masterAssets = createBatteryAssets(2, "master");
+    const smartCityAssets = createElectricityAssets(1);
+    await manager.setup("master", { assets: masterAssets });
+    await manager.setup("smartcity", { assets: smartCityAssets });
+    await manager.goToRealmStartPage("master");
+
+    // Hold the first asset count request, which keeps the tree loading the "master" assets
+    let releaseCount!: () => void;
+    const countReleased = new Promise<void>((resolve) => (releaseCount = resolve));
+    await page.route(
+      "**/asset/count",
+      async (route) => {
+        await countReleased;
+        await route.continue();
+      },
+      { times: 1 }
+    );
+    await assetsPage.goto();
+    await expect(page.locator("or-asset-tree #loading")).toBeVisible();
+
+    await manager.switchToRealmByRealmPicker("smartcity");
+    const masterCount = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/asset/count") && response.request().postDataJSON()?.realm?.name === "master"
+    );
+    releaseCount();
+    await masterCount;
+    // Used to keep the "master" assets, as the switch was ignored while the tree was loading
+    await expect(assetTree.getAssetNodes().filter({ hasText: smartCityAssets[0].name! })).toBeVisible();
+    await expect(assetTree.getAssetNodes().filter({ hasText: masterAssets[0].name! })).not.toBeVisible();
+  });
 });
 
 // After each test, clean up all data

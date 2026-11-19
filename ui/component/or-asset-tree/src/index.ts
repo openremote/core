@@ -408,6 +408,7 @@ export class OrAssetTree extends subscribe(manager)(OrElement) {
   public refresh() {
     // Clear nodes to re-fetch them
     this._nodes = undefined;
+    this._selectedNodes = [];
   }
 
   public isAncestorSelected(node: UiAssetTreeNode) {
@@ -1944,6 +1945,12 @@ export class OrAssetTree extends subscribe(manager)(OrElement) {
         assetQuery: query,
       });
       eventPromise.then((ev) => {
+        if (query.realm?.name !== manager.displayRealm) {
+          // The display realm changed during the load, so load the new realm instead
+          this._loading = false;
+          this._loadAssets().catch((ex) => console.log(ex.message));
+          return;
+        }
         const newAssets = (ev as AssetTreeEvent).assetTree?.assets ?? [];
         const hasMore = (ev as AssetTreeEvent).assetTree?.hasMore ?? false;
         if (!parentId) {

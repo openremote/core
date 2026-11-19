@@ -19,7 +19,7 @@
 import { css, html, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { type AppStateKeyed, Page, type PageProvider, router } from "@openremote/or-app";
-import { createSelector, type Store } from "@reduxjs/toolkit";
+import type { Store } from "@reduxjs/toolkit";
 import { manager } from "@openremote/core";
 import "@openremote/or-services";
 import {
@@ -303,7 +303,7 @@ export class PageServices extends Page<AppStateKeyed> {
   }
 
   public stateChanged(state: AppStateKeyed): void {
-    this.getRealmState(state);
+    this.realmName = this.realmSelector(state);
 
     // Update serviceId from URL params - this will trigger updated() which handles the selection
     const newServiceId = state.app.params?.serviceName;
@@ -313,10 +313,6 @@ export class PageServices extends Page<AppStateKeyed> {
   }
 
   protected realmSelector = (state: AppStateKeyed) => state.app.realm || manager.config.realm;
-
-  protected getRealmState = createSelector([this.realmSelector], (realm: string) => {
-    this.realmName = realm;
-  });
 
   protected _onServiceSelected(e: CustomEvent): void {
     const service = e.detail as ExternalService;
