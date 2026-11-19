@@ -86,7 +86,7 @@ public class GatewayService extends RouteBuilder implements ContainerService {
 
   // Need a high priority so that event authorizer can get the events before other authorizers
   public static final int PRIORITY = HIGH_PRIORITY + 100;
-  public static final String ASSET_ID_MAPPING_V2_VERSION = "1.34.0";
+  public static final String ASSET_ID_MAPPING_V2_VERSION = "1.35.0";
   public static final String GATEWAY_CLIENT_ID_PREFIX = "gateway-";
   public static final String OR_GATEWAY_TUNNEL_SSH_KEY_FILE = "OR_GATEWAY_TUNNEL_SSH_KEY_FILE";
   private static final Logger LOG =

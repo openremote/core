@@ -39,6 +39,8 @@ import org.openremote.test.ManagerContainerTrait
 import spock.lang.Specification
 import spock.util.concurrent.PollingConditions
 
+import static org.openremote.manager.gateway.GatewayService.ASSET_ID_MAPPING_V2_VERSION
+
 class GatewayOwnershipTest extends Specification implements ManagerContainerTrait {
   def setupSpec() {
     startContainer(defaultConfig(), defaultServices())
@@ -51,7 +53,7 @@ class GatewayOwnershipTest extends Specification implements ManagerContainerTrai
     def gateways = container.getService(GatewayService)
     def realm = container.getService(SetupService).getTaskOfType(ManagerTestSetup).realmBuildingName
     def gateway = storage.merge(new GatewayAsset("V2 registration").setRealm(realm))
-    def cutoff = versions.getFirstActivationAtOrAfter("1.34.0").orElseThrow()
+    def cutoff = versions.getFirstActivationAtOrAfter(ASSET_ID_MAPPING_V2_VERSION).orElseThrow()
     def createdOn = gateway.createdOn
     def mapId = {
       -> gateways.gatewayConnectorMap[gateway.id.toLowerCase(Locale.ROOT)].mapAssetId("b" * 22, false)
@@ -80,7 +82,7 @@ class GatewayOwnershipTest extends Specification implements ManagerContainerTrai
       VersionInfo.managerVersion
     ].each { version ->
       versions.recordApplicationVersion(version)
-      assert versions.getFirstActivationAtOrAfter("1.34.0").orElseThrow() == cutoff
+      assert versions.getFirstActivationAtOrAfter(ASSET_ID_MAPPING_V2_VERSION).orElseThrow() == cutoff
     }
     gateways.stop(container)
     gateways.start(container)
@@ -100,17 +102,18 @@ class GatewayOwnershipTest extends Specification implements ManagerContainerTrai
     new PollingConditions(timeout: 15).eventually {
       assert container.getService(GatewayService).gatewayConnectorMap[gateway.id.toLowerCase(Locale.ROOT)] != null
     }
+    def cutoff = versions.getFirstActivationAtOrAfter(ASSET_ID_MAPPING_V2_VERSION).orElseThrow()
     // Simulate a registration that already existed before the migration.
     persistence.doTransaction { em ->
       em.createNativeQuery("UPDATE asset SET created_on = :createdOn WHERE id = :id")
-              .setParameter("createdOn", versions.getFirstActivationAtOrAfter("1.34.0").orElseThrow().minusSeconds(1))
+              .setParameter("createdOn", cutoff.minusSeconds(1))
               .setParameter("id", gateway.id).executeUpdate()
     }
     gateway = storage.find(gateway.id, true) as GatewayAsset
 
     when:
     gateway = storage.merge(gateway.setName("Updated legacy gateway"))
-    def version = GatewayConnector.getAssetIdMappingVersion(gateway.createdOn, versions.getFirstActivationAtOrAfter("1.34.0").orElseThrow())
+    def version = GatewayConnector.getAssetIdMappingVersion(gateway.createdOn, cutoff)
     def centralId = GatewayConnector.mapAssetId(gateway.id, "b" * 22, false, version)
     def child = storage.merge(new ThingAsset("Legacy child").setId(centralId).setParentId(gateway.id).setRealm(realm), true, gateway, null)
     def gateways = container.getService(GatewayService)
@@ -138,9 +141,10 @@ class GatewayOwnershipTest extends Specification implements ManagerContainerTrai
       assert gatewayService.gatewayConnectorMap[attacker.id.toLowerCase(Locale.ROOT)] != null
     }
     if (otherVersion == 1) {
+      def cutoff = versions.getFirstActivationAtOrAfter(ASSET_ID_MAPPING_V2_VERSION).orElseThrow()
       persistence.doTransaction { em ->
         em.createNativeQuery("UPDATE asset SET created_on = :createdOn WHERE id = :id")
-                .setParameter("createdOn", versions.getFirstActivationAtOrAfter("1.34.0").orElseThrow().minusSeconds(1))
+                .setParameter("createdOn", cutoff.minusSeconds(1))
                 .setParameter("id", owner.id).executeUpdate()
       }
       owner = storage.find(owner.id, true) as GatewayAsset
