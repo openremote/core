@@ -108,34 +108,28 @@ jobs:
           sarif_file: ${{ steps.manager-anchore-scan.outputs.sarif }}
           category: grype-manager
 
-      - name: Report critical vulnerabilities
+      # The scan action writes one format per run, so rescan as a table for the job summary
+      - name: Scan manager docker image for the vulnerability report
         if: ${{ !cancelled() && steps.manager-anchore-scan.outcome == 'failure' }}
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        id: manager-anchore-report
+        with:
+          image: ${{ steps.meta.outputs.first_tag }}
+          fail-build: false
+          severity-cutoff: critical
+          output-format: table
+
+      - name: Report vulnerabilities
+        if: ${{ !cancelled() && steps.manager-anchore-report.outcome == 'success' }}
         env:
-          SARIF: ${{ steps.manager-anchore-scan.outputs.sarif }}
+          REPORT: ${{ steps.manager-anchore-report.outputs.table }}
         run: |
-          [[ -s "$SARIF" ]] || exit 0
-
-          # SARIF levels do not separate critical from high, so severity and fix come from each rule's "Key: value" help text
-          # A rule only describes its first match, so version and location come from each match's message
-          critical=$(jq -c '
-            .runs[]
-            | (.tool.driver.rules | INDEX(.id)) as $rules
-            | .results[] as $match
-            | ($rules[$match.ruleId].help.text | split("\n")) as $lines
-            | ($lines[1:] | map(capture("^(?<key>[^:]+): (?<value>.*)$")) | from_entries)
-            | select(.Severity == "critical")
-            | . + {ID: ($lines[0] | ltrimstr("Vulnerability ")), Fixed: ((."Fix Version" | select(. != "")) // null)}
-            | . + (($match.message.text | capture("version (?<Version>\\S+) was found .* at: (?<Location>.*)$")) // {})' "$SARIF")
-
           {
-            echo "### Critical vulnerabilities in the manager image"
-            echo
-            echo "| Vulnerability | Package | Version | Fixed in | Type | Location |"
-            echo "| --- | --- | --- | --- | --- | --- |"
-            jq -r '"| \(.Link) | \(.Package) | \(.Version) | \(.Fixed // "no fix") | \(.Type) | \(.Location) |"' <<< "$critical"
+            echo "### Vulnerabilities in the manager image"
+            echo '```'
+            cat "$REPORT"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-
-          jq -r '"::error title=\(.ID)::\(.Package) \(.Version) (\(.Type)) at \(.Location), \(if .Fixed then "fixed in \(.Fixed)" else "no fix available" end)"' <<< "$critical"
 
       - name: Login to DockerHub
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
