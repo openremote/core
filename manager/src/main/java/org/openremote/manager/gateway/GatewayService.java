@@ -773,7 +773,10 @@ public class GatewayService extends RouteBuilder implements ContainerService {
     return gatewayConnectorMap.containsKey(assetId.toLowerCase(Locale.ROOT));
   }
 
-  /** Check if the specified asset ID or parent ID is a known gateway or descendant of a gateway. */
+  /**
+   * Look up cached gateway ownership. A known asset takes precedence over the parent hint, which
+   * allows lookups for new assets. Persistence operations validate ancestry separately.
+   */
   public String getLocallyRegisteredGatewayId(String assetId, String parentId) {
     // ConcurrentHashMap rejects null keys so preserve HashMap behaviour of mapping to null
     String gatewayId = assetId != null ? assetIdGatewayIdMap.get(assetId) : null;

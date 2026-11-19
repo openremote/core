@@ -33,7 +33,6 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
-import org.openremote.container.Container;
 import org.openremote.container.timer.TimerService;
 import org.openremote.manager.asset.AssetProcessingService;
 import org.openremote.manager.asset.AssetStorageService;
@@ -203,6 +202,10 @@ public class GatewayConnector {
     if (syncProcessorFuture != null) {
       LOG.finest("Aborting active sync process: " + getGatewayIdString());
       syncProcessorFuture.cancel(true);
+    }
+    if (obsoleteReadFuture != null) {
+      obsoleteReadFuture.cancel(true);
+      obsoleteReadFuture = null;
     }
     if (capabilitiesFuture != null) {
       LOG.finest("Aborting capabilities request: " + getGatewayIdString());
@@ -475,9 +478,8 @@ public class GatewayConnector {
   }
 
   /**
-   * Explicitly check event type and authorise accordingly don't blindly accept events from gateway
-   * clients as they may be malicious - every event type added to {@link #eventConsumerMap} should
-   * be handled
+   * Filter live events by type and cached ownership before dispatch. Asset writes validate
+   * persisted ancestry in the transaction that applies the change, including writes during sync.
    */
   protected SharedEvent authoriseGatewayEvent(SharedEvent event) {
     // Gateway capabilities response events are always authorised
@@ -539,7 +541,7 @@ public class GatewayConnector {
     // TODO: Remove this once enough time has passed since this commit
     // We delay so the init start has a chance to be responded to
     obsoleteReadFuture =
-        Container.SCHEDULED_EXECUTOR.schedule(
+        scheduledExecutorService.schedule(
             () -> {
               // Send old read assets event for older gateway versions
               ReadAssetsEvent event =
@@ -690,12 +692,10 @@ public class GatewayConnector {
               .collect(Collectors.toList());
 
       if (syncAssetIds.isEmpty()) {
-        deleteObsoleteLocalAssets();
-        onInitialSyncComplete();
-        return;
+        completeSync();
+      } else {
+        requestAssets();
       }
-
-      requestAssets();
 
     } else {
 
@@ -774,45 +774,44 @@ public class GatewayConnector {
       // Request next batch or move on
       syncIndex += requestedAssetIds.size();
       if (syncIndex >= syncAssetIds.size()) {
-        LOG.finest("Asset sync completed: " + getGatewayIdString());
-
-        Set<String> refreshAssets = new HashSet<>();
-
-        cachedAssetEvents.forEach(
-            assetEvent -> {
-              if (assetEvent.getCause() == AssetEvent.Cause.DELETE) {
-                syncAssetIds.remove(assetEvent.getId());
-              } else if (assetEvent.getCause() == AssetEvent.Cause.CREATE) {
-                syncAssetIds.add(assetEvent.getId());
-                saveAssetLocally(assetEvent.getAsset());
-              } else {
-                refreshAssets.add(assetEvent.getId());
-              }
-            });
-
-        deleteObsoleteLocalAssets();
-        onInitialSyncComplete();
-
-        // Refresh attributes that have changed
-        cachedAttributeEvents.forEach(
-            attributeEvent -> {
-              String assetId = attributeEvent.getId();
-              if (!refreshAssets.contains(assetId)) {
-                LOG.info(
-                    "1 or more asset attribute values have changed so requesting the asset again (Asset<?> ID="
-                        + assetId
-                        + ": "
-                        + getGatewayIdString());
-                refreshAssets.add(assetId);
-              }
-            });
-
-        // Refresh assets that have changed
-        refreshAssets.forEach(id -> sendMessageToGateway(new ReadAssetEvent(id)));
+        completeSync();
       } else {
         requestAssets();
       }
     }
+  }
+
+  private void completeSync() {
+    Set<String> refreshAssets = new HashSet<>();
+
+    cachedAssetEvents.forEach(
+        assetEvent -> {
+          if (assetEvent.getCause() == AssetEvent.Cause.DELETE) {
+            syncAssetIds.remove(assetEvent.getId());
+          } else if (assetEvent.getCause() == AssetEvent.Cause.CREATE) {
+            syncAssetIds.add(assetEvent.getId());
+            saveAssetLocally(assetEvent.getAsset());
+          } else {
+            refreshAssets.add(assetEvent.getId());
+          }
+        });
+
+    // Capture attribute changes before completing the sync clears the event buffers.
+    cachedAttributeEvents.forEach(
+        attributeEvent -> {
+          String assetId = attributeEvent.getId();
+          if (refreshAssets.add(assetId)) {
+            LOG.info(
+                "1 or more asset attribute values have changed so requesting the asset again (Asset<?> ID="
+                    + assetId
+                    + ": "
+                    + getGatewayIdString());
+          }
+        });
+
+    deleteObsoleteLocalAssets();
+    onInitialSyncComplete();
+    refreshAssets.forEach(id -> sendMessageToGateway(new ReadAssetEvent(id)));
   }
 
   protected void deleteObsoleteLocalAssets() {

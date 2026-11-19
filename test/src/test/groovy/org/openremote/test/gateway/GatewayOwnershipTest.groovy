@@ -28,9 +28,11 @@ import org.openremote.manager.system.ApplicationVersionService
 import org.openremote.manager.setup.SetupService
 import org.openremote.manager.system.VersionInfo
 import org.openremote.model.asset.impl.GatewayAsset
+import org.openremote.model.asset.impl.RoomAsset
 import org.openremote.model.asset.impl.ThingAsset
 import org.openremote.model.attribute.Attribute
 import org.openremote.model.attribute.AttributeEvent
+import org.openremote.model.util.UniqueIdentifierGenerator
 import org.openremote.model.value.ValueType
 import org.openremote.setup.integration.ManagerTestSetup
 import org.openremote.test.ManagerContainerTrait
@@ -122,7 +124,7 @@ class GatewayOwnershipTest extends Specification implements ManagerContainerTrai
     !gateway.attributes.has("assetIdMappingVersion")
   }
 
-  def "gateway cannot overwrite, move, delete or write another owner's asset (V#otherVersion collision)"() {
+  def "gateway cannot overwrite, move, delete or write another owner's asset (V#otherVersion, #replacementType.simpleName)"() {
     given:
     def storage = container.getService(AssetStorageService)
     def persistence = container.getService(PersistenceService)
@@ -150,12 +152,21 @@ class GatewayOwnershipTest extends Specification implements ManagerContainerTrai
     assert GatewayConnector.mapAssetId(attacker.id, maliciousEdgeId, false, 2) == target.id
 
     when: "incoming create/update claims an occupied mapped ID"
-    storage.merge(new ThingAsset("Attack").setId(target.id).setParentId(attacker.id).setRealm(realm), true, attacker, null)
+    storage.merge(replacementType.newInstance("Replacement").setId(target.id).setParentId(attacker.id).setRealm(realm), true, attacker, null)
 
-    then:
-    thrown(IllegalStateException)
-    storage.find(target.id, true).parentId == owner.id
-    storage.find(target.id, true).name == "Owned"
+    then: "ownership is checked before type compatibility and the asset is untouched"
+    IllegalStateException conflict = thrown()
+    conflict.message.contains("Gateway asset ownership conflict")
+    conflict.message.contains(attacker.id)
+    conflict.message.contains(target.id)
+    with(storage.find(target.id, true)) {
+      id == target.id
+      type == target.type
+      parentId == target.parentId
+      name == target.name
+      getAttribute("test").orElseThrow().value.orElseThrow() == "original"
+      !deletePending
+    }
 
     when: "new asset names a parent outside its subtree"
     storage.merge(new ThingAsset("Attack parent").setId("z" * 22).setParentId(target.id).setRealm(realm), true, attacker, null)
@@ -164,8 +175,33 @@ class GatewayOwnershipTest extends Specification implements ManagerContainerTrai
     thrown(IllegalStateException)
     storage.find("z" * 22, true) == null
 
+    when: "the gateway moves an owned asset within its own hierarchy"
+    def ownParent = storage.merge(new ThingAsset("Own parent").setId(UniqueIdentifierGenerator.generateId())
+            .setParentId(attacker.id).setRealm(realm), true, attacker, null)
+    def ownChild = storage.merge(new ThingAsset("Own child").setId(UniqueIdentifierGenerator.generateId())
+            .setParentId(attacker.id).setRealm(realm), true, attacker, null)
+    ownChild = storage.merge(ownChild.setParentId(ownParent.id), true, attacker, null)
+
+    then:
+    storage.find(ownChild.id, true).parentId == ownParent.id
+
+    when: "the gateway proposes a parent in a different hierarchy"
+    storage.merge(ownChild.setParentId(target.id), true, attacker, null)
+
+    then:
+    thrown(IllegalStateException)
+    storage.find(ownChild.id, true).parentId == ownParent.id
+
+    when: "the gateway targets its own registration through a descendant merge"
+    storage.merge(new GatewayAsset("Replacement").setId(attacker.id).setParentId(ownParent.id).setRealm(realm),
+            true, attacker, null)
+
+    then:
+    thrown(IllegalStateException)
+    storage.find(attacker.id, true).name == attacker.name
+    storage.find(attacker.id, true).parentId == attacker.parentId
+
     when: "cleanup includes an owned asset and a conflicting asset"
-    def ownChild = storage.merge(new ThingAsset("Own child").setId(org.openremote.model.util.UniqueIdentifierGenerator.generateId()).setParentId(attacker.id).setRealm(realm), true, attacker, null)
     def deleted = storage.deleteGatewayAssets([ownChild.id, target.id], attacker.id)
 
     then: "the whole deletion batch is rejected"
@@ -176,6 +212,14 @@ class GatewayOwnershipTest extends Specification implements ManagerContainerTrai
     when: "a queued incoming attribute write retains the authenticated gateway identity"
     container.getService(AssetProcessingService).processAttributeEvent(
             new AttributeEvent(target.id, "test", "attack").setSource(GatewayConnector.EVENT_SOURCE + ":" + attacker.id))
+
+    then:
+    thrown(AssetProcessingException)
+    storage.find(target.id, true).getAttribute("test").get().value.get() == "original"
+
+    when: "a foreign gateway attempts to clear the attribute value"
+    container.getService(AssetProcessingService).processAttributeEvent(
+            new AttributeEvent(target.id, "test", null).setSource(GatewayConnector.EVENT_SOURCE + ":" + attacker.id))
 
     then:
     thrown(AssetProcessingException)
@@ -210,6 +254,9 @@ class GatewayOwnershipTest extends Specification implements ManagerContainerTrai
     }
 
     where:
-    otherVersion << [1, 2]
+    otherVersion | replacementType
+    1            | ThingAsset
+    1            | RoomAsset
+    2            | ThingAsset
   }
 }

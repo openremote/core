@@ -24,8 +24,11 @@ import org.openremote.manager.asset.AssetStorageService
 import org.openremote.model.asset.Asset
 import org.openremote.model.asset.AssetEvent
 import org.openremote.model.asset.AssetsEvent
+import org.openremote.model.asset.ReadAssetEvent
 import org.openremote.model.asset.impl.GatewayAsset
 import org.openremote.model.asset.impl.ThingAsset
+import org.openremote.model.attribute.AttributeEvent
+import org.openremote.model.gateway.GatewayDisconnectEvent
 import org.openremote.model.util.UniqueIdentifierGenerator
 import spock.lang.Specification
 
@@ -117,6 +120,50 @@ class GatewayMappingTest extends Specification {
     reconnected.mapAssetId(EDGE, false) == first.mapAssetId(EDGE, false)
   }
 
+  def "two V2 connectors synchronize identical local asset IDs to distinct central IDs"() {
+    given:
+    def storage = Mock(AssetStorageService)
+    def createdOn = Instant.parse("2026-11-06T00:00:00Z")
+    def first = new GatewayAsset("First").setId(GATEWAY).setRealm("test").setCreatedOn(createdOn)
+    def second = new GatewayAsset("Second").setId(OTHER).setRealm("test").setCreatedOn(createdOn)
+    def firstConnector = connector(first, storage)
+    def secondConnector = connector(second, storage)
+    def firstId = firstConnector.mapAssetId(EDGE, false)
+    def secondId = secondConnector.mapAssetId(EDGE, false)
+
+    when:
+    [firstConnector, secondConnector].each { gatewayConnector ->
+      gatewayConnector.connected("session", {}, {})
+      def inventory = new AssetsEvent([new ThingAsset("Edge").setId(EDGE)])
+      inventory.setMessageID("INITIAL")
+      gatewayConnector.onGatewayEvent(inventory)
+      def batch = new AssetsEvent([new ThingAsset("Edge").setId(EDGE)])
+      batch.setMessageID("BATCH0")
+      gatewayConnector.onGatewayEvent(batch)
+    }
+
+    then:
+    firstId != secondId
+    1 * storage.merge({
+      it.id == firstId && it.parentId == first.id
+    }, true, first, null) >> {
+      it[0]
+    }
+    1 * storage.merge({
+      it.id == secondId && it.parentId == second.id
+    }, true, second, null) >> {
+      it[0]
+    }
+    2 * storage.findAll(_) >> []
+    0 * storage.deleteGatewayAssets(_, _)
+    !firstConnector.initialSyncInProgress
+    !secondConnector.initialSyncInProgress
+
+    cleanup:
+    firstConnector?.disconnected("session")
+    secondConnector?.disconnected("session")
+  }
+
   def "invalid inventory never triggers cleanup"() {
     given:
     def storage = Mock(AssetStorageService)
@@ -181,12 +228,87 @@ class GatewayMappingTest extends Specification {
     cachedFailure << [false, true]
   }
 
+  def "an empty inventory applies cached creates before cleanup and refreshes changed attributes"() {
+    given:
+    def storage = Mock(AssetStorageService)
+    def gateway = new GatewayAsset("Test").setId(GATEWAY).setRealm("test")
+    def connector = connector(gateway, storage)
+    def sent = []
+    connector.connected("session", { sent.add(it) }, {})
+    def cached = new ThingAsset("Cached").setId(EDGE)
+    def centralId = connector.mapAssetId(EDGE, false)
+    connector.onGatewayEvent(new AssetEvent(AssetEvent.Cause.CREATE, cached))
+    connector.onGatewayEvent(new AttributeEvent(EDGE, "test", "changed"))
+    def inventory = new AssetsEvent([])
+    inventory.setMessageID("INITIAL")
+
+    when:
+    connector.onGatewayEvent(inventory)
+
+    then:
+    1 * storage.merge(cached, true, gateway, null) >> { cached }
+
+    then:
+    1 * storage.findAll(_) >> [new ThingAsset("Stored").setId(centralId)]
+    0 * storage.deleteGatewayAssets(_, _)
+    connector.connected
+    !connector.initialSyncInProgress
+    sent.find { it instanceof ReadAssetEvent }?.assetId == EDGE
+
+    cleanup:
+    connector?.disconnected("session")
+  }
+
+  def "a rejected cached create skips cleanup until a successful reconnect"() {
+    given:
+    def storage = Mock(AssetStorageService)
+    def gateway = new GatewayAsset("Test").setId(GATEWAY).setRealm("test")
+    def connector = connector(gateway, storage)
+    def sent = []
+    connector.connected("session", { sent.add(it) }, {})
+    def cached = new ThingAsset("Cached").setId(EDGE)
+    connector.onGatewayEvent(new AssetEvent(AssetEvent.Cause.CREATE, cached))
+    def inventory = new AssetsEvent([])
+    inventory.setMessageID("INITIAL")
+    def obsoleteId = connector.mapAssetId(EDGE, false)
+
+    when:
+    connector.onGatewayEvent(inventory)
+
+    then:
+    1 * storage.merge(cached, true, gateway, null) >> {
+      throw new IllegalStateException("ownership conflict")
+    }
+    0 * storage.findAll(_)
+    0 * storage.deleteGatewayAssets(_, _)
+    !connector.connected
+    sent.find {
+      it instanceof GatewayDisconnectEvent
+    }?.reason == GatewayDisconnectEvent.Reason.SYNC_ERROR
+
+    when:
+    connector.connected("reconnected", { sent.add(it) }, {})
+    connector.onGatewayEvent(inventory)
+
+    then:
+    1 * storage.findAll(_) >> [new ThingAsset("Obsolete").setId(obsoleteId)]
+    1 * storage.deleteGatewayAssets([obsoleteId], gateway.id) >> true
+    0 * storage.merge(_, _, _, _)
+    connector.connected
+    !connector.initialSyncInProgress
+
+    cleanup:
+    connector?.disconnected("reconnected")
+  }
+
   private GatewayConnector connector(GatewayAsset gateway, AssetStorageService storage) {
     if (gateway.createdOn == null) {
       gateway.setCreatedOn(Instant.EPOCH)
     }
     new GatewayConnector(storage, Stub(AssetProcessingService), Stub(ExecutorService),
-            Stub(ScheduledExecutorService), Stub(GatewayService), Stub(TimerService) {
+            Stub(ScheduledExecutorService) {
+              schedule(_ as Runnable, _, _) >> Stub(ScheduledFuture)
+            }, Stub(GatewayService), Stub(TimerService) {
               getNow() >> Instant.now()
             }, gateway, Instant.parse("2026-11-05T12:00:00Z"))
   }

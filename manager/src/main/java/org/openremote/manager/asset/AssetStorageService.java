@@ -708,8 +708,8 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
    *
    * @param overrideVersion If <code>true</code>, the merge will override the data in the database,
    *     independent of version.
-   * @param requestingGatewayAsset If set this is the {@link GatewayAsset} merging the asset so skip
-   *     standard checks
+   * @param requestingGatewayAsset The authenticated gateway whose persisted hierarchy must contain
+   *     the asset and its proposed parent, when supplied
    * @param userName the user which this asset needs to be assigned to.
    * @return The current stored asset state.
    * @throws IllegalArgumentException if the realm or parent is illegal, or other asset constraint
@@ -732,8 +732,8 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
     // Ensure delete pending flag is not set for merges
     asset.setDeletePending(false);
 
-    // We skip all standard checks as asset is coming from a gateway and would be validated from
-    // there
+    // Descendant types can differ between the edge and central managers. Validate gateway
+    // ownership inside the write transaction.
     if (requestingGatewayAsset != null) {
       if (asset.getId() == null || asset.getParentId() == null || asset.getRealm() == null) {
         String msg =
@@ -788,15 +788,33 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
                           ? null
                           : (T) em.find(Asset.class, asset.getId(), LockModeType.PESSIMISTIC_WRITE);
 
+                  boolean parentChanged =
+                      asset.getParentId() != null
+                          && (existingAsset == null
+                              || !asset.getParentId().equals(existingAsset.getParentId()));
+                  Asset<?> gatewayParent = null;
                   if (requestingGatewayAsset != null) {
                     String gatewayId = requestingGatewayAsset.getId();
                     if (existingAsset != null) {
                       requireGatewayOwnership(em, existingAsset, gatewayId, false);
                     }
-                    Asset<?> parent =
+                    gatewayParent =
                         em.find(Asset.class, asset.getParentId(), LockModeType.PESSIMISTIC_READ);
-                    requireGatewayOwnership(em, parent, gatewayId, true);
-                    if (!parent.getRealm().equals(asset.getRealm())) {
+                    if (gatewayParent == null) {
+                      throw new IllegalStateException(
+                          "Gateway asset parent not found: gatewayId="
+                              + gatewayId
+                              + ", assetId="
+                              + asset.getId()
+                              + ", parentId="
+                              + asset.getParentId());
+                    }
+                    // The existing asset's ancestry check already locks and validates an
+                    // unchanged parent.
+                    if (parentChanged) {
+                      requireGatewayOwnership(em, gatewayParent, gatewayId, true);
+                    }
+                    if (!gatewayParent.getRealm().equals(asset.getRealm())) {
                       throw new IllegalStateException("Gateway asset realm mismatch");
                     }
                   }
@@ -873,12 +891,9 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
                   }
 
                   // Validate parent only if asset is new or parent has changed
-                  if ((existingAsset == null && asset.getParentId() != null)
-                      || (existingAsset != null
-                          && asset.getParentId() != null
-                          && !asset.getParentId().equals(existingAsset.getParentId()))) {
-
-                    Asset<?> parent = find(em, asset.getParentId(), true);
+                  if (parentChanged) {
+                    Asset<?> parent =
+                        gatewayParent != null ? gatewayParent : find(em, asset.getParentId(), true);
 
                     // The parent must exist
                     if (parent == null || parent.isDeletePending()) {
@@ -2003,20 +2018,22 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
   }
 
   /**
-   * Validate persisted ancestry, not connector caches or an untrusted proposed parent. Ancestor
-   * read locks prevent a concurrent move/deletion until the caller's transaction ends.
+   * Validate persisted ancestry. The caller must lock the subject row in this transaction. Ancestor
+   * read locks keep ownership stable until the transaction ends.
    */
   public void requireGatewayOwnership(
       EntityManager em, Asset<?> asset, String gatewayId, boolean allowGateway) {
+    String subject =
+        "gatewayId=" + gatewayId + ", assetId=" + (asset == null ? null : asset.getId());
     if (asset == null || (!allowGateway && gatewayId.equals(asset.getId()))) {
-      throw new IllegalStateException("Gateway asset ownership conflict: " + gatewayId);
+      throw new IllegalStateException("Gateway asset ownership conflict: " + subject);
     }
     Set<String> visited = new HashSet<>();
     String owner = null;
     Asset<?> current = asset;
     while (current != null) {
       if (!visited.add(current.getId()) || current.isDeletePending()) {
-        throw new IllegalStateException("Invalid gateway asset ancestry");
+        throw new IllegalStateException("Invalid gateway asset ancestry: " + subject);
       }
       if (current instanceof GatewayAsset) {
         owner = current.getId();
@@ -2025,11 +2042,11 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
       current =
           parentId == null ? null : em.find(Asset.class, parentId, LockModeType.PESSIMISTIC_READ);
       if (parentId != null && current == null) {
-        throw new IllegalStateException("Missing gateway asset ancestor");
+        throw new IllegalStateException("Missing gateway asset ancestor: " + subject);
       }
     }
     if (!gatewayId.equals(owner)) {
-      throw new IllegalStateException("Gateway asset ownership conflict: " + asset.getId());
+      throw new IllegalStateException("Gateway asset ownership conflict: " + subject);
     }
   }
 
