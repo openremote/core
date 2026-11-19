@@ -89,7 +89,10 @@ public class ApplyPredictedDataPointsService implements ContainerService {
     clientEventService.addSubscription(
         AssetPredictedDatapointEvent.class, null, this::onPredictedDatapointsChanged);
     clientEventService.addSubscription(AttributeEvent.class, null, this::onAttributeEvent);
+  }
 
+  @Override
+  public void startProducers(Container container) {
     loadInitialAttributes();
     scheduleNext();
   }

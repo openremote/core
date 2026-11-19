@@ -376,6 +376,15 @@ public class MQTTBrokerService extends RouteBuilder
   }
 
   @Override
+  public void startProducers(Container container) throws Exception {
+    if (active) {
+      for (MQTTHandler handler : customHandlers) {
+        handler.startProducers(container);
+      }
+    }
+  }
+
+  @Override
   public void startIngress(Container container) throws Exception {
     if (active) {
       server.getActiveMQServer().getRemotingService().getAcceptor(MQTT_TCP_ACCEPTOR).start();

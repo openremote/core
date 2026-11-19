@@ -22,9 +22,12 @@ import org.apache.camel.component.direct.DirectComponent
 import org.apache.camel.component.direct.DirectConsumer
 import org.openremote.agent.protocol.mqtt.MQTT_IOClient
 import org.openremote.container.message.MessageBrokerService
+import org.openremote.container.timer.TimerService
 import org.openremote.manager.asset.AssetProcessingService
 import org.openremote.manager.asset.AssetStorageService
+import org.openremote.manager.datapoint.AssetPredictedDatapointService
 import org.openremote.manager.mqtt.MQTTBrokerService
+import org.openremote.manager.rules.RulesService
 import org.openremote.manager.setup.SetupService
 import org.openremote.model.Container
 import org.openremote.model.ContainerService
@@ -34,6 +37,7 @@ import org.openremote.model.attribute.Attribute
 import org.openremote.model.attribute.AttributeEvent
 import org.openremote.model.attribute.MetaItem
 import org.openremote.model.auth.UsernamePassword
+import org.openremote.model.datapoint.ValueDatapoint
 import org.openremote.model.util.UniqueIdentifierGenerator
 import org.openremote.setup.integration.KeycloakTestSetup
 import org.openremote.test.ManagerContainerTrait
@@ -51,6 +55,9 @@ import static org.openremote.container.web.WebService.OR_WEBSERVER_LISTEN_PORT
 import static org.openremote.manager.asset.AssetProcessingService.ATTRIBUTE_EVENT_PROCESSOR
 import static org.openremote.manager.mqtt.MQTTBrokerService.MQTT_SERVER_LISTEN_HOST
 import static org.openremote.manager.mqtt.MQTTBrokerService.MQTT_SERVER_LISTEN_PORT
+import static org.openremote.model.security.User.SERVICE_ACCOUNT_PREFIX
+import static org.openremote.model.value.MetaItemType.APPLY_PREDICTED_DATA_POINTS
+import static org.openremote.model.value.MetaItemType.HAS_PREDICTED_DATA_POINTS
 import static org.openremote.model.value.MetaItemType.USER_CONNECTED
 import static org.openremote.model.value.ValueType.BOOLEAN
 
@@ -80,7 +87,7 @@ class ManagerStartupTest extends Specification implements ManagerContainerTrait 
       (OR_EXECUTOR_THREADS_MAX): "1"
     ]
     lateStartupProbe = new LateStartupProbe(config[OR_WEBSERVER_LISTEN_PORT].toInteger(), mqttPort)
-    Iterable<ContainerService> services = defaultServices(lateStartupProbe).collect {
+    List<ContainerService> services = defaultServices(lateStartupProbe).collect {
       if (it instanceof MessageBrokerService) {
         return messageBroker
       }
@@ -89,6 +96,9 @@ class ManagerStartupTest extends Specification implements ManagerContainerTrait 
       }
       return it
     }
+    // Exercise a custom service order in which Camel is already running when rules are prepared.
+    services.remove(messageBroker)
+    services.add(services.findIndexOf { it instanceof RulesService }, messageBroker)
 
     def manager = startContainer(config, services)
     storage = manager.getService(AssetStorageService.class)
@@ -98,12 +108,20 @@ class ManagerStartupTest extends Specification implements ManagerContainerTrait 
     stopContainer()
   }
 
-  def "public listeners open after all services start"() {
-    expect: "both endpoints stay closed until the ingress phase and accept connections after startup"
+  def "internal producers start after consumers and before public listeners"() {
+    expect: "rules wait for the producer phase even when Camel starts first"
+    verifyAll {
+      !lateStartupProbe.rulesStartedDuringStart
+      lateStartupProbe.rulesStartedDuringProducerPhase
+    }
+
+    and: "both endpoints stay closed through the producer phase and accept connections after startup"
     verifyAll {
       !messageBroker.mqttPortOpenBeforeCamel
-      !lateStartupProbe.httpPortOpen
-      !lateStartupProbe.mqttPortOpen
+      !lateStartupProbe.httpPortOpenDuringStart
+      !lateStartupProbe.mqttPortOpenDuringStart
+      !lateStartupProbe.httpPortOpenDuringProducerPhase
+      !lateStartupProbe.mqttPortOpenDuringProducerPhase
       canConnectToPort(lateStartupProbe.httpPort)
       canConnectToPort(mqttPort)
     }
@@ -122,7 +140,7 @@ class ManagerStartupTest extends Specification implements ManagerContainerTrait 
 
     when: "the monitored client connects after startup"
     client = new MQTT_IOClient(UniqueIdentifierGenerator.generateId(), "127.0.0.1", mqttPort,
-      false, true, mqttBroker.credentials, null, null)
+            false, true, mqttBroker.credentials, null, null)
     client.connect()
 
     then: "both monitored attributes report the client online"
@@ -143,17 +161,51 @@ class ManagerStartupTest extends Specification implements ManagerContainerTrait 
     client?.disconnect()
   }
 
-  def "a Java attribute submission during startup is processed after Camel starts"() {
-    expect: "the submission returned without waiting for the consumer and processing started after Camel"
-    def startupConsumerTimeouts = messageBroker.submissionConsumerTimeouts
-    assert startupConsumerTimeouts == 0 :
-      "Submitted attribute after startup was ${attributeValue(storage, messageBroker.submittedAssetId, "submitted")}"
-    messageBroker.submittedValueBeforeCamel == false
+  def "a Java attribute submission fails fast before Camel starts and can be retried"() {
+    given:
+    def assetId = messageBroker.submittedAssetId
+    def conditions = statusConditions()
 
-    and: "the event is applied to the asset"
+    expect: "the early submission was rejected without waiting for a consumer"
+    verifyAll {
+      messageBroker.submissionConsumerTimeouts == 0
+      messageBroker.submissionFailure?.message == "Attribute event processor is not ready"
+      attributeValue(storage, assetId, "submitted") == false
+    }
+
+    when: "the caller retries after Camel starts"
+    container.getService(AssetProcessingService.class)
+            .sendAttributeEvent(new AttributeEvent(assetId, "submitted", true))
+
+    then: "the retried event is applied"
+    conditions.eventually {
+      assert attributeValue(storage, assetId, "submitted") == true
+    }
+  }
+
+  def "a Java attribute submission fails fast while only its route is stopped"() {
+    given:
+    def routeController = messageBroker.context.routeController
+    routeController.stopRoute("AttributeEvent-Processor")
+
+    when:
+    container.getService(AssetProcessingService.class)
+            .sendAttributeEvent(new AttributeEvent(messageBroker.submittedAssetId, "submitted", true))
+
+    then:
+    IllegalStateException failure = thrown()
+    failure.message == "Attribute event processor is not ready"
+    messageBroker.isStarted()
+
+    cleanup:
+    routeController?.startRoute("AttributeEvent-Processor")
+  }
+
+  def "a prediction already due during startup is applied once Camel is ready"() {
+    expect:
     def conditions = statusConditions()
     conditions.eventually {
-      assert attributeValue(storage, messageBroker.submittedAssetId, "submitted") == true
+      assert attributeValue(storage, mqttBroker.monitoredAssetId, "startupPrediction") == true
     }
   }
 
@@ -167,8 +219,10 @@ class ManagerStartupTest extends Specification implements ManagerContainerTrait 
 
   private static List<Boolean> connectionStatuses(AssetStorageService storage, String assetId) {
     def asset = storage.find(assetId)
-    [asset.getAttribute("firstConnected").get().value.orElse(null),
-     asset.getAttribute("secondConnected").get().value.orElse(null)]
+    [
+      asset.getAttribute("firstConnected").get().value.orElse(null),
+      asset.getAttribute("secondConnected").get().value.orElse(null)
+    ]
   }
 
   private static PollingConditions statusConditions() {
@@ -195,7 +249,7 @@ class ManagerStartupTest extends Specification implements ManagerContainerTrait 
 
     try {
       new PollingConditions(timeout: 10).eventually {
-        if (workerOccupied.count > 0) {
+        if (workerOccupied.count> 0) {
           container.executor.execute {
             // Retry if another startup task occupies the worker and this submission runs inline.
             if (Thread.currentThread() != startupThread) {
@@ -231,11 +285,18 @@ class ManagerStartupTest extends Specification implements ManagerContainerTrait 
       def realm = keycloak.realmBuilding.name
       def user = keycloak.serviceUser
       credentials = new UsernamePassword("${realm}:${user.username}".toString(), user.secret)
-      def asset = new ThingAsset("MQTT connection status").setRealm(realm).addAttributes(
-        new Attribute<>("firstConnected", BOOLEAN, true).addMeta(new MetaItem<>(USER_CONNECTED, user.username)),
-        new Attribute<>("secondConnected", BOOLEAN, true).addMeta(new MetaItem<>(USER_CONNECTED, user.username))
+      long now = container.getService(TimerService.class).getCurrentTimeMillis()
+      def asset = new ThingAsset("Startup attributes").setRealm(realm).addAttributes(
+              new Attribute<>("firstConnected", BOOLEAN, true).addMeta(new MetaItem<>(USER_CONNECTED, user.username)),
+              new Attribute<>("secondConnected", BOOLEAN, true)
+              .addMeta(new MetaItem<>(USER_CONNECTED, SERVICE_ACCOUNT_PREFIX + user.username)),
+              new Attribute<>("startupPrediction", BOOLEAN, false).setTimestamp(now - 2000)
+              .addOrReplaceMeta(new MetaItem<>(HAS_PREDICTED_DATA_POINTS, true),
+              new MetaItem<>(APPLY_PREDICTED_DATA_POINTS, true))
       )
       monitoredAssetId = container.getService(AssetStorageService.class).merge(asset).id
+      container.getService(AssetPredictedDatapointService.class)
+              .updateValues(monitoredAssetId, "startupPrediction", [new ValueDatapoint<>(now - 1000, true)])
 
       int timeoutsBeforeMqtt = direct.startupConsumerTimeouts
       withSaturatedExecutor(container) {
@@ -250,7 +311,7 @@ class ManagerStartupTest extends Specification implements ManagerContainerTrait 
     private final int mqttPort
     boolean mqttPortOpenBeforeCamel
     String submittedAssetId
-    Boolean submittedValueBeforeCamel
+    IllegalStateException submissionFailure
     int submissionConsumerTimeouts
 
     StartupMessageBroker(int mqttPort) {
@@ -270,17 +331,20 @@ class ManagerStartupTest extends Specification implements ManagerContainerTrait 
         def keycloak = keycloakSetup(container)
         def storage = container.getService(AssetStorageService.class)
         def asset = new ThingAsset("Startup attribute event").setRealm(keycloak.realmBuilding.name)
-          .addAttributes(new Attribute<>("submitted", BOOLEAN, false))
+                .addAttributes(new Attribute<>("submitted", BOOLEAN, false))
         submittedAssetId = storage.merge(asset).id
 
         withSaturatedExecutor(container) {
           mqttPortOpenBeforeCamel = canConnectToPort(mqttPort)
           int timeoutsBeforeSubmission = direct.startupConsumerTimeouts
-          container.getService(AssetProcessingService.class)
-            .sendAttributeEvent(new AttributeEvent(submittedAssetId, "submitted", true))
+          try {
+            container.getService(AssetProcessingService.class)
+                    .sendAttributeEvent(new AttributeEvent(submittedAssetId, "submitted", true))
+          } catch (IllegalStateException failure) {
+            submissionFailure = failure
+          }
           submissionConsumerTimeouts = direct.startupConsumerTimeouts - timeoutsBeforeSubmission
         }
-        submittedValueBeforeCamel = attributeValue(storage, submittedAssetId, "submitted")
         super.start(container)
       } finally {
         direct.startupThread = null
@@ -291,8 +355,12 @@ class ManagerStartupTest extends Specification implements ManagerContainerTrait 
   private static class LateStartupProbe implements ContainerService {
     final int httpPort
     private final int mqttPort
-    boolean httpPortOpen
-    boolean mqttPortOpen
+    boolean rulesStartedDuringStart
+    boolean rulesStartedDuringProducerPhase
+    boolean httpPortOpenDuringStart
+    boolean mqttPortOpenDuringStart
+    boolean httpPortOpenDuringProducerPhase
+    boolean mqttPortOpenDuringProducerPhase
 
     LateStartupProbe(int httpPort, int mqttPort) {
       this.httpPort = httpPort
@@ -309,8 +377,16 @@ class ManagerStartupTest extends Specification implements ManagerContainerTrait 
 
     @Override
     void start(Container container) {
-      httpPortOpen = canConnectToPort(httpPort)
-      mqttPortOpen = canConnectToPort(mqttPort)
+      rulesStartedDuringStart = container.getService(RulesService.class).startDone
+      httpPortOpenDuringStart = canConnectToPort(httpPort)
+      mqttPortOpenDuringStart = canConnectToPort(mqttPort)
+    }
+
+    @Override
+    void startProducers(Container container) {
+      rulesStartedDuringProducerPhase = container.getService(RulesService.class).startDone
+      httpPortOpenDuringProducerPhase = canConnectToPort(httpPort)
+      mqttPortOpenDuringProducerPhase = canConnectToPort(mqttPort)
     }
 
     @Override

@@ -154,7 +154,8 @@ public class RulesService extends RouteBuilder implements ContainerService {
   protected long quickFireMillis;
   protected boolean groovyRulesExecutionEnabled;
   protected boolean initDone;
-  protected boolean startDone;
+  private boolean producerPhaseReached;
+  protected volatile boolean startDone;
   protected io.micrometer.core.instrument.Timer rulesFiringTimer;
 
   @Override
@@ -164,6 +165,7 @@ public class RulesService extends RouteBuilder implements ContainerService {
 
   @Override
   public void init(Container container) throws Exception {
+    producerPhaseReached = false;
     executorService = container.getExecutor();
     scheduledExecutorService = container.getScheduledExecutor();
     timerService = container.getService(TimerService.class);
@@ -359,8 +361,21 @@ public class RulesService extends RouteBuilder implements ContainerService {
               });
         });
 
-    // Start the engines
+    // Restart the engines immediately when only the rules service is restarted.
+    if (producerPhaseReached && container.getService(MessageBrokerService.class).isStarted()) {
+      startEngines();
+    }
+  }
 
+  @Override
+  public void startProducers(Container container) {
+    if (!startDone) {
+      startEngines();
+    }
+    producerPhaseReached = true;
+  }
+
+  private void startEngines() {
     synchronized (ENGINE_LOCK) {
       RulesEngine<?> globalRulesEngine = globalEngine.get();
       if (globalRulesEngine != null) {
@@ -382,6 +397,7 @@ public class RulesService extends RouteBuilder implements ContainerService {
 
   @Override
   public void stop(Container container) throws Exception {
+    startDone = false;
     for (GeofenceAssetAdapter geofenceAssetAdapter : geofenceAssetAdapters) {
       try {
         geofenceAssetAdapter.stop(container);
@@ -596,16 +612,11 @@ public class RulesService extends RouteBuilder implements ContainerService {
         undeployAssetRuleset((AssetRuleset) ruleset);
       }
     } else {
-      if (ruleset instanceof GlobalRuleset) {
-
-        RulesEngine<GlobalRuleset> engine = deployGlobalRuleset((GlobalRuleset) ruleset);
-        engine.start();
-
-      } else if (ruleset instanceof RealmRuleset) {
-
-        RulesEngine<RealmRuleset> engine = deployRealmRuleset((RealmRuleset) ruleset);
-        engine.start();
-
+      RulesEngine<?> engine;
+      if (ruleset instanceof GlobalRuleset globalRuleset) {
+        engine = deployGlobalRuleset(globalRuleset);
+      } else if (ruleset instanceof RealmRuleset realmRuleset) {
+        engine = deployRealmRuleset(realmRuleset);
       } else if (ruleset instanceof AssetRuleset) {
 
         // Must reload from the database, the ruleset might not be completely hydrated on CREATE or
@@ -615,7 +626,12 @@ public class RulesService extends RouteBuilder implements ContainerService {
           undeployAssetRuleset((AssetRuleset) ruleset);
           return;
         }
-        RulesEngine<AssetRuleset> engine = deployAssetRuleset(assetRuleset);
+        engine = deployAssetRuleset(assetRuleset);
+      } else {
+        return;
+      }
+
+      if (startDone) {
         engine.start();
       }
     }
