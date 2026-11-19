@@ -189,5 +189,5 @@ COPY heapdump-rename.sh /heapdump-rename.sh
 RUN chmod +x /heapdump-rename.sh
 ENTRYPOINT ["/entrypoint.sh"]
 
-# Update CA certificates to address CVE-2026-114406 until the base image includes the fix
-RUN microdnf upgrade -y ca-certificates && microdnf clean all
+# Upgrade OpenJDK to address CVE-2026-114938 until the base image includes the fix
+RUN microdnf upgrade -y java-21-openjdk-headless && microdnf clean all

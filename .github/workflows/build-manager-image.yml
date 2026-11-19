@@ -108,9 +108,28 @@ jobs:
           sarif_file: ${{ steps.manager-anchore-scan.outputs.sarif }}
           category: grype-manager
 
-      - name: Inspect Anchore scan SARIF report
-        if: ${{ always() && steps.meta.outputs.should_push == 'true' }}
-        run: cat ${{ steps.manager-anchore-scan.outputs.sarif }}
+      # The scan action writes one format per run, so rescan as a table for the job summary
+      - name: Scan manager docker image for the vulnerability report
+        if: ${{ !cancelled() && steps.manager-anchore-scan.outcome == 'failure' }}
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        id: manager-anchore-report
+        with:
+          image: ${{ steps.meta.outputs.first_tag }}
+          fail-build: false
+          severity-cutoff: critical
+          output-format: table
+
+      - name: Report vulnerabilities
+        if: ${{ !cancelled() && steps.manager-anchore-report.outcome == 'success' }}
+        env:
+          REPORT: ${{ steps.manager-anchore-report.outputs.table }}
+        run: |
+          {
+            echo "### Vulnerabilities in the manager image"
+            echo '```'
+            cat "$REPORT"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Login to DockerHub
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
