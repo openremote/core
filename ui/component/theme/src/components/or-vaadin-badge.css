@@ -18,8 +18,19 @@
  */
 @import "@vaadin/vaadin-lumo-styles/components/badge.css";
 
+@media lumo_badge_counter {
+  /* A count next to a label */
+  :host([theme~="counter"]) {
+    --vaadin-badge-background: var(--lumo-contrast-10pct);
+    --vaadin-badge-text-color: var(--lumo-secondary-text-color);
+    --vaadin-badge-font-size: var(--lumo-font-size-xxs);
+    --vaadin-badge-font-weight: 400;
+    --vaadin-badge-padding: 0 10px;
+  }
+}
+
 :root::before,
 :host::before {
   --_lumo-vaadin-badge-inject: 1;
-  --_lumo-vaadin-badge-inject-modules: lumo_components_badge;
+  --_lumo-vaadin-badge-inject-modules: lumo_components_badge, lumo_badge_counter;
 }

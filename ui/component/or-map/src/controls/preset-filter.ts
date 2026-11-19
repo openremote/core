@@ -18,7 +18,6 @@
  */
 import { css, html, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { OrElement } from "@openremote/or-element";
-import { countBadgeStyle } from "./styles";
 import { customElement, property, state } from "lit/decorators.js";
 import manager, { OREvent, Util } from "@openremote/core";
 import { i18next } from "@openremote/or-translate";
@@ -66,7 +65,6 @@ manager.addListener((event) => {
 export class OrMapPresetFilter extends OrElement {
   static get styles() {
     return [
-      countBadgeStyle,
       css`
         :host {
           display: block;
@@ -173,26 +171,25 @@ export class OrMapPresetFilter extends OrElement {
     return html`
       <style>
         .filter-item {
-            display: flex;
-            align-items: center;
-            gap: calc(var(--lumo-space-l) + var(--lumo-border-radius-m) / 4);
-            padding-right: 4px;
+          display: flex;
+          align-items: center;
+          gap: calc(var(--lumo-space-l) + var(--lumo-border-radius-m) / 4);
+          padding-right: 4px;
         }
         .filter-item__label {
-            flex: 1;
+          flex: 1;
         }
         .filter-item__label--warning {
-            color: var(--lumo-warning-text-color, #c46c0c);
+          color: var(--lumo-warning-text-color, #c46c0c);
         }
         .filter-item__warning {
-            font-size: var(--lumo-font-size-xs);
-            color: var(--lumo-warning-text-color, #c46c0c);
-            white-space: nowrap;
+          font-size: var(--lumo-font-size-xs);
+          color: var(--lumo-warning-text-color, #c46c0c);
+          white-space: nowrap;
         }
         or-vaadin-item.filter-option {
-            padding: unset;
+          padding: unset;
         }
-        ${countBadgeStyle}
       </style>
       <or-vaadin-list-box>
         ${options.map(
@@ -203,7 +200,7 @@ export class OrMapPresetFilter extends OrElement {
                   >${opt.warning ? "⚠ " : ""}${opt.label}</span
                 >
                 ${opt.warning ? html`<span class="filter-item__warning">${opt.warning}</span>` : nothing}
-                <or-vaadin-badge class="filter-item__count">${formatCount(opt.count)}</or-vaadin-badge>
+                <or-vaadin-badge class="filter-item__count" theme="counter">${formatCount(opt.count)}</or-vaadin-badge>
               </div>
             </or-vaadin-item>
           `
@@ -221,7 +218,7 @@ export class OrMapPresetFilter extends OrElement {
           ${selectRenderer(this._renderFilterOptions, [this.filters, this.assets])}
           @change="${this._onChange}"
         ></or-vaadin-select>
-        <or-vaadin-badge class="filter-field-count">${formatCount(currentCount)}</or-vaadin-badge>
+        <or-vaadin-badge class="filter-field-count" theme="counter">${formatCount(currentCount)}</or-vaadin-badge>
       </div>
     `;
   }
