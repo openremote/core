@@ -197,6 +197,11 @@ public class Container implements org.openremote.model.Container {
         service.start(Container.this);
       }
 
+      LOG.log(INFO, "Starting runtime event producers");
+      for (ContainerService service : getServices()) {
+        service.startProducers(this);
+      }
+
       LOG.log(INFO, "Starting runtime ingress");
       for (ContainerService service : getServices()) {
         service.startIngress(this);
