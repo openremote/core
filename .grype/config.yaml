@@ -3,7 +3,7 @@ ignore:
     package:
       name: java-21-openjdk-headless
       type: rpm
-    reason: "Remediated by RHSA-2026:88455 via ca-certificates; Grype still flags the OpenJDK RPM."
+    reason: "Red Hat will not fix the OpenJDK RPM; it uses the ca-certificates bundle, fixed for CVE-2026-114406 by RHSA-2026:88455."
   - vulnerability: CVE-2026-114938
     package:
       name: java-21-openjdk-headless
