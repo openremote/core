@@ -840,9 +840,7 @@ class AssetModelTest extends Specification implements ManagerContainerTrait {
     Objects.equals(result.schema(), expected)
 
     and: "the hash to be the same"
-    if (!hash.empty) {
-      Objects.equals(result.hash(), hash)
-    }
+    hash.empty || result.hash() == hash
 
     where:
     name | clazz | hash
