@@ -1498,7 +1498,7 @@ Resources:
         - Name: InstanceName
           Value: !Ref Host
 
-  ChunksNeedsCompressionAlarm:
+  ChunksNeedingCompressionAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: MetricsEnabled
     Properties:
@@ -1516,9 +1516,6 @@ Resources:
       Dimensions:
         - Name: InstanceName
           Value: !Ref Host
-
-  # No alarm on pg_table_bloat_count: it counts tables over 5 MB with dead tuples above 30% of live tuples, which is the
-  # same signal DeadTupleAlarm raises per table from pg_dead_tuple_percent. The metric is still collected for the dashboard.
 
   IndexBloatCountAlarm:
     Type: AWS::CloudWatch::Alarm
