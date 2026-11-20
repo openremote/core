@@ -3,6 +3,7 @@
 # Legacy topology: ACM terminates HTTPS and MQTTS at one public NLB.
 # Run from this directory, on a dedicated disposable cluster only.
 . ./eks-common.sh
+HELM_WAIT_FLAG=$(helm_wait_flag)
 
 envsubst '${CLUSTER_NAME} ${AWS_REGION}' < profiles/$OR_PROFILE/cluster.yaml | eksctl create cluster -f - --profile or
 aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION" --profile or --alias "$K_CONTEXT"
@@ -80,10 +81,10 @@ aws route53 change-resource-record-sets \
      --profile dnschg
 
 # The Keycloak chart constructs the public issuer from the hostname.
-helm install --kube-context "$K_CONTEXT" --namespace default --wait --timeout 90m keycloak $OR_KUBERNETES_PATH/keycloak -f $OR_KUBERNETES_PATH/keycloak/values-haproxy.yaml \
+helm install --kube-context "$K_CONTEXT" --namespace default "$HELM_WAIT_FLAG" --timeout 90m keycloak $OR_KUBERNETES_PATH/keycloak -f $OR_KUBERNETES_PATH/keycloak/values-haproxy.yaml \
   -f "profiles/$OR_PROFILE/keycloak.yaml" --set-string "or.hostname=$FQDN"
 # Override the shared Manager template's image repository directly.
-helm install --kube-context "$K_CONTEXT" --namespace default --wait --timeout 90m manager $OR_KUBERNETES_PATH/manager -f $OR_KUBERNETES_PATH/manager/values-haproxy-eks.yaml \
+helm install --kube-context "$K_CONTEXT" --namespace default "$HELM_WAIT_FLAG" --timeout 90m manager $OR_KUBERNETES_PATH/manager -f $OR_KUBERNETES_PATH/manager/values-haproxy-eks.yaml \
   -f "profiles/$OR_PROFILE/manager.yaml" --set-string "or.hostname=$FQDN" \
   --set-string image.repository=$AWS_DEVELOPERS_ACCOUNT_ID.dkr.ecr.eu-west-1.amazonaws.com/openremote/manager
 
