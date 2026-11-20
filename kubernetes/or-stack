@@ -666,7 +666,8 @@ discover_cluster_dns() {
 
 helm_apply() {
   local component="$1"
-  shift
+  local wait_flag="$2"
+  shift 2
   local chart="$KUBERNETES_DIR/$component"
   local target_values="$TARGETS_DIR/$TARGET/$component.yaml"
   local exposure_values="$EXPOSURES_DIR/$EXPOSURE/$component.yaml"
@@ -697,13 +698,15 @@ helm_apply() {
     fi
   fi
 
-  helm_args+=("$@" --wait --timeout "$TIMEOUT")
+  helm_args+=("$@" "$wait_flag" --timeout "$TIMEOUT")
 
   log "Applying Helm release '$component'."
   helm "${helm_args[@]}"
 }
 
 apply_stack() {
+  local helm_version
+  local helm_wait_flag=--wait
   local manager_args=(
     --set-string "or.hostname=$HOSTNAME_VALUE"
   )
@@ -735,6 +738,12 @@ apply_stack() {
   if [ "$EXPOSURE" != "none" ]; then
     discover_cluster_dns
   fi
+  helm_version="$(helm version --template '{{.Version}}')"
+  if [[ "$helm_version" = v4.* ]]; then
+    # The watcher can fail at the Deployment progress deadline while Manager
+    # is still setting up its dataset. Keep waiting up to the Helm timeout.
+    helm_wait_flag=--wait=legacy
+  fi
   ensure_namespace
   reserve_stack_hostname
   record_stack_hostname
@@ -747,10 +756,10 @@ apply_stack() {
     record_stack_mqtts_hostname
   fi
 
-  helm_apply or-setup "${setup_args[@]}"
-  helm_apply postgresql
-  helm_apply keycloak --set-string "or.hostname=$keycloak_hostname"
-  helm_apply manager "${manager_args[@]}"
+  helm_apply or-setup "$helm_wait_flag" "${setup_args[@]}"
+  helm_apply postgresql "$helm_wait_flag"
+  helm_apply keycloak "$helm_wait_flag" --set-string "or.hostname=$keycloak_hostname"
+  helm_apply manager "$helm_wait_flag" "${manager_args[@]}"
   if [ "$EXPOSURE" != "none" ]; then
     proxy_args=(
       --set-string "or.hostname=$HOSTNAME_VALUE"
@@ -801,7 +810,7 @@ apply_stack() {
         proxy_args+=(--set-string "ingress.tls[0].hosts[0]=$HOSTNAME_VALUE")
       fi
     fi
-    helm_apply proxy "${proxy_args[@]}"
+    helm_apply proxy "$helm_wait_flag" "${proxy_args[@]}"
   fi
 
   log "Stack '$STACK_NAME' is applied in context '$KUBE_CONTEXT'."

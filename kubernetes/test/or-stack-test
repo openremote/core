@@ -142,7 +142,7 @@ test_local_apply() {
   : > "$values_dir/proxy.yaml"
 
   reset_log
-  output="$(OR_STACK_TEST_NAMESPACE_EXISTS=false run_stack apply \
+  output="$(OR_STACK_TEST_NAMESPACE_EXISTS=false OR_STACK_TEST_HELM_VERSION=v3.20.0 run_stack apply \
     --name stack-a \
     --kube-context test-context \
     --target local \
@@ -175,7 +175,8 @@ test_local_apply() {
   assert_not_contains $'--set-string\tingress.hostname=stack-a.localhost'
   assert_not_contains $'--set\tdns.enabled=true'
   assert_not_contains 'certificate-arn='
-  assert_contains $'helm\tupgrade\t--install\tmanager'
+  assert_on_line_before $'helm\tupgrade\t--install\tmanager' $'\t--wait\t--timeout\t10m'
+  assert_not_contains $'\t--wait=legacy\t'
   assert_contains "$values_dir/manager.yaml"
   assert_contains $'helm\tupgrade\t--install\tproxy'
   assert_contains "$KUBERNETES_DIR/stack/exposures/haproxy/proxy.yaml"
@@ -327,14 +328,21 @@ test_eks_ingress_mqtts_apply() {
 }
 
 test_eks_haproxy_apply() {
+  local release
+
   reset_log
-  OR_STACK_TEST_NAMESPACE_EXISTS=false run_stack apply \
+  OR_STACK_TEST_NAMESPACE_EXISTS=false OR_STACK_TEST_HELM_VERSION=v4.3.0 run_stack apply \
     --name stack-eks-proxy \
     --kube-context test-context \
     --target eks \
     --dns external-dns \
+    --timeout 90m \
     --hostname stack-eks-proxy.example.com
 
+  for release in or-setup postgresql keycloak manager proxy; do
+    assert_on_line_before $'helm\tupgrade\t--install\t'"$release"$'\t' $'\t--wait=legacy\t--timeout\t90m'
+  done
+  assert_not_contains $'\t--wait\t'
   assert_contains $'kubectl\t--context\ttest-context\t--namespace\tkube-system\tget\tdeployment\taws-load-balancer-controller'
   assert_not_contains $'get\tingressclass\topenremote-alb'
   assert_not_contains 'certificate-arn='
