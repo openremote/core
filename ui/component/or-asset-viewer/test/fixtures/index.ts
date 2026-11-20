@@ -129,6 +129,31 @@ export class AssetViewer {
     }
     return configItemLocator;
   }
+
+  /**
+   * Get a locator to the hidden file input of the configuration template import dialog.
+   */
+  getConfigurationTemplateFileInput(): Locator {
+    return this.page.getByRole("dialog").locator("input[type=file]");
+  }
+
+  /**
+   * Get a locator to a section of a configuration template dialog by its title.
+   * @param title The section title, e.g. "Matched attributes"
+   */
+  getConfigurationTemplateSection(title: string): Locator {
+    return this.page.getByRole("dialog").locator(".ac-card", { hasText: title });
+  }
+
+  /**
+   * Get a locator to an attribute row of a configuration template dialog by its label.
+   * @param section The section holding the row
+   * @param label The attribute label
+   */
+  getConfigurationTemplateAttribute(section: Locator, label: string): Locator {
+    // The name carries the label and value type as its title, e.g. "Dimmer (Positive integer)"
+    return section.getByTitle(new RegExp(`^${label} \\(`));
+  }
 }
 
 interface ComponentFixtures extends SharedComponentTestFixtures {

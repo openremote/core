@@ -16,14 +16,12 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
-import { css } from "lit";
+package org.openremote.model.asset;
 
-export const countBadgeStyle = css`
-  or-vaadin-badge {
-    --vaadin-badge-background: var(--shades-contrast-10, #3a463a0d);
-    border-radius: calc(var(--lumo-border-radius-m) + 2px);
-    font-size: 12px;
-    color: var(--lumo-secondary-text-color);
-    padding: 0 calc(var(--lumo-space-m) - 4px);
-  }
-`;
+import io.swagger.v3.oas.annotations.media.Schema;
+
+/** An attribute of a {@link ConfigurationTemplate} as reported to the user. */
+@Schema(description = "Name and type of an attribute within an imported document.")
+public record AttributeConfigurationSummary(
+    @Schema(description = "Attribute name.") String name,
+    @Schema(description = "Value descriptor name of the attribute, e.g. number.") String type) {}
