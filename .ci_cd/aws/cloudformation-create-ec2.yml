@@ -1377,11 +1377,12 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Condition: MetricsEnabled
     Properties:
-      AlarmDescription: Attribute event anomaly
+      AlarmDescription: Attribute event rate outside the expected band (3 standard deviations) for 2 of the last 3 5-minute periods
       ComparisonOperator: LessThanLowerOrGreaterThanUpperThreshold
-      EvaluationPeriods: 1
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 2
       Metrics:
-        - Expression: ANOMALY_DETECTION_BAND(m1, 2)
+        - Expression: ANOMALY_DETECTION_BAND(m1, 3)
           Id: ad1
         - Id: m1
           MetricStat:
@@ -1404,7 +1405,7 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Condition: MetricsEnabled
     Properties:
-      AlarmDescription: Available PostgreSQL Connections less then 15% of limit
+      AlarmDescription: Available PostgreSQL connections less than 15% of limit for 15 minutes
       Metrics:
         - Id: e1
           ReturnData: true
@@ -1431,7 +1432,7 @@ Resources:
                   Value: !Ref Host
             Period: 300
             Stat: Average
-      EvaluationPeriods: 1
+      EvaluationPeriods: 3
       ComparisonOperator: GreaterThanThreshold
       Threshold: 0
       AlarmActions:
@@ -1443,11 +1444,12 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Condition: MetricsEnabled
     Properties:
+      AlarmDescription: PostgreSQL queries running for longer than 30 seconds for 15 minutes
       Namespace: CWAgent-Prometheus
       MetricName: pg_long_running_queries_count
       Statistic: Average
       Period: 300
-      EvaluationPeriods: 1
+      EvaluationPeriods: 3
       ComparisonOperator: GreaterThanThreshold
       Threshold: 0
       AlarmActions:
@@ -1515,24 +1517,8 @@ Resources:
         - Name: InstanceName
           Value: !Ref Host
 
-  TableBloatCountAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: MetricsEnabled
-    Properties:
-      Namespace: CWAgent-Prometheus
-      MetricName: pg_table_bloat_count
-      Statistic: Average
-      Period: 300
-      EvaluationPeriods: 1
-      ComparisonOperator: GreaterThanThreshold
-      Threshold: 0
-      AlarmActions:
-        - !Ref SnsTopic
-      OKActions:
-        - !Ref SnsTopic
-      Dimensions:
-        - Name: InstanceName
-          Value: !Ref Host
+  # No alarm on pg_table_bloat_count: it counts tables over 5 MB with dead tuples above 30% of live tuples, which is the
+  # same signal DeadTupleAlarm raises per table from pg_dead_tuple_percent. The metric is still collected for the dashboard.
 
   IndexBloatCountAlarm:
     Type: AWS::CloudWatch::Alarm
@@ -1557,15 +1543,18 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Condition: MetricsEnabled
     Properties:
+      # Dead tuples build up between autovacuum runs (which start at 20% dead by default), so only a table staying above
+      # the threshold for an hour indicates autovacuum is blocked or not keeping up
+      AlarmDescription: A table's dead tuples exceeded 30% for an hour (tables with fewer than 10,000 dead tuples report 0)
       Metrics:
         - Id: q1
           Label: pg_dead_tuple_percent
           ReturnData: true
           Expression: SELECT AVG(pg_dead_tuple_percent) FROM SCHEMA("CWAgent-Prometheus", InstanceName,table_name) GROUP BY table_name ORDER BY AVG() DESC
           Period: 300
-      EvaluationPeriods: 1
+      EvaluationPeriods: 12
       ComparisonOperator: GreaterThanThreshold
-      Threshold: 20
+      Threshold: 30
       AlarmActions:
         - !Ref SnsTopic
       OKActions:
