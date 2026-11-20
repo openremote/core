@@ -18,17 +18,24 @@
  */
 package org.openremote.test.security
 
+import groovy.json.JsonSlurper
+import org.keycloak.admin.client.Keycloak
 import org.keycloak.admin.client.resource.IdentityProviderResource
 import org.keycloak.admin.client.resource.IdentityProvidersResource
 import org.keycloak.representations.idm.IdentityProviderMapperRepresentation
 import org.openremote.manager.security.ManagerIdentityService
 import org.openremote.manager.security.ManagerKeycloakIdentityProvider
+import org.openremote.manager.setup.database.V20261120_1540__RestrictMasterClientTokenClaims
 import org.openremote.model.Constants
 import org.openremote.model.security.ClientRole
 import org.openremote.model.security.Realm
 import org.openremote.test.ManagerContainerTrait
 import spock.lang.Shared
 import spock.lang.Specification
+
+import static org.openremote.container.security.IdentityProvider.OR_ADMIN_PASSWORD
+import static org.openremote.container.security.IdentityProvider.OR_ADMIN_PASSWORD_DEFAULT
+import static org.openremote.container.security.keycloak.KeycloakIdentityProvider.*
 
 class IdentityProviderTest extends Specification implements ManagerContainerTrait {
 
@@ -85,6 +92,75 @@ class IdentityProviderTest extends Specification implements ManagerContainerTrai
 
     and: "the realm cannot be retrieved"
     identityProvider.getRealm(realmName) == null
+  }
+
+  def "Master OpenRemote access tokens stay compact when realms are added"() {
+    def realmNames = (1..3).collect { "token-growth-test-$it" }
+    def master = identityProvider.getRealms { it.realm(Constants.MASTER_REALM) }
+    def client = master.clients().get(master.clients().findByClientId(Constants.KEYCLOAK_CLIENT_ID).first().id)
+    def stockScope = master.clientScopes().findAll().find { it.name == "roles" }
+
+    when: "the manager has provisioned its master client"
+    def before = masterAccessToken()
+    def beforeClaims = jwtClaims(before)
+
+    then:
+    !client.defaultClientScopes.any { it.id == stockScope.id }
+    beforeClaims.realm_access.roles.contains(Constants.SUPER_USER_REALM_ROLE)
+    beforeClaims.resource_access.openremote.roles.contains(ClientRole.READ_ASSETS.value)
+    beforeClaims.resource_access.keySet() == ["openremote", "account"] as Set
+    beforeClaims.aud == "account"
+
+    when: "realms are added and a staged upgrade still has the old scope attached"
+    realmNames.each { identityProvider.createRealm(new Realm(null, it, it, true)) }
+    client.addDefaultClientScope(stockScope.id)
+    def expandedClaims = jwtClaims(masterAccessToken())
+
+    then:
+    realmNames.every { expandedClaims.resource_access.containsKey("${it}-realm".toString()) }
+    realmNames.every { expandedClaims.aud.contains("${it}-realm".toString()) }
+
+    when: "the same configuration routine is rerun"
+    def migration = new V20261120_1540__RestrictMasterClientTokenClaims()
+    migration.migrate(null)
+    migration.migrate(null)
+    def after = masterAccessToken()
+    def afterClaims = jwtClaims(after)
+
+    then:
+    (afterClaims.realm_access.roles as Set) == (beforeClaims.realm_access.roles as Set)
+    afterClaims.aud == beforeClaims.aud
+    afterClaims.resource_access.keySet() == beforeClaims.resource_access.keySet()
+    afterClaims.resource_access.every { clientId, access ->
+      (access.roles as Set) == (beforeClaims.resource_access[clientId].roles as Set)
+    }
+    after.length() == before.length()
+
+    cleanup:
+    if (client?.defaultClientScopes?.any { it.id == stockScope.id }) {
+      client.removeDefaultClientScope(stockScope.id)
+    }
+    realmNames.findAll {
+      identityProvider.realmExists(it)
+    }.each {
+      identityProvider.deleteRealm(it)
+    }
+  }
+
+  private String masterAccessToken() {
+    def config = defaultConfig()
+    def host = config.getOrDefault(OR_KEYCLOAK_HOST, OR_KEYCLOAK_HOST_DEFAULT)
+    def port = config.getOrDefault(OR_KEYCLOAK_PORT, OR_KEYCLOAK_PORT_DEFAULT.toString())
+    def path = config.getOrDefault(OR_KEYCLOAK_PATH, OR_KEYCLOAK_PATH_DEFAULT)
+    def serverUrl = "http://$host:$port/${path.replaceFirst('^/+', '')}"
+    Keycloak.getInstance(serverUrl, Constants.MASTER_REALM, Constants.MASTER_REALM_ADMIN_USER,
+            config.getOrDefault(OR_ADMIN_PASSWORD, OR_ADMIN_PASSWORD_DEFAULT), Constants.KEYCLOAK_CLIENT_ID).withCloseable {
+              it.tokenManager().grantToken().token
+            }
+  }
+
+  private static Map jwtClaims(String token) {
+    new JsonSlurper().parse(Base64.urlDecoder.decode(token.split("\\.")[1])) as Map
   }
 
   def "Configure Keycloak chaining"() {
