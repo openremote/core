@@ -610,6 +610,10 @@ trait ContainerTrait {
     return port
   }
 
+  String getTokenUri(String realm) {
+    ((KeycloakIdentityProvider)container.getService(ManagerIdentityService.class).getIdentityProvider()).getTokenUri(realm).toString()
+  }
+
   String authenticate(Container container, String realm, String clientId, String username, String password) {
     container.getService(WebService.class).getBearerToken(
             new OAuthPasswordGrant(

@@ -35,6 +35,8 @@ import java.time.ZoneId
 import java.util.concurrent.TimeUnit
 import java.util.stream.Collectors
 
+import static org.openremote.container.persistence.PersistenceService.OR_DB_PORT
+import static org.openremote.container.security.keycloak.KeycloakIdentityProvider.OR_KEYCLOAK_PORT
 import static org.openremote.container.timer.TimerService.Clock.PSEUDO
 import static org.openremote.container.timer.TimerService.TIMER_CLOCK_TYPE
 import static org.openremote.container.web.WebService.OR_WEBSERVER_LISTEN_PORT
@@ -54,7 +56,10 @@ trait ManagerContainerTrait extends ContainerTrait {
       (MQTTBrokerService.MQTT_FORCE_USER_DISCONNECT_DEBOUNCE_MILLIS): "10",
       (OR_RULES_QUICK_FIRE_MILLIS): "500",
       (OR_RULES_MIN_TEMP_FACT_EXPIRATION_MILLIS): "500",
-      (TIMER_CLOCK_TYPE) : PSEUDO.name()
+      (TIMER_CLOCK_TYPE) : PSEUDO.name(),
+      // Ports of the test stack, so the tests never clean the development database or Keycloak
+      (OR_DB_PORT): "15432",
+      (OR_KEYCLOAK_PORT): "18081"
     ] << System.getenv()
 
     config.values().removeIf { TextUtil.isNullOrEmpty(it)}

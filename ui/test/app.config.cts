@@ -21,6 +21,9 @@ import { defineConfig as baseConfig, devices, type Project } from ".";
 
 const { CI, DEV, managerUrl } = process.env;
 
+/** The manager that `manager.cjs` starts, on a port of its own so a development manager is never reused */
+const testManagerUrl = "http://127.0.0.1:18080";
+
 const browsers: Project[] = [
   {
     name: "chromium",
@@ -77,8 +80,8 @@ export const defineAppConfig = (path: string) => {
     outputDir: resolve(path, "build/test-results"),
     /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
     use: {
-      // Defaults to the default Manager Docker container port as that significantly speeds up the tests compared to serving the frontend with Webpack
-      baseURL: managerUrl || DEV ? "http://127.0.0.1:9000" : "http://127.0.0.1:8080",
+      // Defaults to the test manager as that significantly speeds up the tests compared to serving the frontend with Webpack
+      baseURL: managerUrl || DEV ? "http://127.0.0.1:9000" : testManagerUrl,
       /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
       trace: "retain-on-failure",
       video: "on",
@@ -87,7 +90,7 @@ export const defineAppConfig = (path: string) => {
     timeout: 60_000,
     webServer: {
       command: `node ${join(__dirname, "manager.cjs")}`,
-      url: "http://127.0.0.1:8080",
+      url: testManagerUrl,
       reuseExistingServer: !process.env.CI,
     },
     workers: 1,

@@ -27,6 +27,11 @@ process.chdir(path.resolve(__dirname, "../.."));
 // --- Default Environment Variables ---
 process.env.OR_STORAGE_DIR = process.env.OR_STORAGE_DIR || "tmp"; // Changed to relative local directory
 process.env.OR_APP_DOCROOT = process.env.OR_APP_DOCROOT || "manager/build/install/manager/web";
+// Ports apart from a development manager and its stack, which the tests would otherwise clean
+process.env.OR_WEBSERVER_LISTEN_PORT = process.env.OR_WEBSERVER_LISTEN_PORT || "18080";
+process.env.MQTT_SERVER_LISTEN_PORT = process.env.MQTT_SERVER_LISTEN_PORT || "11883";
+process.env.OR_DB_PORT = process.env.OR_DB_PORT || "15432";
+process.env.OR_KEYCLOAK_PORT = process.env.OR_KEYCLOAK_PORT || "18081";
 // Variables without defaults
 process.env.OR_LOGGING_CONFIG_FILE =
   process.env.OR_LOGGING_CONFIG_FILE || path.join("ui", "test", "logging.properties");
