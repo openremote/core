@@ -24,6 +24,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
+import jakarta.persistence.LockModeType;
 import jakarta.validation.ConstraintViolation;
 import java.time.Instant;
 import java.util.*;
@@ -421,10 +422,14 @@ public class AssetProcessingService extends RouteBuilder implements ContainerSer
           Event result =
               persistenceService.doReturningTransaction(
                   em -> {
+                    // Hold the database row lock through ownership checks and the attribute write
+                    // so a concurrent move or deletion cannot invalidate gateway authorization.
                     // TODO: Retrieve optimised DTO rather than whole asset
-                    Asset<?> asset = assetStorageService.find(em, event.getId(), true);
+                    Asset<?> asset =
+                        em.find(Asset.class, event.getId(), LockModeType.PESSIMISTIC_WRITE);
 
-                    if (asset == null) {
+                    // Treat pending deletion as missing so queued events cannot modify the asset.
+                    if (asset == null || asset.isDeletePending()) {
                       throw new AssetProcessingException(ASSET_NOT_FOUND, event.getId());
                     }
 

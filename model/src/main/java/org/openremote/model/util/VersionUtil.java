@@ -78,4 +78,20 @@ public class VersionUtil {
       return 0;
     }
   }
+
+  /**
+   * Normalizes a three-component version using the same numeric parsing as {@link
+   * #compareVersions}. Qualifiers and build metadata are ignored, leading zeros are removed, and
+   * nonnumeric or overflowing components become zero.
+   */
+  public static String normalizeVersion(String version) {
+    if (version == null) {
+      throw new IllegalArgumentException("Invalid OpenRemote application version: " + version);
+    }
+    String[] parts = version.split("[-+]", 2)[0].split("\\.", -1);
+    if (parts.length != 3) {
+      throw new IllegalArgumentException("Expected major.minor.patch version: " + version);
+    }
+    return parsePart(parts[0]) + "." + parsePart(parts[1]) + "." + parsePart(parts[2]);
+  }
 }

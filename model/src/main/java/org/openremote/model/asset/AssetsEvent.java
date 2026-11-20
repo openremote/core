@@ -19,6 +19,7 @@
 package org.openremote.model.asset;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -27,6 +28,9 @@ import org.openremote.model.event.shared.SharedEvent;
 /** This event is used in response to a {@link ReadAssetsEvent}. */
 public class AssetsEvent extends SharedEvent {
 
+  // Empty inventories must survive serialization so gateways can distinguish them from missing
+  // data.
+  @JsonInclude(JsonInclude.Include.NON_ABSENT)
   protected List<Asset<?>> assets;
 
   @JsonCreator
