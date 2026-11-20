@@ -524,7 +524,7 @@ async function previewImport(
       draft: asset,
       document: configuration,
     });
-    const parameters = await getParameterGroups(asset, response.data);
+    const parameters = await getParameterGroups(response.data);
     showImportPreviewDialog(host, asset, fileName, configuration, response.data, parameters, onImported, onBack);
   } catch (error) {
     showImportFailureDialog(host, asset, configuration, error, onBack);
@@ -745,10 +745,7 @@ function getAgentIdTemplate(
   const options = agents ? getAgentOptions(getAgentsOfLinkType(agents, group.linkType)) : [];
   const noAgentOfType = !!agents && options.length === 0;
   // Only while no agent is picked, as the field is required
-  const unknownAgent =
-    !!agents &&
-    parameter.templateValue !== undefined &&
-    !options.some(([id]) => id === parameter.templateValue || id === parameter.value);
+  const unknownAgent = !!agents && parameter.templateValue !== undefined && parameter.value === undefined;
   let errorMessage = "";
 
   if (noAgentOfType) {
@@ -805,10 +802,7 @@ function getJsonFormsTemplate(parameter: SharedParameter, label: string, onChang
  * appearance. Every field the agent link schema marks as a template parameter becomes one, and fields of the same type
  * holding the same value share it.
  */
-async function getParameterGroups(
-  asset: Asset,
-  preview: ConfigurationTemplateImportPreview
-): Promise<ParameterGroup[]> {
+async function getParameterGroups(preview: ConfigurationTemplateImportPreview): Promise<ParameterGroup[]> {
   const patchedAttributes = (preview.patchedAttributes || {}) as AssetAttributes;
   const links = (preview.importableAttributes || [])
     .map((summary) => ({ ...patchedAttributes[summary.name!], name: summary.name }))
