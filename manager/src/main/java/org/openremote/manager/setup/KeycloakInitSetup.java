@@ -47,8 +47,18 @@ public class KeycloakInitSetup extends AbstractKeycloakSetup {
     keycloakProvider.updateRealm(masterRealm);
 
     // Create our client application with its default roles in the master realm
-    keycloakProvider.createUpdateClient(
-        masterRealm.getName(), keycloakProvider.generateOpenRemoteClientRepresentation());
+    if (keycloakProvider.createUpdateClient(
+            masterRealm.getName(), keycloakProvider.generateOpenRemoteClientRepresentation())
+        == null) {
+      throw new IllegalStateException("Could not create the master OpenRemote client");
+    }
+    // Flyway runs before this client exists on a clean install. Apply the same token mapper
+    // configuration after creation to keep admin authorization while limiting token growth.
+    keycloakProvider.getRealms(
+        realms -> {
+          MasterClientTokenMappers.configure(realms.realm(MASTER_REALM));
+          return null;
+        });
 
     // Update master user name
     User adminUser = keycloakProvider.getUserByUsername(MASTER_REALM, MASTER_REALM_ADMIN_USER);
