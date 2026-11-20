@@ -18,7 +18,6 @@
  */
 import { css, type CSSResultGroup, html, type PropertyValues, type TemplateResult } from "lit";
 import { OrElement } from "@openremote/or-element";
-import { countBadgeStyle } from "./styles";
 import { customElement, property, state } from "lit/decorators.js";
 import { AssetModelUtil } from "@openremote/model";
 import { formatCount, getMarkerIconAndColorFromAssetType } from "../util";
@@ -53,7 +52,6 @@ declare global {
 export class OrMapLegend extends OrElement {
   static get styles(): CSSResultGroup {
     return [
-      countBadgeStyle,
       css`
         :host {
           display: block;
@@ -201,7 +199,7 @@ export class OrMapLegend extends OrElement {
                   <span style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                     ${this._assetTypesInfo[assetType].label}
                   </span>
-                  <or-vaadin-badge style="flex-shrink: 0;"
+                  <or-vaadin-badge theme="counter" style="flex-shrink: 0;"
                     >${formatCount(this.assetCounts[assetType] ?? 0)}</or-vaadin-badge
                   >
                   <or-vaadin-checkbox
