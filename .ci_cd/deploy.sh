@@ -219,6 +219,14 @@ if [ -f "temp/deployment.tar.gz" ]; then
   docker load < temp/deployment.tar.gz
 fi
 
+# Calculate DB memory settings
+. ./temp/host_init/calculate_db_memory.sh
+
+# Calculate host RAM
+export OR_RAM="$(( $(free -m | awk '/^Mem:/{print $2}') * 40 / 100 ))"
+export OR_KC_RAM="$(( $(free -m | awk '/^Mem:/{print $2}') * 20 / 100 ))"
+export OR_DB_RAM="$(( $(free -m | awk '/^Mem:/{print $2}') * 25 / 100 ))"
+
 # Login to Private ECR Registry to download restricted images
 if [ -n "$OR_AWS_ECR_ACCOUNT_ID" ] && [ -n "$OR_AWS_ECR_REGION" ]; then
   aws ecr get-login-password --region $OR_AWS_ECR_REGION | docker login --username AWS --password-stdin $OR_AWS_ECR_ACCOUNT_ID.dkr.ecr.$OR_AWS_ECR_REGION.amazonaws.com &>/dev/null
