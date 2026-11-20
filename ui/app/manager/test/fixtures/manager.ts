@@ -354,6 +354,7 @@ export class Manager {
    * @param config The axios request config
    */
   async getClientRoles(config?: AxiosRequestConfig<any>) {
+    config ??= await this.adminConfig();
     try {
       const response = await rest.api.UserResource.getClientRoles(this.realm!, this.clientId, config);
       expect(response.status).toBe(200);
