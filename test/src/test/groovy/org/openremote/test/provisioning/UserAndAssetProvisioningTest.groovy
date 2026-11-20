@@ -998,7 +998,7 @@ class UserAndAssetProvisioningTest extends Specification implements ManagerConta
       deviceNClient.disconnect()
     }
     if (internalConsumer != null) {
-      clientEventService.removeSubscription {internalConsumer}
+      clientEventService.removeSubscription(internalConsumer)
     }
   }
 
