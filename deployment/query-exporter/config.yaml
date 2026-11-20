@@ -54,7 +54,7 @@ metrics:
   pg_dead_tuple_percent:
     type: gauge
     labels: [table_name]
-    description: Table ratio of dead tuples to live ones a ratio > 10-20% indicates not aggressive enough autovacuum
+    description: Percentage of dead tuples in tables with at least 10,000 dead tuples (0 otherwise); a sustained value > 20-30% indicates autovacuum is not keeping up
 
   pg_last_autovacuum_hours:
     type: gauge
@@ -276,8 +276,13 @@ queries:
         THEN ROUND((n_tup_hot_upd::numeric / n_tup_upd) * 100, 2)
         ELSE 0.00
         END AS pg_hot_update_percent,
-        -- Calculate the percentage of the table that is dead space
-        ROUND((n_dead_tup::numeric / NULLIF(n_live_tup + n_dead_tup, 0)) * 100, 2) AS pg_dead_tuple_percent,
+        -- Calculate the percentage of the table that is dead space; report 0 for tables with fewer than 10,000 dead
+        -- tuples, as small tables naturally sit at a high percentage (autovacuum waits for 50 + 20% of live tuples)
+        CASE
+        WHEN n_dead_tup < 10000
+        THEN 0.00
+        ELSE ROUND((n_dead_tup::numeric / NULLIF(n_live_tup + n_dead_tup, 0)) * 100, 2)
+        END AS pg_dead_tuple_percent,
         -- Calculate hours since last autovacuum
         ROUND((EXTRACT(EPOCH FROM (now() - last_autovacuum)) / 3600.0)::numeric, 1) AS pg_last_autovacuum_hours,
         -- Calculate hours since last autoanalyze
