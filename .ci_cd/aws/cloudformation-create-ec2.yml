@@ -1001,40 +1001,25 @@ Resources:
               owner: root
               group: root
 
-            "/etc/cfn/hooks.d/amazon-cloudwatch-agent-auto-reloader.conf":
+            "/etc/cfn/hooks.d/cfn-auto-reloader.conf":
               content: !Sub |
                 [cfn-auto-reloader-hook]
                 triggers=post.update
                 path=Resources.EC2Instance.Metadata.AWS::CloudFormation::Init
                 action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackId} --resource EC2Instance --region ${AWS::Region} --configsets default
                 runas=root
-              mode: "000400"
+              mode: 000400
               owner: root
               group: root
 
-            "/lib/systemd/system/cfn-hup.service":
-              content: |
-                [Unit]
-                Description=CloudFormation helper daemon
-                After=network.target
-
-                [Service]
-                Type=simple
-                ExecStart=/opt/aws/bin/cfn-hup --no-daemon --verbose
-                Restart=always
-                RestartSec=10
-
-                [Install]
-                WantedBy=multi-user.target
-              mode: "000644"
-              owner: root
-              group: root
-
-          commands:
-            01_enable_cfn_hup:
-              command: |
-                systemctl daemon-reload
-                systemctl enable --now cfn-hup
+          services:
+            systemd:
+              cfn-hup:
+                enabled: true
+                ensureRunning: true
+                files:
+                  - /etc/cfn/cfn-hup.conf
+                  - /etc/cfn/hooks.d/cfn-auto-reloader.conf
 
     Properties:
       InstanceType: !Ref InstanceType
