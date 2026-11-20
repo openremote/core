@@ -1,6 +1,6 @@
 # OpenRemote v3
 #
-# Profile for doing IDE development work and running build tests.
+# Profile for doing IDE development work. The tests run against profile/test.yml instead.
 #
 # Please see profile/deploy.yml for configuration details for each service.
 #

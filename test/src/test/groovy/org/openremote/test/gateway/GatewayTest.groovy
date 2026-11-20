@@ -186,7 +186,7 @@ class GatewayTest extends Specification implements ManagerContainerTrait {
     def gatewayClient = new WebsocketIOClient(
             new URIBuilder("ws://127.0.0.1:$serverPort/websocket/events?Realm=$managerTestSetup.realmBuildingName").build(),
             null,
-            new OAuthClientCredentialsGrant("http://127.0.0.1:8081/auth/realms/$managerTestSetup.realmBuildingName/protocol/openid-connect/token",
+            new OAuthClientCredentialsGrant(getTokenUri(managerTestSetup.realmBuildingName),
             gateway.getClientId().orElse(""),
             gateway.getClientSecret().orElse(""),
             null).setBasicAuthHeader(true))
@@ -693,7 +693,7 @@ class GatewayTest extends Specification implements ManagerContainerTrait {
     def rogueGatewayClient = new WebsocketIOClient(
             new URIBuilder("ws://127.0.0.1:$serverPort/websocket/events?Realm=$managerTestSetup.realmCityName").build(),
             null,
-            new OAuthClientCredentialsGrant("http://127.0.0.1:8081/auth/realms/$managerTestSetup.realmCityName/protocol/openid-connect/token",
+            new OAuthClientCredentialsGrant(getTokenUri(managerTestSetup.realmCityName),
             rogueClientId,
             secret,
             null).setBasicAuthHeader(true))
@@ -850,7 +850,7 @@ class GatewayTest extends Specification implements ManagerContainerTrait {
     gatewayClient = new WebsocketIOClient<String>(
             new URIBuilder("ws://127.0.0.1:$serverPort/websocket/events?Realm=$managerTestSetup.realmBuildingName").build(),
             null,
-            new OAuthClientCredentialsGrant("http://127.0.0.1:8081/auth/realms/$managerTestSetup.realmBuildingName/protocol/openid-connect/token",
+            new OAuthClientCredentialsGrant(getTokenUri(managerTestSetup.realmBuildingName),
             gateway.getClientId().orElse(""),
             gateway.getClientSecret().orElse(""),
             null).setBasicAuthHeader(true))
