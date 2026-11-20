@@ -53,7 +53,7 @@ public class MessageBrokerService implements ContainerService {
   protected ProducerTemplate producerTemplate = context.createProducerTemplate();
   protected FluentProducerTemplate fluentProducerTemplate = context.createFluentProducerTemplate();
 
-  private boolean isStarted = false;
+  private volatile boolean isStarted;
 
   @Override
   public int getPriority() {
@@ -151,12 +151,11 @@ public class MessageBrokerService implements ContainerService {
 
   @Override
   public void stop(Container container) throws Exception {
-    try {
-      if (context != null) {
-        context.stop();
-      }
-    } finally {
-      isStarted = false;
+    // We want to indicate service is stopped before actually stopping it so callers will not be
+    // able to push new events during shutdown
+    isStarted = false;
+    if (context != null) {
+      context.stop();
     }
   }
 
