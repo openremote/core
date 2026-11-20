@@ -263,13 +263,13 @@ async function continueToParameters(page: Page, assetViewer: AssetViewer) {
 
 /**
  * Pick an agent for a parameter of the configuration template import.
- * @param page The page showing the import
  * @param parameter The parameter
  * @param agent The agent to pick
  */
-async function pickAgent(page: Page, parameter: Locator, agent: Asset) {
+async function pickAgent(parameter: Locator, agent: Asset) {
   await parameter.getByLabel("Agent ID").click();
-  await page.getByRole("option", { name: `${agent.name} (${agent.id})` }).click();
+  // A closing select still shows its options, so look them up in this parameter only
+  await parameter.getByRole("option", { name: `${agent.name} (${agent.id})` }).click();
 }
 
 /**
@@ -298,8 +298,8 @@ test("should ask for an agent for each agent of the template", async ({ page, ma
   }
   await expect(importButton).toBeDisabled();
 
-  await pickAgent(page, shared, simulator);
-  await pickAgent(page, single, simulator);
+  await pickAgent(shared, simulator);
+  await pickAgent(single, simulator);
   await expect(importButton).toBeEnabled();
   await importButton.click();
   const saveButton = page.getByRole("button", { name: "Save" });
@@ -344,7 +344,7 @@ test("should block import until an agent of the link type exists", async ({
   const simulator = manager.assets.find(({ type }) => type === agent.type)!;
   for (const parameter of parameters) {
     await expect(parameter.getByText(/^There is no agent for a .+ yet/)).toHaveCount(0);
-    await pickAgent(page, parameter, simulator);
+    await pickAgent(parameter, simulator);
   }
   await expect(importButton).toBeEnabled();
 });
