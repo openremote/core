@@ -479,15 +479,16 @@
   "retryingConnection": "Retrying in {{seconds}} seconds",
   "reconnecting": "Reconnecting",
   "managerError": {
-    "MANAGER_FAILED_TO_LOAD": "Manager failed to load (see console logs)",
-    "AUTH_FAILED": "Auth failed to load (see console logs)",
+    "MANAGER_FAILED_TO_LOAD": "Could not load the app, try again later",
+    "AUTH_FAILED": "Could not sign in, try again later",
     "AUTH_TYPE_UNSUPPORTED": "Requested auth type not supported",
-    "CONSOLE_ERROR": "Console error (see console logs)",
-    "EVENTS_CONNECTION_ERROR": "Event bus connection error (see console logs)",
-    "TRANSLATION_ERROR": "Translations error (see console logs)"
+    "CONSOLE_ERROR": "Could not start the console, try again later",
+    "EVENTS_CONNECTION_ERROR": "Could not connect to the manager, try again later",
+    "TRANSLATION_ERROR": "Could not load the translations, try again later"
   },
   "appError": {
     "noConfig": "No app config provided",
+    "noRealmConfig": "No realm config provided",
     "noReduxStore": "No Redux store provided",
     "noPages": "No pages provided"
   },
@@ -1335,6 +1336,48 @@
           }
         }
       }
+    }
+  },
+  "configurationTemplate": {
+    "import": "Import",
+    "export": "Export",
+    "exportHeading": "Export configuration template",
+    "exportDescription": "Save the configuration items as a template, so you can reproduce the configuration on another instance.",
+    "templateName": "Template name",
+    "selectAttributes": "Select what to include in the template",
+    "selectAll": "Select all",
+    "nothingToExport": "None of the attributes of this asset have configuration items to export",
+    "saveBeforeExport": "Save or revert your changes before exporting",
+    "saveBeforeImport": "Save the asset before importing",
+    "importHeading": "Import configuration template",
+    "selectFileDescription": "Select a JSON file to import attribute configuration data",
+    "noFileSelected": "no file selected",
+    "overwriteWarning": "You are about to import the following attribute configuration data. This will overwrite existing metadata for matched attributes in your current draft.",
+    "matchedAttributes": "Matched attributes",
+    "skippedAttributes": "Attribute name or type not found (these will not be imported)",
+    "back": "Back",
+    "next": "Next",
+    "json": "JSON",
+    "forbidden": "You are not allowed to import a configuration template into this asset.",
+    "failure": {
+      "INVALID_JSON": "The selected file does not hold valid JSON.",
+      "UNSUPPORTED_VERSION": "The selected file holds an unsupported configuration template version.",
+      "MISSING_REQUIRED_FIELD": "The selected file is missing a required field.",
+      "MALFORMED_ATTRIBUTE_ENTRY": "The selected file holds a malformed attribute entry.",
+      "INVALID_META_ITEM": "The selected file holds a configuration item whose value does not fit its type.",
+      "VALUE_VIOLATES_CONSTRAINTS": "The current value of an attribute does not meet the constraints in the selected file.",
+      "NO_IMPORTABLE_ATTRIBUTES": "None of the attributes in the selected file can be imported into this asset.",
+      "DRAFT_MISMATCH": "This asset has changed since you opened it; refresh it and try again."
+    },
+    "failureLocation": {
+      "attribute": "attribute '{{name}}'",
+      "configurationItem": "configuration item '{{name}}'",
+      "field": "field '{{name}}'",
+      "parameter": "parameter '{{name}}'",
+      "entry_ordinal_one": "{{count}}st entry",
+      "entry_ordinal_two": "{{count}}nd entry",
+      "entry_ordinal_few": "{{count}}rd entry",
+      "entry_ordinal_other": "{{count}}th entry"
     }
   }
 }
