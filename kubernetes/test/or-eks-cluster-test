@@ -94,6 +94,9 @@ eksctl_with_profile() {
 helm() {
   log_call helm "$@"
   case " $* " in
+    *" version "*)
+      printf '%s\n' "${OR_EKS_TEST_HELM_VERSION:-v3.20.0}"
+      ;;
     *" show crds "*)
       printf '%s\n' 'apiVersion: apiextensions.k8s.io/v1' 'kind: CustomResourceDefinition'
       ;;
@@ -383,17 +386,18 @@ assert_destroy_blocked OR_EKS_TEST_PVS '{invalid-json' 'Unable to inspect Persis
   OR_EKS_TEST_WORKLOAD_CONTROLLERS="$(jq -cn '{items:[
     ["kube-system","kube-public","kube-node-lease"][] |
     {kind:"Deployment",metadata:{namespace:.,name:"system-controller"}}]}')"
-  destroy_cluster
+  OR_EKS_TEST_HELM_VERSION=v4.3.0 destroy_cluster
 )
-assert_contains $'helm\tuninstall\topenremote-external-dns'
+assert_contains $'helm\tuninstall\topenremote-external-dns\t--kube-context\ttest-cluster@eu-west-1\t--namespace\tkube-system\t--wait=legacy'
+assert_contains $'helm\tuninstall\taws-load-balancer-controller\t--kube-context\ttest-cluster@eu-west-1\t--namespace\tkube-system\t--wait=legacy'
 assert_contains $'eksctl\tdelete\tcluster'
 
 : > "$CALL_LOG"
-MANAGE_EXTERNAL_DNS=true uninstall_external_dns
-assert_contains $'helm\tuninstall\topenremote-external-dns'
+MANAGE_EXTERNAL_DNS=true uninstall_external_dns --wait
+assert_contains $'helm\tuninstall\topenremote-external-dns\t--kube-context\ttest-cluster@eu-west-1\t--namespace\tkube-system\t--wait'
 
 : > "$CALL_LOG"
-MANAGE_EXTERNAL_DNS=false uninstall_external_dns
+MANAGE_EXTERNAL_DNS=false uninstall_external_dns --wait
 assert_not_contains $'helm\tuninstall\topenremote-external-dns'
 
 : > "$CALL_LOG"

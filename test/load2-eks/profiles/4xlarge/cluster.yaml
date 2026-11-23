@@ -5,7 +5,7 @@ metadata:
   name: ${CLUSTER_NAME}
   region: ${AWS_REGION}
   # Kubernetes version to use for cluster, good idea to keep up to date
-  version: "1.35"
+  version: "1.37"
 
 availabilityZones:
   - ${AWS_REGION}a
