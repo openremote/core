@@ -1313,6 +1313,9 @@
               },
               "writeValueFilters": {
                 "description": "Аналогічно valueFilter, але застосовується до вихідних значень, забезпечуючи зворотну фільтрацію."
+              },
+              "id": {
+                "label": ""
               }
             }
           }
@@ -1338,6 +1341,13 @@
                 "recurrence": {
                   "description": "Розклад повторення відповідає формату RFC 5545 RRULE."
                 }
+              }
+            }
+          },
+          "modbus": {
+            "ModbusAgentLink": {
+              "unitId": {
+                "label": ""
               }
             }
           }

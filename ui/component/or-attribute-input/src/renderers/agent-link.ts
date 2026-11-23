@@ -45,8 +45,24 @@ let agents: Agent[] | undefined;
 let loadingPromise: Promise<Agent[]> | undefined;
 let subscribed = false;
 const timeout = 2000;
+const changeListeners = new Set<() => void>();
 
-function loadAgents(): PromiseLike<Agent[]> {
+/**
+ * Calls the listener whenever the agents of {@link loadAgents} may have changed, until the returned function is
+ * called. Agents are only watched once they have been loaded.
+ */
+export function addAgentsChangedListener(listener: () => void): () => void {
+  changeListeners.add(listener);
+  return () => changeListeners.delete(listener);
+}
+
+function onAgentsChanged() {
+  agents = undefined;
+  loadingPromise = undefined;
+  changeListeners.forEach((listener) => listener());
+}
+
+export function loadAgents(): PromiseLike<Agent[]> {
   if (agents) {
     return Promise.resolve(agents);
   }
@@ -59,16 +75,14 @@ function loadAgents(): PromiseLike<Agent[]> {
     manager.addListener((ev: OREvent) => {
       switch (ev) {
         case OREvent.DISPLAY_REALM_CHANGED:
-          agents = undefined;
-          loadingPromise = undefined;
+          onAgentsChanged();
           break;
       }
     });
 
     manager.events!.subscribeAssetEvents(undefined, false, (assetEvent) => {
       if (assetEvent.asset && assetEvent.asset.type!.endsWith("Agent")) {
-        agents = undefined;
-        loadingPromise = undefined;
+        onAgentsChanged();
       }
     });
 
@@ -91,6 +105,11 @@ function loadAgents(): PromiseLike<Agent[]> {
     });
 
   return loadingPromise;
+}
+
+/** The agents to pick from for an agent link, as value and label pairs. */
+export function getAgentOptions(agents: Agent[]): [string, string][] {
+  return agents.map((agent) => [agent.id!, agent.name + " (" + agent.id + ")"]);
 }
 
 const agentIdTester: RankedTester = rankWith(6, and(uiTypeIs("Control"), formatIs("or-agent-id")));
@@ -118,7 +137,7 @@ const agentIdRenderer = (state: JsonFormsStateContext, props: ControlProps) => {
   };
 
   const loadedTemplatePromise = loadAgents().then((agents) => {
-    const options: [string, string][] = agents.map((agent) => [agent.id!, agent.name + " (" + agent.id + ")"]);
+    const options = getAgentOptions(agents);
 
     return html`
       <or-mwc-input
