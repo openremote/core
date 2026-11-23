@@ -663,7 +663,10 @@ function showImportParametersDialog(
           (group) => html`
             <div class="ac-group ac-expanded">
               <div class="ac-group-header" @click=${toggleExpanded}>
-                <span>${i18next.t("configurationTemplate.parametersHeading", { type: group.title })}</span>
+                <or-translate
+                  value="configurationTemplate.parametersHeading"
+                  .options=${{ type: group.title }}
+                ></or-translate>
                 <or-vaadin-button class="ac-expander" theme="tertiary icon">
                   <or-icon icon="chevron-up"></or-icon>
                 </or-vaadin-button>
@@ -760,10 +763,10 @@ function getAgentIdTemplate(
       required
       placeholder=${i18next.t("selectAgent")}
       ?disabled=${!agents || noAgentOfType}
-      .invalid=${!!errorMessage}
-      .errorMessage=${errorMessage}
+      ?invalid=${!!errorMessage}
+      error-message=${errorMessage}
       .items=${options.map(([value, optionLabel]) => ({ value, label: optionLabel }))}
-      .value=${live((parameter.value as string | undefined) ?? "")}
+      .value=${live(parameter.value ?? "")}
       @value-changed=${(ev: CustomEvent<{ value: string }>) => {
         parameter.value = ev.detail.value || undefined;
         parameter.valid = options.some(([id]) => id === parameter.value);
@@ -869,7 +872,7 @@ function applyParameters(patchedAttributes: AssetAttributes, parameters: SharedP
       if (!link) {
         return;
       }
-      if (parameter.value === undefined || parameter.value === null || parameter.value === "") {
+      if (parameter.value == null || parameter.value === "") {
         delete link[parameter.property];
       } else {
         link[parameter.property] = parameter.value;
