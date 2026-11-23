@@ -23,7 +23,7 @@ import { users, type Usernames } from "./data/users";
 import type { DefaultAssets } from "./data/assets";
 
 import type { UserModel } from "../../src/pages/page-users";
-import { type Asset, AssetModelUtil, type ManagerAppConfig, type Role } from "@openremote/model";
+import { type Asset, AssetModelUtil, type Dashboard, type ManagerAppConfig, type Role } from "@openremote/model";
 import {
   test as base,
   expect,
@@ -69,12 +69,11 @@ export class Manager {
   readonly api: RestApi["api"];
   readonly axios: RestApi["_axiosInstance"];
 
-  public realm?: string;
   public user?: UserModel;
-  public role?: Role;
+  public role?: { realm: string; role: Role };
   public assets: Asset[] = [];
   public rules: number[] = [];
-  public dashboards: string[] = [];
+  public dashboards: Dashboard[] = [];
   public provisionedUsers: { realm: string; id: string }[] = [];
 
   constructor(
@@ -124,6 +123,11 @@ export class Manager {
 
   async goToRealmStartPage(realm: string) {
     await this.page.goto(this.getAppUrl(realm));
+  }
+
+  /** The realm the app currently shows */
+  async getDisplayRealm(): Promise<string> {
+    return this.page.locator("or-header").evaluate((header: HTMLElement & { realm: string }) => header.realm);
   }
 
   /**
@@ -259,7 +263,7 @@ export class Manager {
 
   /**
    * Provision a user with client roles (and optionally a password/email) in the given realm via REST, returning
-   * the created user. Unlike {@link createUser} this is stateless (it doesn't touch `this.realm`/`this.user`), so
+   * the created user. Unlike {@link createUser} this is stateless (it doesn't touch `this.user`), so
    * it can set up arbitrary users for e.g. access-control tests. Defaults to the admin config when none is given.
    * @param realm The realm to create the user in
    * @param user The username, client roles, and optional initial password/email
@@ -348,15 +352,15 @@ export class Manager {
   }
 
   /**
-   * Get the roles of the current realm
+   * Get the client roles of a realm
    *
-   * Expects a realm to be configured
+   * @param realm The realm
    * @param config The axios request config
    */
-  async getClientRoles(config?: AxiosRequestConfig<any>) {
+  async getClientRoles(realm: string, config?: AxiosRequestConfig<any>) {
     config ??= await this.adminConfig();
     try {
-      const response = await rest.api.UserResource.getClientRoles(this.realm!, this.clientId, config);
+      const response = await rest.api.UserResource.getClientRoles(realm, this.clientId, config);
       expect(response.status).toBe(200);
       return response.data;
     } catch (e) {
@@ -369,12 +373,12 @@ export class Manager {
    *
    * The `compositeRoleIds` are mapped by name to the corresponding role id.
    *
-   * Expects a realm to be configured
+   * @param realm The realm to create the role in
    * @param newRole The role to create
    * @param roles The current stored roles to add the new role to
    * @param config The axios request config
    */
-  async createRole(newRole: Role, roles: Role[], config?: AxiosRequestConfig<any>) {
+  async createRole(realm: string, newRole: Role, roles: Role[], config?: AxiosRequestConfig<any>) {
     if (newRole.compositeRoleIds) {
       newRole.compositeRoleIds = newRole.compositeRoleIds
         .map((name) => roles.find((r) => r.name === name)?.id)
@@ -382,9 +386,9 @@ export class Manager {
     }
     roles.push(newRole);
     try {
-      const response = await rest.api.UserResource.updateRoles(this.realm!, roles, config);
+      const response = await rest.api.UserResource.updateRoles(realm, roles, config);
       expect(response.status).toBe(204);
-      this.role = newRole;
+      this.role = { realm, role: newRole };
     } catch (e) {
       warnOnHttpError(e, "Failed to create role");
     }
@@ -393,13 +397,13 @@ export class Manager {
   /**
    * Create an new user
    *
-   * Expects a realm to be configured
+   * @param realm The realm to create the user in
    * @param user The user to create
    * @param config The axios request config
    */
-  async createUser(user: UserModel, config?: AxiosRequestConfig<any>) {
+  async createUser(realm: string, user: UserModel, config?: AxiosRequestConfig<any>) {
     try {
-      const response = await rest.api.UserResource.create(this.realm!, user, config);
+      const response = await rest.api.UserResource.create(realm, user, config);
       expect(response.status).toBe(200);
       this.user = response.data;
     } catch (e) {
@@ -410,14 +414,15 @@ export class Manager {
   /**
    * Add a role to the current user
    *
-   * Expects a realm and user to be configured
+   * Expects a user to be configured
+   * @param realm The realm of the user
    * @param roles A list of roles to add to the user
    * @param config The axios request config
    */
-  async addUserRoles(roles: string[], config?: AxiosRequestConfig<any>) {
+  async addUserRoles(realm: string, roles: string[], config?: AxiosRequestConfig<any>) {
     try {
       const response = await rest.api.UserResource.updateUserClientRoles(
-        this.realm!,
+        realm,
         this.user!.id!,
         this.clientId,
         roles,
@@ -432,13 +437,14 @@ export class Manager {
   /**
    * Reset the user password with the smartcity users' password
    *
-   * Expects a realm and user to be configured
+   * Expects a user to be configured
+   * @param realm The realm of the user
    * @param config The axios request config
    */
-  async resetUserPassword(config?: AxiosRequestConfig<any>) {
+  async resetUserPassword(realm: string, config?: AxiosRequestConfig<any>) {
     try {
       const response = await rest.api.UserResource.updatePassword(
-        this.realm!,
+        realm,
         this.user!.id!,
         { value: smartcity.password },
         config
@@ -503,21 +509,19 @@ export class Manager {
   ) {
     const config = await this.adminConfig();
 
-    this.realm = realm;
-
     // Provision role
     if (role) {
-      const roles = await this.getClientRoles(config);
+      const roles = await this.getClientRoles(realm, config);
       if (roles) {
-        await this.createRole(role, roles, config);
+        await this.createRole(realm, role, roles, config);
       }
     }
 
     // Provision user
     if (user) {
-      await this.createUser(user, config);
-      await this.addUserRoles(user.roles!, config);
-      await this.resetUserPassword(config);
+      await this.createUser(realm, user, config);
+      await this.addUserRoles(realm, user.roles!, config);
+      await this.resetUserPassword(realm, config);
     }
 
     // Provision assets
@@ -529,13 +533,13 @@ export class Manager {
   }
 
   /**
-   * Deletes dashboards in the active realm
+   * Deletes the recorded dashboards
    * @param config The axios request config
    */
-  async deleteDashboards(config?: AxiosRequestConfig<any>, realm = this.realm) {
-    for (const [i, id] of this.dashboards.entries()) {
+  async deleteDashboards(config?: AxiosRequestConfig<any>) {
+    for (const [i, { realm, id }] of this.dashboards.entries()) {
       try {
-        const response = await rest.api.DashboardResource.delete(realm!, id, config);
+        const response = await rest.api.DashboardResource.delete(realm!, id!, config);
         expect(response.status).toBe(204);
         this.dashboards.splice(i, 1);
       } catch (e) {
@@ -624,14 +628,15 @@ export class Manager {
   /**
    * Delete role
    *
-   * Expects a realm to be configured
+   * Expects a role to be configured
    * @param roles The stored roles
    * @param config The axios request config
    */
   async deleteRole(roles: Role[], config) {
-    roles = roles.filter((r) => r.id !== this.role!.id);
+    const { realm, role } = this.role!;
+    roles = roles.filter((r) => r.id !== role.id);
     try {
-      const response = await rest.api.UserResource.updateRoles(this.realm!, roles, config);
+      const response = await rest.api.UserResource.updateRoles(realm, roles, config);
       expect(response.status).toBe(204);
       delete this.role;
     } catch (e) {
@@ -661,8 +666,8 @@ export class Manager {
       await this.deleteUsers(config);
     }
 
-    if (this.role && this.realm) {
-      const roles = await this.getClientRoles(config);
+    if (this.role) {
+      const roles = await this.getClientRoles(this.role.realm, config);
       if (roles) {
         await this.deleteRole(roles, config);
       }

@@ -33,7 +33,7 @@ test.use({ storageState: userStatePath });
 
 test("Create a Line Chart widget", async ({ manager, shared, page, insightsPage }) => {
   await shared.interceptResponse<Dashboard>("**/dashboard", (dashboard) => {
-    if (dashboard) manager.dashboards.push(dashboard.id!);
+    if (dashboard) manager.dashboards.push(dashboard);
   });
 
   await manager.setup("smartcity", { assets });
@@ -87,7 +87,7 @@ test("Create a Line Chart widget", async ({ manager, shared, page, insightsPage 
 
 test("Create a Map widget with text thresholds", async ({ manager, shared, page, insightsPage, mwcInput }) => {
   await shared.interceptResponse<Dashboard>("**/dashboard", (dashboard) => {
-    if (dashboard) manager.dashboards.push(dashboard.id!);
+    if (dashboard) manager.dashboards.push(dashboard);
   });
 
   await page.addInitScript(manager.hijackWebSocket());
@@ -181,7 +181,7 @@ test("Replace broken chart references while preserving custom colors", async ({
   insightsPage,
 }) => {
   await shared.interceptResponse<Dashboard>("**/dashboard", (dashboard) => {
-    if (dashboard) manager.dashboards.push(dashboard.id!);
+    if (dashboard) manager.dashboards.push(dashboard);
   });
 
   // Provision the asset that the charts will reference (and that we later delete).
@@ -310,7 +310,7 @@ test("should keep widget cards in place and draggable after dragging one onto th
   insightsPage,
 }) => {
   await shared.interceptResponse<Dashboard>("**/dashboard", (dashboard) => {
-    if (dashboard) manager.dashboards.push(dashboard.id!);
+    if (dashboard) manager.dashboards.push(dashboard);
   });
 
   await manager.setup("smartcity", { assets });
@@ -353,7 +353,7 @@ test("should keep grid widgets in DOM order when placed out of visual order", as
   insightsPage,
 }) => {
   await shared.interceptResponse<Dashboard>("**/dashboard", (dashboard) => {
-    if (dashboard) manager.dashboards.push(dashboard.id!);
+    if (dashboard) manager.dashboards.push(dashboard);
   });
 
   await manager.setup("smartcity", { assets });
