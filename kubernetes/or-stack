@@ -9,6 +9,7 @@ KUBERNETES_DIR="$SCRIPT_DIR"
 TARGETS_DIR="$KUBERNETES_DIR/stack/targets"
 EXPOSURES_DIR="$KUBERNETES_DIR/stack/exposures"
 source "$SCRIPT_DIR/lib/hostname-reservations"
+source "$SCRIPT_DIR/lib/helm-wait"
 
 DEFAULT_TIMEOUT="10m"
 PROXY_MQTTS_TLS_PORT="8883"
@@ -705,8 +706,7 @@ helm_apply() {
 }
 
 apply_stack() {
-  local helm_version
-  local helm_wait_flag=--wait
+  local wait_flag
   local manager_args=(
     --set-string "or.hostname=$HOSTNAME_VALUE"
   )
@@ -738,12 +738,8 @@ apply_stack() {
   if [ "$EXPOSURE" != "none" ]; then
     discover_cluster_dns
   fi
-  helm_version="$(helm version --template '{{.Version}}')"
-  if [[ "$helm_version" = v4.* ]]; then
-    # The watcher can fail at the Deployment progress deadline while Manager
-    # is still setting up its dataset. Keep waiting up to the Helm timeout.
-    helm_wait_flag=--wait=legacy
-  fi
+  # Poll up to the Helm timeout while Manager sets up its dataset.
+  wait_flag="$(helm_wait_flag)"
   ensure_namespace
   reserve_stack_hostname
   record_stack_hostname
@@ -756,10 +752,10 @@ apply_stack() {
     record_stack_mqtts_hostname
   fi
 
-  helm_apply or-setup "$helm_wait_flag" "${setup_args[@]}"
-  helm_apply postgresql "$helm_wait_flag"
-  helm_apply keycloak "$helm_wait_flag" --set-string "or.hostname=$keycloak_hostname"
-  helm_apply manager "$helm_wait_flag" "${manager_args[@]}"
+  helm_apply or-setup "$wait_flag" "${setup_args[@]}"
+  helm_apply postgresql "$wait_flag"
+  helm_apply keycloak "$wait_flag" --set-string "or.hostname=$keycloak_hostname"
+  helm_apply manager "$wait_flag" "${manager_args[@]}"
   if [ "$EXPOSURE" != "none" ]; then
     proxy_args=(
       --set-string "or.hostname=$HOSTNAME_VALUE"
@@ -810,7 +806,7 @@ apply_stack() {
         proxy_args+=(--set-string "ingress.tls[0].hosts[0]=$HOSTNAME_VALUE")
       fi
     fi
-    helm_apply proxy "$helm_wait_flag" "${proxy_args[@]}"
+    helm_apply proxy "$wait_flag" "${proxy_args[@]}"
   fi
 
   log "Stack '$STACK_NAME' is applied in context '$KUBE_CONTEXT'."
@@ -916,6 +912,7 @@ verify_retained_state() {
 
 uninstall_release() {
   local release_name="$1"
+  local wait_flag="$2"
 
   if helm status "$release_name" \
     --kube-context "$KUBE_CONTEXT" \
@@ -924,7 +921,7 @@ uninstall_release() {
     helm uninstall "$release_name" \
       --kube-context "$KUBE_CONTEXT" \
       --namespace "$STACK_NAME" \
-      --wait \
+      "$wait_flag" \
       --timeout "$TIMEOUT"
   else
     log "Helm release '$release_name' is not installed; skipping."
@@ -932,11 +929,14 @@ uninstall_release() {
 }
 
 uninstall_releases() {
-  uninstall_release proxy
-  uninstall_release manager
-  uninstall_release keycloak
-  uninstall_release postgresql
-  uninstall_release or-setup
+  local wait_flag
+  # Helm 4's watcher can miss a deletion and report a timeout.
+  wait_flag="$(helm_wait_flag)"
+  uninstall_release proxy "$wait_flag"
+  uninstall_release manager "$wait_flag"
+  uninstall_release keycloak "$wait_flag"
+  uninstall_release postgresql "$wait_flag"
+  uninstall_release or-setup "$wait_flag"
 }
 
 uninstall_stack() {

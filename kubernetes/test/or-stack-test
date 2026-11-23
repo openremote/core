@@ -418,13 +418,15 @@ test_status() {
 
 test_uninstall() {
   reset_log
-  OR_STACK_TEST_NAMESPACE_EXISTS=true run_stack uninstall \
+  OR_STACK_TEST_NAMESPACE_EXISTS=true OR_STACK_TEST_HELM_VERSION=v3.20.0 run_stack uninstall \
     --name stack-a \
     --kube-context test-context
 
   assert_contains "metadata.name"
   assert_contains "helm\\.sh/resource-policy"
   assert_contains $'helm\tuninstall\tproxy\t--kube-context\ttest-context\t--namespace\tstack-a'
+  assert_on_line_before $'helm\tuninstall\tproxy' $'\t--wait\t--timeout\t10m'
+  assert_not_contains $'\t--wait=legacy\t'
   assert_contains $'helm\tuninstall\tmanager\t--kube-context\ttest-context\t--namespace\tstack-a'
   assert_contains $'helm\tuninstall\tkeycloak\t--kube-context\ttest-context\t--namespace\tstack-a'
   assert_contains $'helm\tuninstall\tpostgresql\t--kube-context\ttest-context\t--namespace\tstack-a'
@@ -453,12 +455,18 @@ test_credentials() {
 }
 
 test_destroy() {
+  local release
+
   reset_log
-  OR_STACK_TEST_NAMESPACE_EXISTS=true run_stack destroy \
+  OR_STACK_TEST_NAMESPACE_EXISTS=true OR_STACK_TEST_HELM_VERSION=v4.3.0 run_stack destroy \
     --name stack-a \
     --kube-context test-context \
     --confirm stack-a
 
+  for release in proxy manager keycloak postgresql or-setup; do
+    assert_on_line_before $'helm\tuninstall\t'"$release"$'\t' $'\t--wait=legacy\t--timeout\t10m'
+  done
+  assert_not_contains $'\t--wait\t'
   assert_contains "spec.volumeName"
   assert_contains $'kubectl\t--context\ttest-context\tdelete\tnamespace\tstack-a'
   assert_contains $'kubectl\t--context\ttest-context\twait\t--for=delete\tpersistentvolume/pvc-manager'
