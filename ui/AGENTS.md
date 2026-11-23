@@ -26,6 +26,10 @@ Own Lit components extend `OrElement` from `@openremote/or-element` instead of `
 
 A state change should re-render only the part it affects. Re-rendering a whole page, or a large component such as a table, flickers and discards the state that component holds: sort order, pagination, selection, scroll position. Keep those children mounted and update their properties.
 
+## Template bindings
+
+Lit and Vaadin elements read their attributes into properties, so bind to the attribute: `?name=${...}` for a boolean, `name=${...}` or `name="..."` for a string or number. Bind `.name=${...}` only for objects, arrays, functions and properties without an attribute. Native form controls are the exception, as their `value` and `checked` attributes only set the initial state.
+
 ## Spacing
 
 Avoid negative margins that cancel a container's padding. They repeat a value the container owns, so they break silently when it changes. Keep the content inside the padding, or add a theme variant to the container that turns it off.
@@ -94,7 +98,9 @@ Stories call `getORStorybookHelpers(tagName)` (from `ui/component/storybook-util
 
 - **Test Naming:** `test.describe` blocks describe a feature. Tests should be named starting with "should ...".
 - **Test Structure:** Keep tests flat by default. Omit top-level `test.describe` blocks. If grouping is needed, target a specific feature (e.g., filtering notifications) rather than a parent concept like the whole page. Example: `test.describe("Filter Notifications", ...)` instead of `test.describe("Notifications", ...)`.
-- **Regression Tests:** Every bug fix ships with a test that fails without it. Name it after the behavior that should hold rather than the defect, and record what used to go wrong in a comment on the assertion that catches it.
+- **Regression Tests:** Every bug fix ships with a test that fails without it. Name it after the behaviour that should hold rather than the defect, and record what used to go wrong in a comment on the assertion that catches it.
+- **Dialogs:** A Vaadin dialog renders its overlay in the top layer, so the `role="dialog"` host itself never counts as visible; assert on elements inside it, or use `toHaveCount`. A closed dialog stays in the page until its closing animation ends, so wait for it to go before locating a dialog again. Confirm dialogs have the role `alertdialog`.
+- **Translated text:** `getByText` cannot find text rendered by `or-translate`; locate the element with a `hasText` filter instead, or use role names, which do include it.
 
 ### Fixtures
 
@@ -108,6 +114,8 @@ Stories call `getORStorybookHelpers(tagName)` (from `ui/component/storybook-util
 - **Location:** Define tests in `ui/app/<app-name>/test/`. Define fixtures in `ui/app/<app-name>/test/fixtures/`.
 - **Comments:** Add scenario comments above tests (`@given`, `@when`, `@then`, `@and`) based on the acceptance criteria.
 - **Auth State:** Select correct `storageState` for the task to be tested. Use `adminStatePath` for master/admin tasks. Use `userStatePath` for regular realm user tasks.
+- **Downloads:** Check the content of a downloaded file through the response it is built from (`page.waitForResponse`), and its name through the `download` event. Do not read it from disk; `download.path()` throws when the browser
+  runs remotely.
 
 ### Component testing
 

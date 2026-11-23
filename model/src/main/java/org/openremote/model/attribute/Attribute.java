@@ -27,6 +27,7 @@ import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.JsonDeserializer;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
@@ -135,7 +136,11 @@ public class Attribute<T> extends AbstractNameValueHolder<T> implements MetaHold
             if (metaDeserialiser == null) {
               metaDeserialiser = ctxt.findNonContextualValueDeserializer(META_MAP_TYPE);
             }
-            attribute.meta = (MetaMap) metaDeserialiser.deserialize(jp, ctxt);
+            try {
+              attribute.meta = (MetaMap) metaDeserialiser.deserialize(jp, ctxt);
+            } catch (JsonMappingException e) {
+              throw JsonMappingException.wrapWithPath(e, Attribute.class, "meta");
+            }
           }
           case "name" -> {
             String name = jp.getValueAsString();
