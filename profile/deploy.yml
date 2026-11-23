@@ -487,6 +487,9 @@ services:
       # This setting may still be overridden depending on your kernel settings so tune this and other
       # service DB values so the actual max connections are not exhausted
       POSTGRES_MAX_CONNECTIONS: ${POSTGRES_MAX_CONNECTIONS:-50}
+      # Terminates sessions left idle in a transaction for longer than this, as they prevent autovacuum removing dead
+      # rows and cause table bloat (set to 0 to disable)
+      POSTGRES_IDLE_IN_TRANSACTION_SESSION_TIMEOUT: ${POSTGRES_IDLE_IN_TRANSACTION_SESSION_TIMEOUT:-10min}
 
   # Query Exporter - Prometheus metrics from PostgreSQL queries
   # Documentation: https://github.com/albertodonato/query-exporter
