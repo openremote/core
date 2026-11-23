@@ -75,7 +75,7 @@ export class OrVaadinDialog extends (Dialog as new () => Dialog & LitElement) im
           background-color: var(--lumo-contrast-5pct);
         }
         ::part(header) {
-          /* Colour header icons (e.g. the close cross) with the primary colour */
+          /* Color header icons (e.g. the close cross) with the primary color */
           --internal-or-icon-fill: var(--lumo-primary-color);
         }
         ::part(header),

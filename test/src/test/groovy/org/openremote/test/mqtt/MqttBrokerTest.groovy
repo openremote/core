@@ -181,7 +181,7 @@ class MqttBrokerTest extends Specification implements ManagerContainerTrait {
     when: "the client disconnects"
     client.disconnect()
 
-    then: "the status should be reported and reconnect cancelled"
+    then: "the status should be reported and reconnect canceled"
     conditions.eventually {
       assert clientConnectionStatuses.contains(ConnectionStatus.DISCONNECTED)
     }
@@ -535,7 +535,7 @@ class MqttBrokerTest extends Specification implements ManagerContainerTrait {
     assert receivedEvents.poll(1, TimeUnit.SECONDS) == null
   }
 
-  def "MQTT last wills update authorised attributes and clients can publish after reconnect"() {
+  def "MQTT last wills update authorized attributes and clients can publish after reconnect"() {
     given: "an independent observer subscribed to the last will attribute"
     preserveAttributes(managerTestSetup.apartment1HallwayId)
     def observerId = UniqueIdentifierGenerator.generateId()
@@ -611,12 +611,12 @@ class MqttBrokerTest extends Specification implements ManagerContainerTrait {
     }
   }
 
-  def "MQTT last wills cannot update unauthorised attributes"() {
+  def "MQTT last wills cannot update unauthorized attributes"() {
     given: "a client ID for the restricted user"
     preserveAttributes(managerTestSetup.apartment2LivingroomId)
     def mqttClientId = UniqueIdentifierGenerator.generateId()
 
-    when: "a restricted client connects with a last will topic for an unauthorised asset/attribute"
+    when: "a restricted client connects with a last will topic for an unauthorized asset/attribute"
     def asset = assetStorageService.find(managerTestSetup.apartment2LivingroomId)
     def currentCO2Level = asset.getAttribute("co2Level").flatMap{it.getValue()}.orElse(0d)
     def client = createMqttClient(mqttClientId, restrictedMqttCredentials, new MQTTLastWill("${keycloakTestSetup.realmBuilding.name}/$mqttClientId/$DefaultMQTTHandler.ATTRIBUTE_VALUE_WRITE_TOPIC/co2Level/$managerTestSetup.apartment2LivingroomId".toString(), "1000", false))

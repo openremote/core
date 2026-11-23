@@ -88,7 +88,7 @@ class BasicRulesProcessingTest extends Specification implements ManagerContainer
       })
     }
 
-    and: "the new rule engine is fully initialised"
+    and: "the new rule engine is fully initialized"
     conditions.eventually {
       assert smartHomeEngine.facts.assetStates.size() == DEMO_RULE_STATES_SMART_BUILDING
       assertRulesFired(rulesImport.globalEngine, 1)

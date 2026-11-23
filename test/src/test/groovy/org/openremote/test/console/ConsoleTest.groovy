@@ -328,7 +328,7 @@ class ConsoleTest extends Specification implements ManagerContainerTrait {
     assert assetStorageService.find(unusedId, true) == null
   }
 
-  def "Check full console behaviour"() {
+  def "Check full console behavior"() {
     def notificationIds = new CopyOnWriteArrayList()
     def targetTypes = new CopyOnWriteArrayList()
     def targetIds = new CopyOnWriteArrayList()
@@ -689,7 +689,7 @@ class ConsoleTest extends Specification implements ManagerContainerTrait {
       assert assetLocation.y == 0d
       assert assetLocation.z == 0d
     }
-    // TODO: Update once console permissions model finalised
+    // TODO: Update once console permissions model finalized
     //        when: "an anonymous user updates the location of a console linked to users"
     //        anonymousAssetResource.writeAttributeValue(null, testUser3Console1.id, LOCATION.name, new GeoJSONPoint(0d, 0d, 0d).objectToValue())
     //
@@ -785,7 +785,7 @@ class ConsoleTest extends Specification implements ManagerContainerTrait {
     assert geofences[0].httpMethod == WRITE_ATTRIBUTE_HTTP_METHOD
     assert geofences[0].url == getWriteAttributeUrl(new AttributeRef(testUser3Console1.id, Asset.LOCATION.name))
 
-    // TODO: Update once console permissions model finalised
+    // TODO: Update once console permissions model finalized
     //        when: "an anonymous user tries to retrieve the geofences of a console linked to users"
     //        geofences = anonymousRulesResource.getAssetGeofences(null, testUser3Console1.id)
     //

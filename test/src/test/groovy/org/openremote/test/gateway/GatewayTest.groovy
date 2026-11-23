@@ -780,7 +780,7 @@ class GatewayTest extends Specification implements ManagerContainerTrait {
     then: "an error should occur"
     thrown(IllegalStateException)
 
-    when: "gateway assets are modified whilst the gateway is disconnected (building1Room5 re-added, building5 and descendants removed and building1 modified and building1Room1 attribute updated)"
+    when: "gateway assets are modified while the gateway is disconnected (building1Room5 re-added, building5 and descendants removed and building1 modified and building1Room1 attribute updated)"
     assets[4].setName("Test Building 1 Updated")
     assets[4].setVersion(2L)
     assets[0].getAttribute("temp").ifPresent { it.setValue(10) }
@@ -1307,7 +1307,7 @@ class GatewayTest extends Specification implements ManagerContainerTrait {
     def oldConnector = gatewayClientService.connectionRealmMap.get(gatewayConnection.getLocalRealm())
     gatewayClientResource.setConnection(null, managerTestSetup.realmCityName, gatewayConnection)
 
-    then: "the gateway connection IO client should have been replaced and synchronisation should be complete"
+    then: "the gateway connection IO client should have been replaced and synchronization should be complete"
     conditions.eventually {
       assert gatewayClientService.connectionRealmMap.get(gatewayConnection.getLocalRealm()) != null
       assert gatewayClientService.connectionRealmMap.get(gatewayConnection.getLocalRealm()) != oldConnector

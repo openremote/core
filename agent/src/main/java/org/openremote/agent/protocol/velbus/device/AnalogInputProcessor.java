@@ -148,7 +148,7 @@ public class AnalogInputProcessor extends FeatureProcessor {
 
     if (device.getDeviceType() == VelbusDeviceType.VMB4AN) {
 
-      // Initialise the text char arrays for sensors
+      // Initialize the text char arrays for sensors
       device.setProperty("SENSOR1_TEXT", EMPTY_SENSOR_TEXT);
       device.setProperty("SENSOR2_TEXT", EMPTY_SENSOR_TEXT);
       device.setProperty("SENSOR3_TEXT", EMPTY_SENSOR_TEXT);

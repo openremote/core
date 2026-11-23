@@ -191,7 +191,7 @@ test("Replace broken chart references while preserving custom colors", async ({
   await manager.goToRealmStartPage("smartcity");
   await manager.navigateToTab("Insights");
 
-  // Build a Line Chart and a Bar Chart referencing "Power", colour them, and save
+  // Build a Line Chart and a Bar Chart referencing "Power", color them, and save
   await expect(insightsPage.getDashboardListItems()).toHaveCount(0);
   await page.click(".mdi-plus >> nth=0");
   await expect(insightsPage.getDashboardListItems()).toHaveCount(1);
@@ -204,7 +204,7 @@ test("Replace broken chart references while preserving custom colors", async ({
   const lineWidget = insightsPage.getWidgets({ hasText: "Line Chart" }).first();
   const barWidget = insightsPage.getWidgets({ hasText: "Bar Chart" }).first();
 
-  // Line chart: add the Power attribute and give it a custom red colour
+  // Line chart: add the Power attribute and give it a custom red color
   await insightsPage.selectWidget(lineWidget);
   await expect(insightsPage.getWidgetSettings({ hasText: "Line Chart" })).toBeVisible();
   await insightsPage.resizeWidgetTo(lineWidget, [6, 6]);
@@ -212,11 +212,11 @@ test("Replace broken chart references while preserving custom colors", async ({
   await expect(insightsPage.getWidgetAttributes()).toHaveCount(1);
   await insightsPage.setAttributeColor("#ff0000");
   await expect(insightsPage.getAttributeColorInput()).toHaveValue("#ff0000");
-  // Change the custom colour a second time; to make sure that works.
+  // Change the custom color a second time; to make sure that works.
   await insightsPage.setAttributeColor("#0000ff");
   await expect(insightsPage.getAttributeColorInput()).toHaveValue("#0000ff");
 
-  // Bar chart: add the Power attribute and give it a custom green colour
+  // Bar chart: add the Power attribute and give it a custom green color
   await insightsPage.selectWidget(barWidget);
   await expect(insightsPage.getWidgetSettings({ hasText: "Bar Chart" })).toBeVisible();
   await insightsPage.resizeWidgetTo(barWidget, [12, 6], { force: true });
@@ -224,7 +224,7 @@ test("Replace broken chart references while preserving custom colors", async ({
   await expect(insightsPage.getWidgetAttributes()).toHaveCount(1);
   await insightsPage.setAttributeColor("#00ff00");
   await expect(insightsPage.getAttributeColorInput()).toHaveValue("#00ff00");
-  // Change the custom colour a second time; to make sure that works.
+  // Change the custom color a second time; to make sure that works.
   await insightsPage.setAttributeColor("#ffc400");
   await expect(insightsPage.getAttributeColorInput()).toHaveValue("#ffc400");
 
@@ -264,7 +264,7 @@ test("Replace broken chart references while preserving custom colors", async ({
   await linePicker.getByRole("button", { name: "Add" }).click();
   await expect(linePicker).toBeHidden();
 
-  // Line chart broken row should now be replaced and the custom colour migrated to the new ref
+  // Line chart broken row should now be replaced and the custom color migrated to the new ref
   await expect(insightsPage.getBrokenAttributeRows()).toHaveCount(0);
   await expect(insightsPage.getWidgetAttributes()).toHaveCount(1);
   await expect(insightsPage.getWidgetAttributes().first()).toContainText("Import Asset");
@@ -286,7 +286,7 @@ test("Replace broken chart references while preserving custom colors", async ({
   await barPicker.getByRole("button", { name: "Add" }).click();
   await expect(barPicker).toBeHidden();
 
-  // Bar chart: broken row should be replaced and the custom colour migrated to the new ref
+  // Bar chart: broken row should be replaced and the custom color migrated to the new ref
   await expect(insightsPage.getBrokenAttributeRows()).toHaveCount(0);
   await expect(insightsPage.getWidgetAttributes()).toHaveCount(1);
   await expect(insightsPage.getWidgetAttributes().first()).toContainText("Import Asset");

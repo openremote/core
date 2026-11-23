@@ -1,5 +1,5 @@
 # ----------------------------------------------------------------------------------------
-# Docker image for populating deployment-data volume with project specific customisations
+# Docker image for populating deployment-data volume with project specific customizations
 # ----------------------------------------------------------------------------------------
 FROM alpine:latest
 

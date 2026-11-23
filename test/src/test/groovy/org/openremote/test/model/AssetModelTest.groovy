@@ -97,7 +97,7 @@ class AssetModelTest extends Specification implements ManagerContainerTrait {
     def assetTypeInfoStr = AssetModelService.JSON.writeValueAsString(assetTypeInfo)
     Files.writeString(storageDir.resolve("CustomAsset"), assetTypeInfoStr, StandardOpenOption.CREATE, StandardOpenOption.WRITE)
     startContainer(defaultConfig(), defaultServices())
-    // Ensure the asset model is re-initialised (just in case container is reused)
+    // Ensure the asset model is re-initialized (just in case container is reused)
     container.getService(AssetModelService).initDynamicModel()
     ValueUtil.doInitialise()
     assetModelResource = getClientApiTarget(serverUri(serverPort), MASTER_REALM).proxy(AssetModelResource.class)
@@ -119,7 +119,7 @@ class AssetModelTest extends Specification implements ManagerContainerTrait {
     Objects.equals(attributes1, attributes2)
   }
 
-  def "Serialise/Deserialise asset and attribute events and test validation"() {
+  def "Serialize/Deserialize asset and attribute events and test validation"() {
 
     given: "an authenticated admin user"
     def accessToken = authenticate(
@@ -442,10 +442,10 @@ class AssetModelTest extends Specification implements ManagerContainerTrait {
     and: "we simulate a value descriptor being removed on a custom attribute (by changing the type name of the attribute)"
     ((ObjectNode)((ObjectNode)assetObjectNode.get("attributes")).get("custom1")).put("type", "missingType2")
 
-    and: "we deserialise the object back into an Asset"
+    and: "we deserialize the object back into an Asset"
     modelTestAsset = ValueUtil.parse(assetObjectNode.toString(), Asset).orElse(null) as ModelTestAsset
 
-    then: "the attribute with the missing attribute descriptor should still have the correct value type and value should have deserialised correctly"
+    then: "the attribute with the missing attribute descriptor should still have the correct value type and value should have deserialized correctly"
     modelTestAsset.getAttribute("missingAttr").map {it.type}.orElse(null) == ValueType.TIMESTAMP
     modelTestAsset.getAttribute("missingAttr").flatMap {it.value}.orElse(null) instanceof Long
 
@@ -615,7 +615,7 @@ class AssetModelTest extends Specification implements ManagerContainerTrait {
     when: "all value descriptors are retrieved"
     def valueDescriptors = assetModelResource.getValueDescriptors(null, null)
 
-    then: "the value descriptors should be correctly serialised/deserialised"
+    then: "the value descriptors should be correctly serialized/deserialized"
     valueDescriptors.size() > 0
     valueDescriptors.every {
       it.value.name == it.key && it.value.type != null & it.value.jsonType != null
@@ -634,7 +634,7 @@ class AssetModelTest extends Specification implements ManagerContainerTrait {
     when: "all meta item descriptors are retrieved"
     def metaItemDescriptors = assetModelResource.getMetaItemDescriptors(null, null)
 
-    then: "the meta item descriptors should be correctly serialised/deserialised"
+    then: "the meta item descriptors should be correctly serialized/deserialized"
     metaItemDescriptors.size() > 0
 
     when: "represented as JSON"
@@ -725,7 +725,7 @@ class AssetModelTest extends Specification implements ManagerContainerTrait {
     asset.getColourRGB().map{it.getG()}.orElse(null) == 100I
     asset.getColourRGB().map{it.getB()}.orElse(null) == 200I
 
-    when: "the asset is serialised using default object mapper"
+    when: "the asset is serialized using default object mapper"
     def assetStr = ValueUtil.asJSON(asset).orElse(null)
 
     then: "the string should be valid JSON"

@@ -167,7 +167,7 @@ class RulesEngineFiringTest extends Specification implements ManagerContainerTra
   /*
    The exact timing issue is:
    - fireTimer triggers and is executing the rules (fireAllDeployments)
-   - stop is called, cancelling the fireTimer and setting it to null
+   - stop is called, canceling the fireTimer and setting it to null
    - start is called, creating a new fireTimer
    - in this case, that new timer does not fire yet and fireAllDeployments returns,
    the fire lambda sets fireTimer to null and creates a new timer
@@ -253,7 +253,7 @@ class RulesEngineFiringTest extends Specification implements ManagerContainerTra
   /*
    The exact timing issue is:
    - fireTimer triggers and is executing the rules (fireAllDeployments)
-   - stop is called, cancelling the fireTimer and setting it to null
+   - stop is called, canceling the fireTimer and setting it to null
    - start is called, creating a new fireTimer
    - in this case, that new timer already fires while fireAllDeployments is still running
    As a result, the newly created timer triggers while the original rules execution is still happening

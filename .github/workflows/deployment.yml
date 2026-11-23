@@ -3,7 +3,7 @@
 #
 # The repo must contain a 'deployment/Dockerfile' and a 'deployment/build.gradle' with an installDist task that prepares
 # the deployment image in the 'deployment/build' directory; if this condition is not met the deployment will fail.
-# Deployments are only done for repos owned by the openremote organisation.
+# Deployments are only done for repos owned by the openremote organization.
 #
 # Each deployment consists of an environment and an openremote/manager docker tag, taken from:
 #

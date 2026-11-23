@@ -409,7 +409,7 @@ public class ValueUtil {
     }
 
     /**
-     * Basic type coercion/casting of values; utilises Jackson's underlying type coercion/casting mechanism
+     * Basic type coercion/casting of values; utilizes Jackson's underlying type coercion/casting mechanism
      */
     public static <T> Optional<T> getValueCoerced(Object value, Class<T> type) {
         return getValue(value, type, true);
@@ -568,7 +568,7 @@ public class ValueUtil {
             try {
                 return (T) SerializationHelper.clone((Serializable) object);
             } catch (Exception e) {
-                LOG.log(Level.INFO, "Failed to clone using standard java serialisation, falling back to jackson object of type: " + object.getClass(), e);
+                LOG.log(Level.INFO, "Failed to clone using standard java serialization, falling back to jackson object of type: " + object.getClass(), e);
             }
         }
 
@@ -742,13 +742,13 @@ public class ValueUtil {
         try {
             doInitialise();
         } catch (IllegalStateException e) {
-            LOG.log(Level.SEVERE, "Failed to initialise the asset model", e);
+            LOG.log(Level.SEVERE, "Failed to initialize the asset model", e);
             throw e;
         }
     }
 
     /**
-     * Initialise the asset model and throw an {@link IllegalStateException} exception if a problem is detected; this
+     * Initialize the asset model and throw an {@link IllegalStateException} exception if a problem is detected; this
      * can be called by applications at startup to fail hard and fast if the asset model is un-usable
      */
     static void doInitialise() throws IllegalStateException {
@@ -759,7 +759,7 @@ public class ValueUtil {
         metaItemDescriptors.clear();
         valueDescriptors.clear();
 
-        LOG.info("Initialising asset model...");
+        LOG.info("Initializing asset model...");
         Set<Class<? extends Asset<?>>> assetClasses = new TreeSet<>(new ClassHierarchyComparator());
         Map<String, List<NameHolder>> assetDescriptorsMap = new HashMap<>();
 

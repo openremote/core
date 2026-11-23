@@ -36,9 +36,9 @@ gridStackInternals._sortDom = function (this: GridStack) {
 };
 
 export class OrDashboardEngine extends GridStackEngine {
-  // Cancelling move when it collides with the same widget.
+  // Canceling move when it collides with the same widget.
   // Apparently during some rerenders, the widget moved downwards after colliding with itself.
-  // Now cancelling the movement when the IDs are the same.
+  // Now canceling the movement when the IDs are the same.
   public moveNode(node: GridStackNode, o: GridStackMoveOpts): boolean {
     if (o.skip && o.skip.id == node.id) {
       o.x = o.skip.x;

@@ -348,7 +348,7 @@ public class BluetoothMeshProxyStateMachine {
     executeOnMainThread(
         () -> {
           LOG.info(
-              "Cancelling peripheral connection: [Name="
+              "Canceling peripheral connection: [Name="
                   + getPeripheral().getName()
                   + ", Address="
                   + getPeripheral().getAddress()

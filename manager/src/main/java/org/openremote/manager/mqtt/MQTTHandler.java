@@ -75,7 +75,7 @@ public abstract class MQTTHandler {
 
   /**
    * Gets the priority of this handler which is used to determine the call order; handlers with a
-   * lower priority are initialised and started first.
+   * lower priority are initialized and started first.
    */
   public int getPriority() {
     return 0;
@@ -86,7 +86,7 @@ public abstract class MQTTHandler {
     return this.getClass().getSimpleName();
   }
 
-  /** Called when the system starts to allow for initialisation. */
+  /** Called when the system starts to allow for initialization. */
   public void init(Container container, Configuration serverConfiguration) throws Exception {
     mqttBrokerService = container.getService(MQTTBrokerService.class);
     clientEventService = container.getService(ClientEventService.class);
@@ -107,7 +107,7 @@ public abstract class MQTTHandler {
     addPublishTopicServerConfiguration(container, serverConfiguration);
   }
 
-  /** Called when the system starts to allow for initialisation. */
+  /** Called when the system starts to allow for initialization. */
   public void start(Container container) throws Exception {
 
     clientSession = mqttBrokerService.createSession();
@@ -213,7 +213,7 @@ public abstract class MQTTHandler {
             } catch (Exception e) {
               getLogger()
                   .info(
-                      "An error occurred whilst handling onPublish to topic '"
+                      "An error occurred while handling onPublish to topic '"
                           + topic
                           + "': clientID="
                           + clientID);
@@ -360,14 +360,14 @@ public abstract class MQTTHandler {
   protected abstract Logger getLogger();
 
   /**
-   * Called to authorise a subscription if {@link #handlesTopic} returned true; should return true
+   * Called to authorize a subscription if {@link #handlesTopic} returned true; should return true
    * if the subscription is allowed otherwise return false.
    */
   public abstract boolean canSubscribe(
       RemotingConnection connection, AuthContext authContext, Topic topic);
 
   /**
-   * Called to authorise a publish if {@link #handlesTopic} returned true; should return true if the
+   * Called to authorize a publish if {@link #handlesTopic} returned true; should return true if the
    * publish is allowed otherwise return false.
    */
   public abstract boolean canPublish(

@@ -1,6 +1,6 @@
 # ---------------------------------------------------------------------------------------------------------------------
 # This workflow handles creation of AWS member accounts by calling (.ci_cd/aws/provision_account.sh)
-# You need to be a member of the CI/CD github team to use this action as it will incur costs for the organisation.
+# You need to be a member of the CI/CD github team to use this action as it will incur costs for the organization.
 # ---------------------------------------------------------------------------------------------------------------------
 
 name: Provision Account
@@ -27,7 +27,7 @@ on:
         type: boolean
         required: false
       OU:
-        description: "Organisational unit to use for account"
+        description: "Organizational unit to use for account"
         type: string
         default: Custom
 
