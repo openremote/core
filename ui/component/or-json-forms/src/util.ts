@@ -38,16 +38,18 @@ import {
   Resolve,
   type StatePropsOfCombinator,
 } from "@jsonforms/core";
-import { DefaultColor5, Util } from "@openremote/core";
+import { Util } from "@openremote/core";
 import { i18next } from "@openremote/or-translate";
 import "@openremote/or-components/or-ace-editor";
 import type { OrAceEditor, OrAceEditorChangedEvent } from "@openremote/or-components/or-ace-editor";
-import { html, type TemplateResult, unsafeCSS } from "lit";
+import { html, type TemplateResult } from "lit";
 import { createRef, type Ref, ref } from "lit/directives/ref.js";
 import { unknownTemplate } from "./standard-renderers";
-import { OrMwcDialog, showDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
+import { jsonEditorStyle } from "./styles";
+import { type OrVaadinDialog, showDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
 import type { OrVaadinSelect, SelectItem } from "@openremote/or-vaadin-components/or-vaadin-select";
 import type { OrVaadinButton } from "@openremote/or-vaadin-components/or-vaadin-button";
+import "@openremote/or-vaadin-components/or-vaadin-dialog";
 import "@openremote/or-vaadin-components/or-vaadin-select";
 import "@openremote/or-vaadin-components/or-vaadin-button";
 
@@ -382,9 +384,16 @@ export const controlWithoutLabel = (scope: string): ControlElement => ({
   label: false,
 });
 
-export const showJsonEditor = (title: string, value: any, updateCallback: (newValue: string) => void): void => {
+export const showJsonEditor = (
+  host: Node,
+  title: string,
+  value: any,
+  updateCallback: (newValue: string) => void
+): void => {
   const editorRef: Ref<OrAceEditor> = createRef();
   const updateBtnRef: Ref<OrVaadinButton> = createRef();
+  let dialog: OrVaadinDialog | undefined;
+
   const onEditorEdit = () => {
     // Disable update button whilst edit in progress
     updateBtnRef.value!.disabled = true;
@@ -393,59 +402,36 @@ export const showJsonEditor = (title: string, value: any, updateCallback: (newVa
     const valid = ev.detail.valid;
     updateBtnRef.value!.disabled = !valid;
   };
+  const onUpdate = () => {
+    const editor = editorRef.value!;
+    if (editor.validate()) {
+      const data = editor.getValue() ? JSON.parse(editor.getValue()!) : undefined;
+      updateCallback(data);
+      dialog?.close();
+    }
+  };
 
-  const dialog = showDialog(
-    new OrMwcDialog()
-      .setContent(html`
+  dialog = showDialog(
+    host,
+    html`
+      <or-vaadin-dialog width="1024px">
+        <h2 slot="header-content">${title}</h2>
         <or-ace-editor
           ${ref(editorRef)}
+          style="${jsonEditorStyle}"
           @or-ace-editor-edit="${() => onEditorEdit()}"
           @or-ace-editor-changed="${(ev: OrAceEditorChangedEvent) => onEditorChanged(ev)}"
           .value="${value}"
         ></or-ace-editor>
-      `)
-      .setActions([
-        {
-          actionName: "cancel",
-          content: "cancel",
-        },
-        {
-          default: true,
-          actionName: "update",
-          action: () => {
-            const editor = editorRef.value!;
-            if (editor.validate()) {
-              const data = editor.getValue() ? JSON.parse(editor.getValue()!) : undefined;
-              updateCallback(data);
-            }
-          },
-          content: html`
-            <or-vaadin-button ${ref(updateBtnRef)} disabled>
-              <or-translate value="update"></or-translate>
-            </or-vaadin-button>
-          `,
-        },
-      ])
-      .setHeading(title)
-      .setDismissAction(null)
-      .setStyles(html`
-        <style>
-          .mdc-dialog__surface {
-            width: 1024px;
-            overflow-x: visible !important;
-            overflow-y: visible !important;
-          }
-          #dialog-content {
-            border-color: var(--or-app-color5, ${unsafeCSS(DefaultColor5)});
-            border-top-width: 1px;
-            border-top-style: solid;
-            border-bottom-width: 1px;
-            border-bottom-style: solid;
-            padding: 0;
-            overflow: visible;
-            height: 60vh;
-          }
-        </style>
-      `)
+        <div slot="footer" style="width: 100%; display: flex; justify-content: space-between;">
+          <or-vaadin-button theme="tertiary" @click="${() => dialog?.close()}">
+            <or-translate value="cancel"></or-translate>
+          </or-vaadin-button>
+          <or-vaadin-button ${ref(updateBtnRef)} theme="primary" disabled @click="${() => onUpdate()}">
+            <or-translate value="update"></or-translate>
+          </or-vaadin-button>
+        </div>
+      </or-vaadin-dialog>
+    `
   );
 };

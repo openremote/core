@@ -32,7 +32,7 @@ import {
   type StatePropsOfControl,
   type VerticalLayout,
 } from "@jsonforms/core";
-import { css, html, PropertyValues, type TemplateResult } from "lit";
+import { css, html, PropertyValues, render, type TemplateResult } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { LayoutBaseElement } from "./layout-base-element";
 import {
@@ -43,16 +43,21 @@ import {
   getTemplateFromProps,
   showJsonEditor,
 } from "../util";
-import { InputType, OrInputChangedEvent, type OrMwcInput } from "@openremote/or-mwc-components/or-mwc-input";
 import type { OrVaadinTextField } from "@openremote/or-vaadin-components/or-vaadin-text-field";
+import type { OrVaadinButton } from "@openremote/or-vaadin-components/or-vaadin-button";
+import type { ListItem } from "@openremote/or-vaadin-components/or-vaadin-list-box";
+import { type OrVaadinDialog, showDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
 import "@openremote/or-vaadin-components/or-vaadin-text-field";
 import "@openremote/or-vaadin-components/or-vaadin-button";
+import "@openremote/or-vaadin-components/or-vaadin-dialog";
+import "@openremote/or-vaadin-components/or-vaadin-list-box";
+import "@openremote/or-vaadin-components/or-vaadin-item";
 import { i18next } from "@openremote/or-translate";
-import { OrMwcDialog, showDialog } from "@openremote/or-mwc-components/or-mwc-dialog";
-import "@openremote/or-mwc-components/or-mwc-list";
 import "@openremote/or-components/or-collapsible-panel";
 import { addItemOrParameterDialogStyle, baseStyle, panelStyle } from "../styles";
-import type { ListItem, OrMwcListChangedEvent } from "@openremote/or-mwc-components/or-mwc-list";
+import { createRef, type Ref, ref } from "lit/directives/ref.js";
+import { ifDefined } from "lit/directives/if-defined.js";
+import { when } from "lit/directives/when.js";
 import type { AdditionalProps } from "../base-element";
 
 // language=CSS
@@ -84,11 +89,6 @@ const style = css`
   .value-container,
   .key-container {
     vertical-align: top;
-  }
-
-  .key-container or-mwc-input,
-  .value-container or-mwc-input {
-    display: block;
   }
 
   .value-container > .item-container {
@@ -142,7 +142,7 @@ export class LayoutVerticalElement extends LayoutBaseElement<VerticalLayout | Gr
   public handleChange!: (path: string, data: any) => void;
 
   public static get styles() {
-    return [baseStyle, panelStyle, style];
+    return [baseStyle, panelStyle, addItemOrParameterDialogStyle, style];
   }
 
   render() {
@@ -322,7 +322,7 @@ export class LayoutVerticalElement extends LayoutBaseElement<VerticalLayout | Gr
   protected _showJson(ev: Event) {
     ev.stopPropagation();
 
-    showJsonEditor(this.title || this.schema.title || "", this.data, (newValue) => {
+    showJsonEditor(this.shadowRoot!, this.title || this.schema.title || "", this.data, (newValue) => {
       this.handleChange(this.path || "", newValue);
     });
   }
@@ -335,7 +335,11 @@ export class LayoutVerticalElement extends LayoutBaseElement<VerticalLayout | Gr
   ) {
     const dynamic = optionalProps.length === 0;
     let selectedParameter: StatePropsOfControl | undefined;
-    let selectedOneOf: CombinatorInfo;
+    let selectedOneOf: CombinatorInfo | undefined;
+    let keyValue: string | undefined;
+    let dialog: OrVaadinDialog | undefined;
+    const descRef: Ref<HTMLDivElement> = createRef();
+    const addBtnRef: Ref<OrVaadinButton> = createRef();
 
     const listItems: ListItem[] = optionalProps.map((props) => {
       const labelStr = computeLabel(props.label, !!props.required, false);
@@ -346,155 +350,120 @@ export class LayoutVerticalElement extends LayoutBaseElement<VerticalLayout | Gr
       };
     });
 
+    // The description pane changes with the selection, so it is rendered on its own instead of re-opening the dialog
+    const refreshDescription = () => render(getDescriptionTemplate(), descRef.value!);
+
+    const onSchemaSelected = (selectedSchema: CombinatorInfo) => {
+      selectedOneOf = selectedSchema;
+      addBtnRef.value!.disabled = !selectedOneOf;
+      refreshDescription();
+    };
+
     const onParamChanged = (selected: StatePropsOfControl) => {
       selectedParameter = selected;
-      const isOneOf = !!(selectedParameter && selectedParameter.schema && selectedParameter.schema.oneOf);
-      (dialog.shadowRoot!.getElementById("add-btn") as OrMwcInput).disabled = isOneOf;
-      dialog.requestUpdate();
+      selectedOneOf = undefined;
+      addBtnRef.value!.disabled = !!selected.schema?.oneOf;
+      refreshDescription();
     };
 
-    // const keyValue: [any, any] = [undefined, undefined];
-    // const onKeyValueChanged = (value: any, index: 0 | 1) => {
-    //     keyValue[index] = value;
-    //     const valid = keyValue[0] && keyValue[1] !== undefined;
-    //     (dialog.shadowRoot!.getElementById("add-btn") as OrMwcInput).disabled = !valid;
-    // };
-    let keyValue: string | undefined;
-    const onKeyChanged = (event: KeyboardEvent) => {
-      const keyInput = event.currentTarget as OrMwcInput;
-      keyInput.setCustomValidity(undefined);
-      keyValue = keyInput.currentValue as string;
-      let valid = keyInput.valid;
-
-      if (this.data[keyValue] !== undefined) {
-        valid = false;
-        keyInput.setCustomValidity(i18next.t("validation.keyAlreadyExists"));
-      }
-      (dialog.shadowRoot!.getElementById("add-btn") as OrMwcInput).disabled = !valid;
+    const onKeyChanged = (ev: Event) => {
+      const keyInput = ev.currentTarget as OrVaadinTextField;
+      keyValue = keyInput.value;
+      const duplicate = !!keyValue && this.data?.[keyValue] !== undefined;
+      keyInput.errorMessage = duplicate ? i18next.t("validation.keyAlreadyExists") : undefined;
+      const valid = keyInput.validate() && !duplicate;
+      keyInput.invalid = !valid;
+      addBtnRef.value!.disabled = !valid;
     };
 
-    const dialogContentProvider: () => TemplateResult = () => {
-      // Only set when !dynamic
-      let schemaPicker: TemplateResult | undefined;
+    const onAdd = () => {
+      const key = dynamic ? (keyValue as string) : selectedParameter!.path.split(".").pop()!;
+      const data = { ...this.data };
+      const schema = dynamic ? dynamicValueSchema! : selectedParameter!.schema;
+      data[key] = Array.isArray(schema.type)
+        ? null
+        : (selectedOneOf ? selectedOneOf.defaultValueCreator() : undefined) || createDefaultValue(schema, rootSchema);
+      this.handleChange(this.path || "", data);
+      dialog?.close();
+    };
 
-      if (selectedParameter && selectedParameter.schema && selectedParameter.schema.oneOf) {
-        const handleChange = (selectedSchema: CombinatorInfo) => {
-          selectedOneOf = selectedSchema;
-          (dialog.shadowRoot!.getElementById("add-btn") as OrMwcInput).disabled = !selectedOneOf;
-          (dialog.shadowRoot!.getElementById("schema-description") as HTMLParagraphElement).innerHTML =
-            (selectedOneOf ? selectedOneOf.description : i18next.t("schema.selectTypeMessage")) ||
-            i18next.t("schema.noDescriptionAvailable");
-        };
-        schemaPicker = getSchemaPicker(
-          rootSchema,
-          selectedParameter.schema.oneOf,
-          selectedParameter.label,
-          handleChange
-        );
+    const getDescriptionTemplate: () => TemplateResult = () => {
+      if (dynamic) {
+        return html`
+          <or-vaadin-text-field
+            id="key-input"
+            required
+            pattern="${ifDefined(dynamicPropertyRegex)}"
+            @input="${(ev: Event) => onKeyChanged(ev)}"
+          >
+            <or-translate slot="label" value="schema.keyInputLabel"></or-translate>
+          </or-vaadin-text-field>
+        `;
       }
+
+      if (!selectedParameter) {
+        return html``;
+      }
+
+      const oneOf = selectedParameter.schema?.oneOf as JsonSchema[] | undefined;
 
       return html`
-        <div class="col">
-          <form id="mdc-dialog-form-add" class="row">
-            ${
-              dynamic
-                ? ``
-                : html`
-                    <div id="type-list" class="col">
-                      <or-mwc-list
-                        @or-mwc-list-changed="${(evt: OrMwcListChangedEvent) => {
-                          if (evt.detail.length === 1)
-                            onParamChanged((evt.detail[0] as ListItem).data as StatePropsOfControl);
-                        }}"
-                        .listItems="${listItems}"
-                        id="parameter-list"
-                      ></or-mwc-list>
-                    </div>
-                  `
-            }
-            <div id="parameter-desc" class="col">
-              ${
-                !selectedParameter
-                  ? ``
-                  : html` <or-translate id="parameter-title" value="${selectedParameter.label}"></or-translate>
-                      <p>${selectedParameter.description}</p>`
-              }
-              ${
-                !dynamic
-                  ? !schemaPicker
-                    ? ``
-                    : html` <style>
-                          #schema-picker {
-                            align-self: stretch;
-                            margin: 10px;
-                            display: flex;
-                            align-items: center;
-                          }
-                          #schema-picker > or-translate {
-                            padding-right: 20px;
-                          }
-                          #schema-picker > or-mwc-input {
-                            flex: 1;
-                          }
-                        </style>
-                        <div id="schema-picker">
-                          <or-translate style="justify-self: left;" value="type"></or-translate>
-                          ${schemaPicker}
-                        </div>
-                        <p id="schema-description">${i18next.t("schema.selectTypeMessage")}</p>`
-                  : html`
-                      <style>
-                        #dynamic-wrapper > or-mwc-input {
-                          display: block;
-                          margin: 10px;
-                        }
-                      </style>
-                      <div id="dynamic-wrapper">
-                        <or-mwc-input
-                          required
-                          .type="${InputType.TEXT}"
-                          .pattern="${dynamicPropertyRegex}"
-                          .label="${i18next.t("schema.keyInputLabel")}"
-                          @keyup="${(evt: KeyboardEvent) => onKeyChanged(evt)}"
-                        ></or-mwc-input>
-                      </div>
-                    `
-              }
+        <or-translate id="parameter-title" value="${selectedParameter.label}"></or-translate>
+        <p>${selectedParameter.description}</p>
+        ${when(
+          oneOf,
+          () => html`
+            <div id="schema-picker">
+              ${getSchemaPicker(rootSchema, oneOf!, selectedParameter!.label, onSchemaSelected)}
             </div>
-          </form>
-        </div>
+            <p id="schema-description">
+              ${
+                selectedOneOf
+                  ? selectedOneOf.description || i18next.t("schema.noDescriptionAvailable")
+                  : i18next.t("schema.selectTypeMessage")
+              }
+            </p>
+          `
+        )}
       `;
     };
 
-    const dialog = showDialog(
-      new OrMwcDialog()
-        .setContent(dialogContentProvider)
-        .setStyles(addItemOrParameterDialogStyle)
-        .setHeading(
-          (this.label ? computeLabel(this.label, this.required, false) + " - " : "") + i18next.t("addParameter")
-        )
-        .setActions([
-          {
-            actionName: "cancel",
-            content: "cancel",
-          },
-          {
-            default: true,
-            actionName: "add",
-            action: () => {
-              const key = dynamic ? (keyValue as string) : selectedParameter!.path.split(".").pop()!;
-              const data = { ...this.data };
-              const schema = dynamic ? dynamicValueSchema! : selectedParameter!.schema;
-              data[key] = Array.isArray(schema.type)
-                ? null
-                : (selectedOneOf ? selectedOneOf.defaultValueCreator() : undefined) ||
-                  createDefaultValue(schema, rootSchema);
-              this.handleChange(this.path || "", data);
-            },
-            content: html`<or-mwc-input id="add-btn" .type="${InputType.BUTTON}" disabled label="add"></or-mwc-input>`,
-          },
-        ])
-        .setDismissAction(null)
+    dialog = showDialog(
+      this.shadowRoot!,
+      html`
+        <or-vaadin-dialog width="800px">
+          <h2 slot="header-content">
+            ${(this.label ? computeLabel(this.label, this.required, false) + " - " : "") + i18next.t("addParameter")}
+          </h2>
+          <div id="dialog-content" class="${dynamic ? "auto-height" : ""}">
+            ${when(
+              !dynamic,
+              () => html`
+                <or-vaadin-list-box
+                  id="type-list"
+                  @selected-changed="${(ev: CustomEvent) => {
+                    const selected = listItems[ev.detail.value as number];
+                    if (selected) onParamChanged(selected.data as StatePropsOfControl);
+                  }}"
+                >
+                  ${listItems.map((item) => html`<or-vaadin-item>${item.text}</or-vaadin-item>`)}
+                </or-vaadin-list-box>
+              `
+            )}
+            <div id="parameter-desc" ${ref(descRef)}></div>
+          </div>
+          <div id="dialog-footer" slot="footer">
+            <or-vaadin-button theme="tertiary" @click="${() => dialog?.close()}">
+              <or-translate value="cancel"></or-translate>
+            </or-vaadin-button>
+            <or-vaadin-button ${ref(addBtnRef)} theme="primary" disabled @click="${() => onAdd()}">
+              <or-translate value="add"></or-translate>
+            </or-vaadin-button>
+          </div>
+        </or-vaadin-dialog>
+      `
     );
+
+    refreshDescription();
   }
 }
