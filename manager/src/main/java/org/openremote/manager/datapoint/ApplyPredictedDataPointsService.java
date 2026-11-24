@@ -109,6 +109,8 @@ public class ApplyPredictedDataPointsService implements ContainerService {
 
   @Override
   public void stop(Container container) throws Exception {
+    clientEventService.removeSubscription(predictedDatapointsConsumer);
+    clientEventService.removeSubscription(attributeEventConsumer);
     synchronized (scheduleLock) {
       stopped = true;
       if (scheduledFuture != null) {
