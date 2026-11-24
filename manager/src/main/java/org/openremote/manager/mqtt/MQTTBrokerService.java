@@ -379,7 +379,12 @@ public class MQTTBrokerService extends RouteBuilder
   public void startProducers(Container container) throws Exception {
     if (active) {
       for (MQTTHandler handler : customHandlers) {
-        handler.startProducers(container);
+        try {
+          handler.startProducers(container);
+        } catch (Exception e) {
+          LOG.log(WARNING, "Failed to start producers for MQTT handler " + handler.getName(), e);
+          throw e;
+        }
       }
     }
   }

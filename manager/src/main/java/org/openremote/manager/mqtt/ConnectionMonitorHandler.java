@@ -184,6 +184,8 @@ public class ConnectionMonitorHandler extends MQTTHandler {
                   assetProcessingService.sendAttributeEventAndWait(
                       new AttributeEvent(attributeRef, connected), getClass().getSimpleName());
                 } catch (AssetProcessingException e) {
+                  // Continue with the next attribute after a rejected write. An unavailable route
+                  // or a Camel execution failure must abort startup before the acceptor opens.
                   LOG.log(
                       Level.WARNING,
                       "Could not initialize connection status for " + attributeRef,
