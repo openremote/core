@@ -98,8 +98,8 @@ public class ApplyPredictedDataPointsService implements ContainerService {
       stopped = false;
     }
     clientEventService.addSubscription(
-        AssetPredictedDatapointEvent.class, null, this::onPredictedDatapointsChanged);
-    clientEventService.addSubscription(AttributeEvent.class, null, this::onAttributeEvent);
+        AssetPredictedDatapointEvent.class, null, predictedDatapointsConsumer);
+    clientEventService.addSubscription(AttributeEvent.class, null, attributeEventConsumer);
   }
 
   @Override
