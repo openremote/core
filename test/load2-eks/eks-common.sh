@@ -4,6 +4,18 @@ set -eo pipefail
 
 # Legacy ACM/NLB experiment only. Use the CLIs for normal deployments.
 
+helm_wait_flag() {
+  local helm_version
+  helm_version=$(helm version --template '{{.Version}}') || return
+
+  # Keep waiting for load-test initialization up to the Helm timeout.
+  if [[ "$helm_version" = v4.* ]]; then
+    printf '%s\n' --wait=legacy
+  else
+    printf '%s\n' --wait
+  fi
+}
+
 if [ -z "$AWS_ACCOUNT_ID" ]; then
     echo "Error: AWS_ACCOUNT_ID environment variable is not set"
     echo "Please set it to the ID of the account you want to deploy the cluster into with: export AWS_ACCOUNT_ID=your-account-id"

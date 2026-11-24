@@ -49,7 +49,7 @@ test("Create a new role, assign it to a user, and verify its roles", async ({ pa
 
   await shared.interceptRequest<Role[]>("**/user/master/roles", (roles) => {
     const role = roles?.find(({ name }) => name === "Custom");
-    if (role) manager.role = role;
+    if (role) manager.role = { realm: "smartcity", role };
   });
   await page.getByRole("button", { name: "create" }).click();
   await expect(page.getByText("Custom").first()).toBeVisible();

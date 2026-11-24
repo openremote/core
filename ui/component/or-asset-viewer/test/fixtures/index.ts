@@ -154,6 +154,15 @@ export class AssetViewer {
     // The name carries the label and value type as its title, e.g. "Dimmer (Positive integer)"
     return section.getByTitle(new RegExp(`^${label} \\(`));
   }
+
+  /**
+   * Get a locator to a parameter of the configuration template import by the label of an attribute it applies to.
+   * @param attributeLabel The attribute label, e.g. "Dimmer"
+   */
+  getConfigurationTemplateParameter(attributeLabel: string): Locator {
+    // A parameter lists the attributes it applies to by label and value type, e.g. "Dimmer (Positive integer)"
+    return this.page.getByRole("dialog").locator(".ac-parameter", { hasText: new RegExp(`${attributeLabel} \\(`) });
+  }
 }
 
 interface ComponentFixtures extends SharedComponentTestFixtures {

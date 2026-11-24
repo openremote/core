@@ -203,6 +203,8 @@ elif command == "kubectl":
         print("namespace/another-stack")
 elif command == "dig":
     print("192.0.2.10")
+elif command == "helm" and args[:1] == ["version"]:
+    print(os.environ["LEGACY_HELM_VERSION"])
 elif command == "aws":
     if "assume-role" in args:
         print("fake-key\\tfake-secret\\tfake-token")
@@ -233,6 +235,9 @@ elif command == "aws":
         if profile.name == "load1-eks":
             continue
         env["OR_PROFILE"] = profile.name
+        helm_version = "v3.20.0" if profile.name == "large" else "v4.3.0"
+        env["LEGACY_HELM_VERSION"] = helm_version
+        wait_flag = "--wait=legacy" if helm_version.startswith("v4.") else "--wait"
         for script in ("eks-setup-load-acm.sh", "eks-deploy-load.sh"):
             call_log.write_text("")
             run(["bash", f"./{script}"], cwd=folder, env=env)
@@ -258,6 +263,10 @@ elif command == "aws":
                 component_index = next(i for i, arg in enumerate(call)
                                        if arg in ("or-setup", "postgresql", "manager", "keycloak", "proxy"))
                 component, chart = call[component_index:component_index + 2]
+                if component in ("manager", "keycloak") or (component == "postgresql" and not setup):
+                    wait_flags = [arg for arg in call if arg == "--wait" or arg.startswith("--wait=")]
+                    assert wait_flags == [wait_flag], call
+                    assert call[call.index("--timeout") + 1] == "90m"
                 options = call[component_index + 2:]
                 if component != "or-setup":
                     shared_values = f"profiles/{profile.name}/{component}.yaml"
@@ -294,7 +303,7 @@ elif command == "aws":
             assert re.search(r'name: OR_HOSTNAME\s+value: "legacy.example.com"', rendered["manager"])
             reset = "false" if setup else "true"
             assert re.search(r'name: OR_SETUP_RUN_ON_RESTART\s+value: "' + reset + '"', rendered["manager"])
-            print(f"PASS: legacy {profile.name} / {script}", flush=True)
+            print(f"PASS: legacy {profile.name} / {script} / Helm {helm_version}", flush=True)
 
     # A CLI stack must stop legacy cluster cleanup before AWS calls or changes.
     call_log.write_text("")
