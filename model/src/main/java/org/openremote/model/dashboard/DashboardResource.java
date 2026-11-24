@@ -132,7 +132,6 @@ public interface DashboardResource {
   @OpenApiResponses.Ok
   @OpenApiResponses.Authenticated
   @OpenApiResponses.BadRequest
-  @OpenApiResponses.Conflict
   @OpenApiResponses.ServerError
   Dashboard create(
       @BeanParam RequestParams requestParams,

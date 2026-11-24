@@ -447,10 +447,10 @@ class DashboardTest extends Specification implements ManagerContainerTrait {
     when: "a dashboard is created with an id that already exists"
     alternativeUserDashboardResource.create(null, new Dashboard(MASTER_REALM, "Duplicate dashboard", screenPresets, alternativeUser.id).setId(versioned.id))
 
-    then: "the duplicate create is rejected with 409 conflict"
+    then: "the duplicate create is rejected with 400 bad request"
     WebApplicationException duplicateEx = thrown()
     duplicateEx.response.withCloseable { r ->
-      assert r.status == 409
+      assert r.status == 400
       return true
     }
   }
