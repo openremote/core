@@ -385,9 +385,9 @@ public class RulesService extends RouteBuilder implements ContainerService {
       realmEngines.values().forEach(RulesEngine::start);
       assetEngines.values().forEach(RulesEngine::start);
 
-      startDone = true;
       Map<AttributeRef, AttributeEvent> bufferedEvents;
       synchronized (preInitAttributeEvents) {
+        startDone = true;
         bufferedEvents = new LinkedHashMap<>(preInitAttributeEvents);
         preInitAttributeEvents.clear();
       }
@@ -448,10 +448,15 @@ public class RulesService extends RouteBuilder implements ContainerService {
    */
   public void onAttributeEvent(AttributeEvent event) throws AssetProcessingException {
     if (!startDone) {
-      bufferPreInitAttributeEvent(event);
-    } else {
-      doProcessAttributeUpdate(event);
+      synchronized (preInitAttributeEvents) {
+        // Startup may have drained the buffer while this event was waiting for the lock.
+        if (!startDone) {
+          bufferPreInitAttributeEvent(event);
+          return;
+        }
+      }
     }
+    doProcessAttributeUpdate(event);
   }
 
   protected void doProcessAttributeUpdate(AttributeEvent attributeEvent) {
