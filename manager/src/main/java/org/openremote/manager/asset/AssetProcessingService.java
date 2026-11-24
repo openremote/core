@@ -332,7 +332,7 @@ public class AssetProcessingService extends RouteBuilder implements ContainerSer
   @Override
   public void configure() throws Exception {
 
-    // All user authorisation checks MUST have been carried out before events reach this queue
+    // All user authorization checks MUST have been carried out before events reach this queue
     from(ATTRIBUTE_EVENT_PROCESSOR)
         .routeId(ATTRIBUTE_EVENT_ROUTE_ID)
         .routeConfigurationId(ATTRIBUTE_EVENT_ROUTE_CONFIG_ID)
@@ -461,7 +461,7 @@ public class AssetProcessingService extends RouteBuilder implements ContainerSer
           Event result =
               persistenceService.doReturningTransaction(
                   em -> {
-                    // TODO: Retrieve optimised DTO rather than whole asset
+                    // TODO: Retrieve optimized DTO rather than whole asset
                     Asset<?> asset = assetStorageService.find(em, event.getId(), true);
 
                     if (asset == null) {

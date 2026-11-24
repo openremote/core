@@ -115,7 +115,7 @@ public abstract class ValueConstraint implements Serializable {
     @Override
     public boolean evaluate(Object value, Instant now) {
       if (value == null) {
-        return true; // Same behaviour as JSR-380
+        return true; // Same behavior as JSR-380
       }
 
       Class<?> clazz = value.getClass();

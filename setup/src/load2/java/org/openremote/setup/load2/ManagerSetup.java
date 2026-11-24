@@ -41,12 +41,14 @@ import org.openremote.model.asset.Asset;
 import org.openremote.model.asset.UserAssetLink;
 import org.openremote.model.asset.impl.BuildingAsset;
 import org.openremote.model.asset.impl.LightAsset;
+import org.openremote.model.attribute.Attribute;
 import org.openremote.model.attribute.MetaItem;
 import org.openremote.model.geo.GeoJSONPoint;
 import org.openremote.model.security.User;
 import org.openremote.model.syslog.SyslogCategory;
 import org.openremote.model.util.UniqueIdentifierGenerator;
 import org.openremote.model.value.MetaItemType;
+import org.openremote.model.value.ValueType;
 
 public class ManagerSetup extends org.openremote.manager.setup.ManagerSetup {
   public static final String OR_SETUP_ASSETS = "OR_SETUP_ASSETS";
@@ -153,6 +155,11 @@ public class ManagerSetup extends org.openremote.manager.setup.ManagerSetup {
                   attribute.addMeta(new MetaItem<>(MetaItemType.STORE_DATA_POINTS));
                 }
               });
+      if (i == 1) {
+        asset.addAttributes(
+            new Attribute<>("connected", ValueType.BOOLEAN, false)
+                .addMeta(new MetaItem<>(MetaItemType.USER_CONNECTED, serviceUser.getUsername())));
+      }
       asset.setId(assetId);
       asset.setRealm(MASTER_REALM);
       asset.setParent(building);

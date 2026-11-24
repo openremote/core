@@ -21,7 +21,7 @@ package org.openremote.model.gateway;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import org.openremote.model.event.shared.SharedEvent;
 
-/** Indicates that the gateway synchronisation has finished */
+/** Indicates that the gateway synchronization has finished */
 public class GatewayInitDoneEvent extends SharedEvent {
   public static final String TYPE = "gateway-init-done";
 

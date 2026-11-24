@@ -23,7 +23,7 @@ import jakarta.persistence.Entity;
 import org.openremote.model.asset.Asset;
 
 /**
- * This is only needed so JPA can deserialise an Asset whose type doesn't match an entity otherwise
+ * This is only needed so JPA can deserialize an Asset whose type doesn't match an entity otherwise
  * it is un-used
  */
 @Entity

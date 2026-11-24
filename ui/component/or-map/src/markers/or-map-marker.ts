@@ -16,7 +16,17 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
-import { css, type CSSResult, type CSSResultGroup, html, type PropertyValues, unsafeCSS } from "lit";
+import {
+  css,
+  type CSSResult,
+  type CSSResultGroup,
+  html,
+  nothing,
+  type PropertyValues,
+  render,
+  type TemplateResult,
+  unsafeCSS,
+} from "lit";
 import { OrElement } from "@openremote/or-element";
 import { customElement, property, query } from "lit/decorators.js";
 import { markerActiveColorVar, markerColorVar } from "../style";
@@ -150,25 +160,36 @@ export class OrMapMarker extends OrElement {
     `;
   }
 
-  protected static _defaultTemplate = (icon: string | undefined, options?: TemplateOptions) => `
-        ${
-          options && options.displayValue !== undefined
-            ? `<div class="label"><span>${options.displayValue}</span></div>`
-            : ``
-        }
-        ${
-          options && options.direction
-            ? `<div class="direction-icon-wrapper" style="transform: rotate(${options.direction}deg);">
-                <svg class="direction-circle">
-                 <circle/> 
-                </svg>
-                <or-icon class="direction-icon" icon="play"></or-icon>
-               </div>`
-            : ``
-        }
-        <or-icon icon="or:marker"></or-icon>
-        <or-icon class="marker-icon" icon="${icon || ""}"></or-icon>
+  /** Returns the direction in degrees, or undefined when it is not a finite number. */
+  protected static _sanitizeDirection(direction?: string): number | undefined {
+    if (direction === undefined || direction === null || direction === "") {
+      return undefined;
+    }
+    const degrees = Number(direction);
+    return Number.isFinite(degrees) ? degrees : undefined;
+  }
+
+  protected static _defaultTemplate = (icon: string | undefined, options?: TemplateOptions): TemplateResult => {
+    const direction = OrMapMarker._sanitizeDirection(options?.direction);
+
+    return html`
+      ${
+        options?.displayValue !== undefined
+          ? html`<div class="label"><span>${options.displayValue}</span></div>`
+          : nothing
+      }
+      ${
+        direction !== undefined
+          ? html`<div class="direction-icon-wrapper" style="transform: rotate(${direction}deg);">
+              <svg class="direction-circle"><circle /></svg>
+              <or-icon class="direction-icon" icon="play"></or-icon>
+            </div>`
+          : nothing
+      }
+      <or-icon icon="or:marker"></or-icon>
+      <or-icon class="marker-icon" icon="${icon || ""}"></or-icon>
     `;
+  };
 
   @property({ type: Number, reflect: true, attribute: true })
   public lat?: number;
@@ -242,7 +263,7 @@ export class OrMapMarker extends OrElement {
   }
 
   /**
-   * Override in sub types to customise the look of the marker. If undefined returned then a default marker will
+   * Override in sub types to customize the look of the marker. If undefined returned then a default marker will
    * be used instead.
    */
   public createMarkerContent(): HTMLElement | undefined {
@@ -386,10 +407,13 @@ export class OrMapMarker extends OrElement {
 
   protected _createDefaultMarkerContent(): HTMLElement {
     const div = document.createElement("div");
-    div.innerHTML = OrMapMarker._defaultTemplate(this.icon, {
-      displayValue: this.displayValue,
-      direction: this.direction,
-    });
+    render(
+      OrMapMarker._defaultTemplate(this.icon, {
+        displayValue: this.displayValue,
+        direction: this.direction,
+      }),
+      div
+    );
     return div;
   }
 

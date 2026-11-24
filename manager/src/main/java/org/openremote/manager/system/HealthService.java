@@ -31,13 +31,13 @@ import org.openremote.model.system.StatusResource;
 import org.openremote.model.util.MapAccess;
 
 /**
- * This service is here to initialise the discovered {@link HealthStatusProvider}s and ({@link
+ * This service is here to initialize the discovered {@link HealthStatusProvider}s and ({@link
  * StatusResource}
  */
 public class HealthService implements ContainerService {
 
   //    /**
-  //     * Customised {@link MicrometerRoutePolicy} to add SEDA queue metrics
+  //     * Customized {@link MicrometerRoutePolicy} to add SEDA queue metrics
   //     */
   //    protected static class SedaMicrometerRoutePolicy extends MicrometerRoutePolicy {
   //        @Override

@@ -156,7 +156,7 @@ public class ApplyPredictedDataPointsService implements ContainerService {
    * processing.
    */
   protected void scheduleNext() {
-    // Cancelling and scheduling must be atomic with reading the queue head, otherwise a concurrent
+    // Canceling and scheduling must be atomic with reading the queue head, otherwise a concurrent
     // caller can
     // cancel a live schedule and leave a queued entry without one
     synchronized (scheduleLock) {

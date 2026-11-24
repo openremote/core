@@ -322,7 +322,7 @@ Util.retryWithBackoff<ManagerAppConfig>(async () => {
               }
             })
             .catch((reason) => {
-              console.error("Failed to initialise app: " + reason);
+              console.error("Failed to initialize app: " + reason);
             });
         }
       });

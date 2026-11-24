@@ -740,7 +740,7 @@ class VelbusBasicTest extends Specification {
     })
     device = network.getDevice(2)
 
-    then: "The device should be created and become initialised"
+    then: "The device should be created and become initialized"
     conditions.eventually {
       assert device != null
       assert device.getDeviceType() == VelbusDeviceType.VMB4AN
@@ -777,7 +777,7 @@ class VelbusBasicTest extends Specification {
       assert device.getPropertyValue("CH8_LOCKED")
     }
 
-    when: "the channel lock is cancelled"
+    when: "the channel lock is canceled"
     device.writeProperty("CH8_LOCK", 0d)
 
     then: "the channel should become unlocked again"
@@ -793,7 +793,7 @@ class VelbusBasicTest extends Specification {
     })
     device = network.getDevice(1)
 
-    then: "The device should be created and become initialised"
+    then: "The device should be created and become initialized"
     conditions.eventually {
       assert device != null
       assert device.getDeviceType() == VelbusDeviceType.VMBGP1
@@ -812,7 +812,7 @@ class VelbusBasicTest extends Specification {
       })
     }
 
-    and: "the input button property values should be initialised"
+    and: "the input button property values should be initialized"
     conditions.eventually {
       1.upto(8, {
         assert device.getPropertyValue("CH" + it) == InputProcessor.ChannelState.RELEASED
@@ -826,7 +826,7 @@ class VelbusBasicTest extends Specification {
     })
     device = network.getDevice(48)
 
-    then: "The device should be created and become initialised"
+    then: "The device should be created and become initialized"
     conditions.eventually {
       assert device != null
       assert device.getDeviceType() == VelbusDeviceType.VMBGPOD
@@ -849,7 +849,7 @@ class VelbusBasicTest extends Specification {
       })
     }
 
-    and: "the input button property values should be initialised"
+    and: "the input button property values should be initialized"
     conditions.eventually {
       1.upto(32, {
         if (it >= 25 && it <= 32) {
@@ -952,7 +952,7 @@ class VelbusBasicTest extends Specification {
       assert device.getPropertyValue("CH8_LOCKED")
     }
 
-    when: "the channel lock is cancelled"
+    when: "the channel lock is canceled"
     device.writeProperty("CH8_LOCK", 0d)
 
     then: "the channel should become unlocked again"
@@ -1033,7 +1033,7 @@ class VelbusBasicTest extends Specification {
     })
     device = network.getDevice(10)
 
-    then: "The device should be created and become initialised"
+    then: "The device should be created and become initialized"
     conditions.eventually {
       assert device != null
       assert device.getDeviceType() == VelbusDeviceType.VMB7IN
@@ -1048,7 +1048,7 @@ class VelbusBasicTest extends Specification {
       })
     }
 
-    and: "the input button property values should be initialised"
+    and: "the input button property values should be initialized"
     conditions.eventually {
       1.upto(7, {
         if (it == 1) {
@@ -1139,7 +1139,7 @@ class VelbusBasicTest extends Specification {
     })
     device = network.getDevice(1)
 
-    then: "The device should be created and become initialised"
+    then: "The device should be created and become initialized"
     conditions.eventually {
       assert device != null
       assert device.getDeviceType() == VelbusDeviceType.VMBGP1
@@ -1159,7 +1159,7 @@ class VelbusBasicTest extends Specification {
     })
     device = network.getDevice(3)
 
-    then: "The device should be created and become initialised"
+    then: "The device should be created and become initialized"
     conditions.eventually {
       assert device != null
       assert device.getDeviceType() == VelbusDeviceType.VMBGP1
@@ -1180,7 +1180,7 @@ class VelbusBasicTest extends Specification {
     })
     device = network.getDevice(48)
 
-    then: "The device should be created and become initialised"
+    then: "The device should be created and become initialized"
     conditions.eventually {
       assert device != null
       assert device.getDeviceType() == VelbusDeviceType.VMBGPOD
@@ -1194,7 +1194,7 @@ class VelbusBasicTest extends Specification {
       assert thermostatProcessor.isThermostatEnabled(device)
     }
 
-    and: "the thermostat values should be initialised"
+    and: "the thermostat values should be initialized"
     conditions.eventually {
       assert device.getPropertyValue("HEATER") == InputProcessor.ChannelState.RELEASED
       assert device.getPropertyValue("BOOST") == InputProcessor.ChannelState.RELEASED
@@ -1384,7 +1384,7 @@ class VelbusBasicTest extends Specification {
     })
     VelbusDevice device = network.getDevice(48)
 
-    then: "The device should be created and become initialised"
+    then: "The device should be created and become initialized"
     conditions.eventually {
       assert device != null
       assert device.getDeviceType() == VelbusDeviceType.VMBGPOD
@@ -1395,7 +1395,7 @@ class VelbusBasicTest extends Specification {
       assert device.getSubAddresses()[3] == 64
     }
 
-    and: "the programs property values should be initialised"
+    and: "the programs property values should be initialized"
     conditions.eventually {
       1.upto(24, {
         def programStepsEnabled = it != 13
@@ -1540,14 +1540,14 @@ class VelbusBasicTest extends Specification {
     })
     VelbusDevice device = network.getDevice(48)
 
-    then: "The device should be created and become initialised"
+    then: "The device should be created and become initialized"
     conditions.eventually {
       assert device != null
       assert device.getDeviceType() == VelbusDeviceType.VMBGPOD
       assert device.getBaseAddress() == 48
     }
 
-    and: "the OLED property values should be initialised"
+    and: "the OLED property values should be initialized"
     conditions.eventually {
       assert device.getPropertyValue("MEMO_TEXT") == ""
     }
@@ -1599,14 +1599,14 @@ class VelbusBasicTest extends Specification {
     })
     VelbusDevice device = network.getDevice(81)
 
-    then: "The device should be created and become initialised"
+    then: "The device should be created and become initialized"
     conditions.eventually {
       assert device != null
       assert device.getDeviceType() == VelbusDeviceType.VMB1RYNO
       assert device.getBaseAddress() == 81
     }
 
-    and: "the relay property values should be initialised"
+    and: "the relay property values should be initialized"
     conditions.eventually {
       assert device.getPropertyValue("CH1") == RelayProcessor.ChannelState.OFF
       assert device.getPropertyValue("CH2") == RelayProcessor.ChannelState.OFF
@@ -1700,7 +1700,7 @@ class VelbusBasicTest extends Specification {
       assert device.getPropertyValue("CH2_LED") == FeatureProcessor.LedState.FAST
     }
 
-    when: "the relay intermittent state is cancelled"
+    when: "the relay intermittent state is canceled"
     device.writeProperty("CH2_INTERMITTENT", 0d)
 
     then: "the relay should return to normal"
@@ -1735,7 +1735,7 @@ class VelbusBasicTest extends Specification {
       assert device.getPropertyValue("CH2_SETTING") == OutputChannelProcessor.ChannelSetting.INHIBITED
     }
 
-    when: "the relay inhibit is cancelled"
+    when: "the relay inhibit is canceled"
     device.writeProperty("CH2_INHIBIT", 0d)
 
     then: "the relay should return to normal"
@@ -1848,7 +1848,7 @@ class VelbusBasicTest extends Specification {
       assert device.getPropertyValue("CH2_SETTING") == OutputChannelProcessor.ChannelSetting.LOCKED
     }
 
-    when: "the relay lock is cancelled"
+    when: "the relay lock is canceled"
     device.writeProperty("CH2_LOCK", 0d)
 
     then: "the relay should return to normal"
@@ -1877,14 +1877,14 @@ class VelbusBasicTest extends Specification {
     })
     VelbusDevice device = network.getDevice(10)
 
-    then: "The device should be created and become initialised"
+    then: "The device should be created and become initialized"
     conditions.eventually {
       assert device != null
       assert device.getDeviceType() == VelbusDeviceType.VMB7IN
       assert device.getBaseAddress() == 10
     }
 
-    and: "the counter property values should be initialised"
+    and: "the counter property values should be initialized"
     conditions.eventually {
       1.upto(4, {
         if (it == 1) {
@@ -1935,14 +1935,14 @@ class VelbusBasicTest extends Specification {
     })
     VelbusDevice device = network.getDevice(2)
 
-    then: "The device should be created and become initialised"
+    then: "The device should be created and become initialized"
     conditions.eventually {
       assert device != null
       assert device.getDeviceType() == VelbusDeviceType.VMB4AN
       assert device.getBaseAddress() == 2
     }
 
-    and: "the IO module property values should be initialised"
+    and: "the IO module property values should be initialized"
     conditions.eventually {
       assert device.getPropertyValue("OUTPUT1") == AnalogOutputProcessor.ChannelState.OFF
       assert device.getPropertyValue("OUTPUT2") == AnalogOutputProcessor.ChannelState.OFF
@@ -2032,14 +2032,14 @@ class VelbusBasicTest extends Specification {
     })
     device = network.getDevice(187)
 
-    then: "The device should be created and become initialised"
+    then: "The device should be created and become initialized"
     conditions.eventually {
       assert device != null
       assert device.getDeviceType() == VelbusDeviceType.VMB4DC
       assert device.getBaseAddress() == 187
     }
 
-    and: "the dimmer property values should be initialised"
+    and: "the dimmer property values should be initialized"
     conditions.eventually {
       assert device.getPropertyValue("CH1") == AnalogOutputProcessor.ChannelState.OFF
       assert device.getPropertyValue("CH2") == AnalogOutputProcessor.ChannelState.OFF
@@ -2228,7 +2228,7 @@ class VelbusBasicTest extends Specification {
       assert device.getPropertyValue("CH3_SETTING") == OutputChannelProcessor.ChannelSetting.INHIBITED
     }
 
-    when: "the dimmer inhibit is cancelled"
+    when: "the dimmer inhibit is canceled"
     device.writeProperty("CH3_INHIBIT", 0d)
 
     then: "the dimmer should return to normal"
@@ -2326,7 +2326,7 @@ class VelbusBasicTest extends Specification {
       assert device.getPropertyValue("CH3_SETTING") == OutputChannelProcessor.ChannelSetting.LOCKED
     }
 
-    when: "the dimmer lock is cancelled"
+    when: "the dimmer lock is canceled"
     device.writeProperty("CH3_LOCK", 0d)
 
     then: "the dimmer should return to normal"
@@ -2353,14 +2353,14 @@ class VelbusBasicTest extends Specification {
     })
     VelbusDevice device = network.getDevice(97)
 
-    then: "The device should be created and become initialised"
+    then: "The device should be created and become initialized"
     conditions.eventually {
       assert device != null
       assert device.getDeviceType() == VelbusDeviceType.VMB2BLE
       assert device.getBaseAddress() == 97
     }
 
-    and: "the blind property values should be initialised"
+    and: "the blind property values should be initialized"
     conditions.eventually {
       assert device.getPropertyValue("CH1") == BlindProcessor.ChannelState.HALT
       assert device.getPropertyValue("CH2") == BlindProcessor.ChannelState.HALT
@@ -2518,7 +2518,7 @@ class VelbusBasicTest extends Specification {
       assert device.getPropertyValue("CH2_SETTING") == BlindProcessor.ChannelSetting.INHIBITED
     }
 
-    when: "the blind inhibit is cancelled"
+    when: "the blind inhibit is canceled"
     device.writeProperty("CH2_INHIBIT", 0d)
 
     then: "the blind should return to normal"
@@ -2538,7 +2538,7 @@ class VelbusBasicTest extends Specification {
       assert device.getPropertyValue("CH2_SETTING") == BlindProcessor.ChannelSetting.INHIBITED_DOWN
     }
 
-    when: "the blind inhibit is cancelled"
+    when: "the blind inhibit is canceled"
     device.writeProperty("CH2_INHIBIT", 0d)
 
     then: "the blind should return to normal"
@@ -2590,7 +2590,7 @@ class VelbusBasicTest extends Specification {
       assert device.getPropertyValue("CH2_LOCKED")
     }
 
-    when: "the blind lock is cancelled"
+    when: "the blind lock is canceled"
     device.writeProperty("CH2_LOCK", 0d)
 
     then: "the blind should return to normal"
@@ -2621,7 +2621,7 @@ class VelbusBasicTest extends Specification {
     })
     def device = network.getDevice(2)
 
-    then: "The device should be created and become initialised"
+    then: "The device should be created and become initialized"
     conditions.eventually {
       assert device != null
       assert device.getDeviceType() == VelbusDeviceType.VMB4AN
@@ -2651,14 +2651,14 @@ class VelbusBasicTest extends Specification {
     })
     device = network.getDevice(254)
 
-    then: "The device should be created and become initialised"
+    then: "The device should be created and become initialized"
     conditions.eventually {
       assert device != null
       assert device.getDeviceType() == VelbusDeviceType.VMBMETEO
       assert device.getBaseAddress() == 254
     }
 
-    and: "the device property values should be initialised"
+    and: "the device property values should be initialized"
     conditions.eventually {
       assert device.getPropertyValue("TEMP_CURRENT") == 22.2
       assert device.getPropertyValue("TEMP_MIN") == -0.6
@@ -2686,14 +2686,14 @@ class VelbusBasicTest extends Specification {
     })
     VelbusDevice device = network.getDevice(8)
 
-    then: "The device should be created and become initialised"
+    then: "The device should be created and become initialized"
     conditions.eventually {
       assert device != null
       assert device.getDeviceType() == VelbusDeviceType.VMBPIRO
       assert device.getBaseAddress() == 8
     }
 
-    and: "the device property values should be initialised"
+    and: "the device property values should be initialized"
     conditions.eventually {
       assert device.getPropertyValue("TEMP_CURRENT") == 29.6
       assert device.getPropertyValue("TEMP_MIN") == 20.0
@@ -2718,14 +2718,14 @@ class VelbusBasicTest extends Specification {
     })
     VelbusDevice device = network.getDevice(5)
 
-    then: "The device should be created and become initialised"
+    then: "The device should be created and become initialized"
     conditions.eventually {
       assert device != null
       assert device.getDeviceType() == VelbusDeviceType.VMB1TS
       assert device.getBaseAddress() == 5
     }
 
-    and: "the device property values should be initialised"
+    and: "the device property values should be initialized"
     conditions.eventually {
       assert device.getPropertyValue("TEMP_CURRENT") == 29.9
       assert device.getPropertyValue("TEMP_MIN") == 19.3

@@ -386,7 +386,7 @@ export const showJsonEditor = (title: string, value: any, updateCallback: (newVa
   const editorRef: Ref<OrAceEditor> = createRef();
   const updateBtnRef: Ref<OrVaadinButton> = createRef();
   const onEditorEdit = () => {
-    // Disable update button whilst edit in progress
+    // Disable update button while edit in progress
     updateBtnRef.value!.disabled = true;
   };
   const onEditorChanged = (ev: OrAceEditorChangedEvent) => {

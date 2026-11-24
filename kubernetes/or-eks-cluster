@@ -7,6 +7,7 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KUBERNETES_DIR="$SCRIPT_DIR"
 source "$SCRIPT_DIR/lib/hostname-reservations"
+source "$SCRIPT_DIR/lib/helm-wait"
 
 DEFAULT_CONFIG_FILE="$KUBERNETES_DIR/cluster.yaml"
 DEFAULT_STORAGE_CLASS_FILE="$KUBERNETES_DIR/cluster/eks/storage-class.yaml"
@@ -1094,6 +1095,8 @@ destroy_preflight() {
 }
 
 uninstall_external_dns() {
+  local wait_flag="$1"
+
   if [ "$MANAGE_EXTERNAL_DNS" = true ] && \
      helm status "$EXTERNAL_DNS_RELEASE_NAME" \
        --kube-context "$KUBE_CONTEXT" \
@@ -1102,11 +1105,13 @@ uninstall_external_dns() {
     helm uninstall "$EXTERNAL_DNS_RELEASE_NAME" \
       --kube-context "$KUBE_CONTEXT" \
       --namespace kube-system \
-      --wait
+      "$wait_flag"
   fi
 }
 
 destroy_cluster() {
+  local wait_flag
+
   require_command aws
   require_command eksctl
   require_command helm
@@ -1118,7 +1123,8 @@ destroy_cluster() {
     "Destroy requires --confirm '$CLUSTER_NAME'."
 
   destroy_preflight
-  uninstall_external_dns
+  wait_flag="$(helm_wait_flag)"
+  uninstall_external_dns "$wait_flag"
 
   if [ "$MANAGE_LOAD_BALANCER_CONTROLLER" = true ] && \
      helm status aws-load-balancer-controller \
@@ -1128,7 +1134,7 @@ destroy_cluster() {
     helm uninstall aws-load-balancer-controller \
       --kube-context "$KUBE_CONTEXT" \
       --namespace kube-system \
-      --wait
+      "$wait_flag"
   fi
 
   log "Deleting EKS cluster '$CLUSTER_NAME' without waiting for system PodDisruptionBudgets."

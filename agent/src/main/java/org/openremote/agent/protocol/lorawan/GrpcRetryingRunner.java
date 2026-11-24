@@ -168,7 +168,7 @@ public class GrpcRetryingRunner {
                     task.accept(channel);
                     execution.recordResult(null);
                   } catch (InterruptedException ex) {
-                    throw new CancellationException("[" + taskName + "] cancelled");
+                    throw new CancellationException("[" + taskName + "] canceled");
                   } finally {
                     shutdownChannel(channel);
                     currentChannel = null;
@@ -306,7 +306,7 @@ public class GrpcRetryingRunner {
                               task.accept(channel);
                             } catch (InterruptedException exception) {
                               throw new CancellationException(
-                                  "[" + taskName + "] cancelled for: " + getClientUri());
+                                  "[" + taskName + "] canceled for: " + getClientUri());
                             } finally {
                               shutdownChannel(channel);
                               currentChannel = null;

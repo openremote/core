@@ -339,7 +339,7 @@ public class MapService implements ContainerService {
           }
         }
       } catch (IOException | ClassNotFoundException | SQLException e) {
-        LOG.log(Level.WARNING, "An error occurred whilst trying to load custom map tiles file", e);
+        LOG.log(Level.WARNING, "An error occurred while trying to load custom map tiles file", e);
       }
     }
 
@@ -366,7 +366,7 @@ public class MapService implements ContainerService {
           }
         }
       } catch (ClassNotFoundException | SQLException e) {
-        LOG.log(Level.WARNING, "An error occurred whilst trying to load map tiles file", e);
+        LOG.log(Level.WARNING, "An error occurred while trying to load map tiles file", e);
       }
     }
 

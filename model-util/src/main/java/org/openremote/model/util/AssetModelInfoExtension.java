@@ -39,7 +39,7 @@ import org.openremote.model.value.MetaItemDescriptor;
 public class AssetModelInfoExtension extends Extension {
 
   public AssetModelInfoExtension() {
-    // Ensure the asset model is initialised
+    // Ensure the asset model is initialized
     ValueUtil.initialise(null);
     // Service loader doesn't seem to work so manually load the agent model provider
     ValueUtil.getModelProviders().add(new AgentModelProvider());

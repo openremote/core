@@ -792,7 +792,7 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
                     boolean overrideVersionTemp = overrideVersion;
 
                     if (existingAsset.isDeletePending()) {
-                      LOG.info("Cancelling pending asset deletion: assetId=" + assetId);
+                      LOG.info("Canceling pending asset deletion: assetId=" + assetId);
                       existingAsset.setDeletePending(false);
                       failedAssetDeleteIds.remove(assetId);
                       em.flush();
@@ -2182,7 +2182,7 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
               + timestamp
               + "}");
 
-      // TODO: Use jsonb type directly to optimise over wire data (couldn't get this to work even
+      // TODO: Use jsonb type directly to optimize over wire data (couldn't get this to work even
       // after seeing
       // https://stackoverflow.com/questions/53847917/postgresql-throws-column-is-of-type-jsonb-but-expression-is-of-type-bytea-with)
       Query query =

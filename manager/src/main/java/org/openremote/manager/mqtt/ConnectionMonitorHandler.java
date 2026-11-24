@@ -151,7 +151,7 @@ public class ConnectionMonitorHandler extends MQTTHandler {
 
   @Override
   public void startProducers(Container container) {
-    // Get all assets that have attributes with user connected meta and initialise them
+    // Get all assets that have attributes with user connected meta and initialize them
     List<Asset<?>> assets =
         assetStorageService.findAll(
             new AssetQuery()

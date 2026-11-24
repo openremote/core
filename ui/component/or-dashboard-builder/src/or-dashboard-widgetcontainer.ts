@@ -137,7 +137,7 @@ export class OrDashboardWidgetContainer extends OrElement {
   }
 
   protected initializeWidgetElem(manifest: WidgetManifest, config: WidgetConfig) {
-    console.debug(`Initialising ${manifest.displayName} widget..`);
+    console.debug(`Initializing ${manifest.displayName} widget..`);
     if (this.orWidget) {
       this.orWidget.remove();
     }

@@ -37,7 +37,7 @@ public enum RulesetStatus {
   /** Ruleset was executed but there was a runtime error. */
   EXECUTION_ERROR,
 
-  /** Ruleset caused a loop whilst being executed. */
+  /** Ruleset caused a loop while being executed. */
   LOOP_ERROR,
 
   /** Ruleset has been disabled. */

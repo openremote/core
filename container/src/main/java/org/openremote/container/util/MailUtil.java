@@ -86,7 +86,7 @@ public class MailUtil {
 
     if (p.isMimeType("multipart/*")) {
 
-      // This mimetype means user agent should pick the most favourable message part
+      // This mimetype means user agent should pick the most favorable message part
       // use preferHTML option to determine which part the return if any
       boolean isAlternative = p.isMimeType("multipart/alternative");
 

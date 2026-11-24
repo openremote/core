@@ -244,7 +244,7 @@ export function getActivePreset(
 }
 
 // A map containing a unique identifier as key, and a WidgetManifest (displayName, displayIcon and HTML tags) as value.
-// We will use this for or-dashboard-browser and to initialise widgets, based on the html tags.
+// We will use this for or-dashboard-browser and to initialize widgets, based on the html tags.
 export const widgetTypes: Map<string, WidgetManifest> = new Map<string, WidgetManifest>();
 
 export function registerWidgetTypes() {

@@ -973,8 +973,8 @@ export class OrRules extends translate(i18next)(OrElement) {
 
   /**
    * HTML event callback on when a "rule (or group) selection is requested".
-   * It is a cancellable event that can prompt a user "to discard changes" if they have been made.
-   * @param event - The cancellable selection event
+   * It is a cancelable event that can prompt a user "to discard changes" if they have been made.
+   * @param event - The cancelable selection event
    */
   protected _onRuleSelectionRequested(event: OrRulesRequestSelectionEvent) {
     const isModified = this._viewer?.modified;
@@ -1168,7 +1168,7 @@ export class OrRules extends translate(i18next)(OrElement) {
           if (node.ruleset) {
             moveAndSave(node.ruleset, groupId)
               ?.then(() => {
-                this._rulesTree?.moveNodesToGroup([node], ev.detail.groupNode); // move the nodes again, as the initial event got cancelled.
+                this._rulesTree?.moveNodesToGroup([node], ev.detail.groupNode); // move the nodes again, as the initial event got canceled.
                 showSnackbar(undefined, "ruleDragSuccess!");
               })
               .catch(() => {

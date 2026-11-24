@@ -40,7 +40,7 @@ import org.openremote.model.syslog.SyslogEvent;
     getterVisibility = JsonAutoDetect.Visibility.NONE,
     setterVisibility = JsonAutoDetect.Visibility.NONE,
     isGetterVisibility = JsonAutoDetect.Visibility.NONE)
-// TODO: Provide authorisation method on this interface
+// TODO: Provide authorization method on this interface
 @FunctionalInterface
 public interface EventFilter<E extends Event> {
   /**

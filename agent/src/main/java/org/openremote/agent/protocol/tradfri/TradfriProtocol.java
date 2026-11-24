@@ -164,7 +164,7 @@ public class TradfriProtocol extends AbstractProtocol<TradfriAgent, DefaultAgent
   }
 
   protected void synchroniseAssets(Device[] devices) {
-    LOG.fine("Synchronising assets with gateway devices: " + this);
+    LOG.fine("Synchronizing assets with gateway devices: " + this);
     boolean isFirstRun = tradfriDevices == null;
 
     if (isFirstRun) {

@@ -60,7 +60,7 @@ import static org.openremote.model.value.ValueType.TEXT
 class HttpServerProtocolTest extends Specification implements ManagerContainerTrait {
 
   def tryPost(TestResource authenticatedTestResource, Asset testAsset) {
-    // There's some weird behaviour where sometimes a forbidden exception is thrown and sometimes not
+    // There's some weird behavior where sometimes a forbidden exception is thrown and sometimes not
     try {
       authenticatedTestResource.postAsset(testAsset)
     } catch (Exception ex) {

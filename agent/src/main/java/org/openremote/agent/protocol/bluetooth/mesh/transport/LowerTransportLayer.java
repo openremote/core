@@ -751,7 +751,7 @@ abstract class LowerTransportLayer extends UpperTransportLayer {
           incompleteTimerTask = null;
 
           LOG.info(
-              "Cancelling Scheduled block ack and incomplete timer, sending an immediate block ack");
+              "Canceling Scheduled block ack and incomplete timer, sending an immediate block ack");
           sendBlockAck(seqZero, ttl, blockAckSrc, blockAckDst, segN);
           // mBlockAckSent = false;
         }
@@ -881,7 +881,7 @@ abstract class LowerTransportLayer extends UpperTransportLayer {
       final int seqZero, final int ttl, final int src, final int dst, final int segN) {
     final int blockAck = mSegmentedAccessBlockAck;
     if (BlockAcknowledgementMessage.hasAllSegmentsBeenReceived(blockAck, segN)) {
-      LOG.info("All segments received cancelling incomplete timer");
+      LOG.info("All segments received canceling incomplete timer");
       cancelIncompleteTimer();
     }
 

@@ -402,7 +402,7 @@ public class RulesService extends RouteBuilder implements ContainerService {
       try {
         geofenceAssetAdapter.stop(container);
       } catch (Exception e) {
-        LOG.log(SEVERE, "Exception thrown whilst stopping geofence adapter", e);
+        LOG.log(SEVERE, "Exception thrown while stopping geofence adapter", e);
       }
     }
 
@@ -1115,9 +1115,7 @@ public class RulesService extends RouteBuilder implements ContainerService {
 
       } catch (Exception e) {
         LOG.log(
-            SEVERE,
-            "Exception thrown by geofence adapter whilst processing location predicates",
-            e);
+            SEVERE, "Exception thrown by geofence adapter while processing location predicates", e);
       } finally {
         // Clear modified assets ready for next batch
         assetsWithModifiedLocationPredicates.clear();
