@@ -116,6 +116,12 @@ public class AssetProcessingService extends RouteBuilder implements ContainerSer
   protected Timer eventTimer;
   protected Map<String, Counter> eventCounters;
 
+  public static class AttributeEventProcessorUnavailableException extends IllegalStateException {
+    private AttributeEventProcessorUnavailableException() {
+      super("Attribute event processor is not ready");
+    }
+  }
+
   @Override
   public int getPriority() {
     return PRIORITY;
@@ -390,7 +396,8 @@ public class AssetProcessingService extends RouteBuilder implements ContainerSer
   /**
    * Send an internal attribute change event for asynchronous processing.
    *
-   * @throws IllegalStateException if attribute event processing is unavailable
+   * @throws AttributeEventProcessorUnavailableException if attribute event processing is
+   *     unavailable
    */
   public void sendAttributeEvent(AttributeEvent attributeEvent) {
     sendAttributeEvent(attributeEvent, null);
@@ -399,7 +406,8 @@ public class AssetProcessingService extends RouteBuilder implements ContainerSer
   /**
    * Send an internal attribute change event for asynchronous processing.
    *
-   * @throws IllegalStateException if attribute event processing is unavailable
+   * @throws AttributeEventProcessorUnavailableException if attribute event processing is
+   *     unavailable
    */
   public void sendAttributeEvent(AttributeEvent attributeEvent, String source) {
     prepareAttributeEvent(attributeEvent, source).asyncSend();
@@ -408,7 +416,8 @@ public class AssetProcessingService extends RouteBuilder implements ContainerSer
   /**
    * Process an internal attribute change before continuing startup work that depends on the value.
    *
-   * @throws IllegalStateException if attribute event processing is unavailable
+   * @throws AttributeEventProcessorUnavailableException if attribute event processing is
+   *     unavailable
    * @throws AssetProcessingException if the attribute event cannot be processed
    */
   public void sendAttributeEventAndWait(AttributeEvent attributeEvent, String source) {
@@ -427,7 +436,7 @@ public class AssetProcessingService extends RouteBuilder implements ContainerSer
                 .getRouteController()
                 .getRouteStatus(ATTRIBUTE_EVENT_ROUTE_ID)
             != ServiceStatus.Started) {
-      throw new IllegalStateException("Attribute event processor is not ready");
+      throw new AttributeEventProcessorUnavailableException();
     }
 
     attributeEvent.setSource(source);

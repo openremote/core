@@ -41,6 +41,7 @@ import org.openremote.container.security.AuthContext;
 import org.openremote.container.security.IdentityProvider;
 import org.openremote.manager.asset.AssetProcessingException;
 import org.openremote.manager.asset.AssetProcessingService;
+import org.openremote.manager.asset.AssetProcessingService.AttributeEventProcessorUnavailableException;
 import org.openremote.manager.asset.AssetStorageService;
 import org.openremote.manager.gateway.GatewayService;
 import org.openremote.manager.security.ManagerIdentityProvider;
@@ -356,6 +357,9 @@ public class ConnectionMonitorHandler extends MQTTHandler {
   protected void updateUserConnectedStatus(
       String userID, Collection<AttributeRef> attributeRefs, boolean connected) {
     if (!messageBrokerService.isStarted()) {
+      LOG.fine(
+          () ->
+              "Skipping MQTT connection status update for user " + userID + " because Camel is stopped");
       return;
     }
 
@@ -381,10 +385,19 @@ public class ConnectionMonitorHandler extends MQTTHandler {
             + attributeRefs.size()
             + " attribute(s) connected="
             + connected);
-    attributeRefs.forEach(
-        attributeRef ->
-            assetProcessingService.sendAttributeEvent(
-                new AttributeEvent(attributeRef, connected), getClass().getSimpleName()));
+    try {
+      for (AttributeRef attributeRef : attributeRefs) {
+        assetProcessingService.sendAttributeEvent(
+            new AttributeEvent(attributeRef, connected), getClass().getSimpleName());
+      }
+    } catch (AttributeEventProcessorUnavailableException e) {
+      LOG.log(
+          messageBrokerService.isStarted() ? Level.WARNING : Level.FINE,
+          () ->
+              "Skipping remaining MQTT connection status updates for user "
+                  + userID
+                  + " because the attribute event processor is unavailable");
+    }
   }
 
   protected Pair<String, Set<AttributeRef>> getUserIDAndAttributeRefs(
