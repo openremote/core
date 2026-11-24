@@ -12,6 +12,7 @@ Gradle is used as the build system; run `./gradlew clean installDist` for a full
 In sandboxed environments, add `--offline` (requires dependencies to already be cached).
 
 ## Commits
+
 - Do not add "Co-authored-by", "Generated with", or any other AI attribution trailers or footers to commit messages or PR descriptions.
 - Commit messages should contain only the change summary and body.
 
