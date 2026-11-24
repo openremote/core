@@ -28,11 +28,11 @@ class RulesServiceStartupTest extends Specification {
     given:
     def processed = []
     def service = new RulesService() {
-      @Override
-      protected void doProcessAttributeUpdate(AttributeEvent event) {
-        processed.add(event)
-      }
-    }
+              @Override
+              protected void doProcessAttributeUpdate(AttributeEvent event) {
+                processed.add(event)
+              }
+            }
     def event = new AttributeEvent("asset", "count", 1)
     def conditions = new PollingConditions(timeout: 5)
     def delivery = Thread.ofPlatform().unstarted { service.onAttributeEvent(event) }

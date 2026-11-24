@@ -361,7 +361,9 @@ public class ConnectionMonitorHandler extends MQTTHandler {
     if (!messageBrokerService.isStarted()) {
       LOG.fine(
           () ->
-              "Skipping MQTT connection status update for user " + userID + " because Camel is stopped");
+              "Skipping MQTT connection status update for user "
+                  + userID
+                  + " because Camel is stopped");
       return;
     }
 

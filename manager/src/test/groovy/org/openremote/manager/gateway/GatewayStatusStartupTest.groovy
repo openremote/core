@@ -57,13 +57,17 @@ class GatewayStatusStartupTest extends Specification {
     service.startProducers(null)
 
     then:
-    1 * processor.sendAttributeEventAndWait({ isDisconnectedStatus(it, stored.id) }, GatewayConnector.EVENT_SOURCE)
+    1 * processor.sendAttributeEventAndWait({
+      isDisconnectedStatus(it, stored.id)
+    }, GatewayConnector.EVENT_SOURCE)
 
     when:
     service.processGatewayChange(added, creation)
 
     then:
-    1 * processor.sendAttributeEvent({ isDisconnectedStatus(it, added.id) }, GatewayConnector.EVENT_SOURCE)
+    1 * processor.sendAttributeEvent({
+      isDisconnectedStatus(it, added.id)
+    }, GatewayConnector.EVENT_SOURCE)
   }
 
   def "shutdown disconnects every gateway even after attribute processing stops"() {
