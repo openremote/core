@@ -375,13 +375,13 @@ public class DashboardStorageService extends RouteBuilder implements ContainerSe
    */
   public boolean delete(String dashboardId, String realm, String userId)
       throws IllegalArgumentException, EntityNotFoundException {
-    if (dashboardId == null) {
+    if (TextUtil.isNullOrEmpty(dashboardId)) {
       throw new IllegalArgumentException("No dashboardId is specified.");
     }
-    if (realm == null) {
+    if (TextUtil.isNullOrEmpty(realm)) {
       throw new IllegalArgumentException("No realm is specified.");
     }
-    if (userId == null) {
+    if (TextUtil.isNullOrEmpty(userId)) {
       throw new IllegalArgumentException("No userId is specified.");
     }
     return persistenceService.doReturningTransaction(
