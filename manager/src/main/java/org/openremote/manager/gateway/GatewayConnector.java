@@ -35,6 +35,7 @@ import java.util.stream.Stream;
 import org.openremote.container.Container;
 import org.openremote.container.timer.TimerService;
 import org.openremote.manager.asset.AssetProcessingService;
+import org.openremote.manager.asset.AssetProcessingService.AttributeEventProcessorUnavailableException;
 import org.openremote.manager.asset.AssetStorageService;
 import org.openremote.manager.system.VersionInfo;
 import org.openremote.model.asset.*;
@@ -126,11 +127,17 @@ public class GatewayConnector {
       eventConsumerMap.put(AssetEvent.class, (e) -> onAssetEvent((AssetEvent) e));
       eventConsumerMap.put(AttributeEvent.class, (e) -> onAttributeEvent((AttributeEvent) e));
     }
+  }
+
+  AttributeEvent disconnectedStatusEvent() {
     LOG.finest(
-        "Setting connection status=" + ConnectionStatus.DISCONNECTED + ": " + getGatewayIdString());
-    publishAttributeEvent(
-        new AttributeEvent(
-            gatewayId, GatewayAsset.STATUS, ConnectionStatus.DISCONNECTED, timerService.getNow()));
+        () ->
+            "Setting connection status="
+                + ConnectionStatus.DISCONNECTED
+                + ": "
+                + getGatewayIdString());
+    return new AttributeEvent(
+        gatewayId, GatewayAsset.STATUS, ConnectionStatus.DISCONNECTED, timerService.getNow());
   }
 
   protected void sendMessageToGateway(Object message) {
@@ -205,11 +212,15 @@ public class GatewayConnector {
     }
 
     initialSyncInProgress = false;
-    LOG.finest(
-        "Setting connection status=" + ConnectionStatus.DISCONNECTED + ": " + getGatewayIdString());
-    publishAttributeEvent(
-        new AttributeEvent(
-            gatewayId, GatewayAsset.STATUS, ConnectionStatus.DISCONNECTED, timerService.getNow()));
+    try {
+      publishAttributeEvent(disconnectedStatusEvent());
+    } catch (AttributeEventProcessorUnavailableException e) {
+      LOG.fine(
+          () ->
+              "Skipping disconnected status for "
+                  + gatewayId
+                  + " while the attribute processor is unavailable");
+    }
   }
 
   protected void disconnect(GatewayDisconnectEvent.Reason reason) {
