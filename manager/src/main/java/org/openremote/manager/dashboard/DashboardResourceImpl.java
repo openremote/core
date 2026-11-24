@@ -20,6 +20,7 @@ package org.openremote.manager.dashboard;
 
 import static jakarta.ws.rs.core.Response.Status.*;
 
+import jakarta.persistence.EntityNotFoundException;
 import jakarta.persistence.OptimisticLockException;
 import jakarta.ws.rs.WebApplicationException;
 import java.util.HashSet;
@@ -111,9 +112,9 @@ public class DashboardResourceImpl extends ManagerWebResource implements Dashboa
       dashboard.setAccess(DashboardAccess.SHARED);
       return this.dashboardStorageService.createNew(ValueUtil.clone(dashboard));
     } catch (IllegalArgumentException ex) {
-      throw new WebApplicationException(ex, BAD_REQUEST);
+      throw new WebApplicationException(ex, BAD_REQUEST); // Invalid dashboard, or ID already in use
     } catch (IllegalStateException ex) {
-      throw new WebApplicationException(ex, INTERNAL_SERVER_ERROR);
+      throw new WebApplicationException(ex, INTERNAL_SERVER_ERROR); // An unexpected error occurred
     }
   }
 
@@ -129,9 +130,11 @@ public class DashboardResourceImpl extends ManagerWebResource implements Dashboa
     try {
       return this.dashboardStorageService.update(ValueUtil.clone(dashboard), realm, getUserId());
     } catch (IllegalArgumentException ex) {
-      throw new WebApplicationException(ex, NOT_FOUND);
+      throw new WebApplicationException(ex, BAD_REQUEST); // Parameters are missing or invalid
+    } catch (EntityNotFoundException ex) {
+      throw new WebApplicationException(ex, NOT_FOUND); // Dashboard does not exist to the user
     } catch (IllegalStateException ex) {
-      throw new WebApplicationException(ex, INTERNAL_SERVER_ERROR);
+      throw new WebApplicationException(ex, INTERNAL_SERVER_ERROR); // An unexpected error occurred
     } catch (OptimisticLockException opEx) {
       throw new WebApplicationException(
           "Refresh the dashboard from the server and try to update the changes again",
@@ -151,9 +154,11 @@ public class DashboardResourceImpl extends ManagerWebResource implements Dashboa
     try {
       this.dashboardStorageService.delete(dashboardId, realm, getUserId());
     } catch (IllegalArgumentException ex) {
-      throw new WebApplicationException(ex, NOT_FOUND);
+      throw new WebApplicationException(ex, BAD_REQUEST); // Parameters are missing or invalid
+    } catch (EntityNotFoundException ex) {
+      throw new WebApplicationException(ex, NOT_FOUND); // Dashboard does not exist to the user
     } catch (IllegalStateException ex) {
-      throw new WebApplicationException(ex, INTERNAL_SERVER_ERROR);
+      throw new WebApplicationException(ex, INTERNAL_SERVER_ERROR); // An unexpected error occurred
     }
   }
 

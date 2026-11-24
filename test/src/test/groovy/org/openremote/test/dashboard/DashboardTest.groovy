@@ -431,7 +431,7 @@ class DashboardTest extends Specification implements ManagerContainerTrait {
 
     when: "the now stale copy of the regular user is altered and saved"
     fetchedByUser.displayName = "Stale edit"
-    adminUserDashboardResource.update(null, fetchedByUser)
+    alternativeUserDashboardResource.update(null, fetchedByUser)
 
     then: "the stale save is rejected with 409 conflict"
     WebApplicationException conflictEx = thrown()

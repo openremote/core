@@ -18,6 +18,7 @@
  */
 package org.openremote.manager.dashboard;
 
+import jakarta.persistence.EntityNotFoundException;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import java.util.*;
@@ -284,7 +285,15 @@ public class DashboardStorageService extends RouteBuilder implements ContainerSe
     return sqlBuilder;
   }
 
-  // Creation of initial dashboard (so no updating!)
+  /**
+   * Creates a new dashboard; the dashboard keeps the supplied identifier or gets a newly generated
+   * unique identifier. Callers are responsible for enforcing realm authorization.
+   *
+   * @param dashboard the dashboard to create
+   * @return the created dashboard
+   * @throws IllegalArgumentException if no dashboard is specified or its identifier is already in
+   *     use
+   */
   public Dashboard createNew(Dashboard dashboard) {
     if (dashboard == null) {
       throw new IllegalArgumentException("No dashboard is specified.");
@@ -304,16 +313,29 @@ public class DashboardStorageService extends RouteBuilder implements ContainerSe
         });
   }
 
-  // Update of an existing dashboard
+  /**
+   * Updates an existing dashboard; the dashboard must exist and be accessible to the specified
+   * user. Callers are responsible for enforcing realm authorization.
+   *
+   * @param dashboard the dashboard to update
+   * @param realm the realm of the dashboard
+   * @param userId the id of the user performing the update
+   * @return the updated dashboard
+   * @throws IllegalArgumentException if a parameter is missing or invalid
+   * @throws EntityNotFoundException if the dashboard does not exist or is not accessible to the
+   *     specified user
+   * @throws jakarta.persistence.OptimisticLockException when the supplied dashboard version is
+   *     stale, i.e. the dashboard was concurrently modified
+   */
   public Dashboard update(Dashboard dashboard, String realm, String userId)
-      throws IllegalArgumentException {
+      throws IllegalArgumentException, EntityNotFoundException {
     if (dashboard == null || TextUtil.isNullOrEmpty(dashboard.getId())) {
       throw new IllegalArgumentException("No dashboard is specified.");
     }
-    if (realm == null) {
+    if (TextUtil.isNullOrEmpty(realm)) {
       throw new IllegalArgumentException("No realm is specified.");
     }
-    if (userId == null) {
+    if (TextUtil.isNullOrEmpty(userId)) {
       throw new IllegalArgumentException("No userId is specified.");
     }
     return persistenceService.doReturningTransaction(
@@ -334,13 +356,25 @@ public class DashboardStorageService extends RouteBuilder implements ContainerSe
 
             return em.merge(dashboard);
           } catch (NoResultException e) {
-            throw new IllegalArgumentException("Dashboard does not exist or is inaccessible.");
+            throw new EntityNotFoundException("Dashboard does not exist or is inaccessible.");
           }
         });
   }
 
+  /**
+   * Deletes an existing dashboard; the dashboard must exist and be accessible to the specified
+   * user. Callers are responsible for enforcing realm authorization.
+   *
+   * @param dashboardId the identifier of the dashboard to delete
+   * @param realm the realm of the dashboard
+   * @param userId the id of the user performing the deletion
+   * @return {@code true} when the dashboard was deleted
+   * @throws IllegalArgumentException if a parameter is missing or invalid
+   * @throws EntityNotFoundException if the dashboard does not exist or is not accessible to the
+   *     specified user
+   */
   public boolean delete(String dashboardId, String realm, String userId)
-      throws IllegalArgumentException {
+      throws IllegalArgumentException, EntityNotFoundException {
     if (dashboardId == null) {
       throw new IllegalArgumentException("No dashboardId is specified.");
     }
@@ -359,7 +393,7 @@ public class DashboardStorageService extends RouteBuilder implements ContainerSe
                   new DashboardQuery().ids(dashboardId).realm(new RealmPredicate(realm)).limit(1),
                   userId);
           if (dashboards == null || dashboards.length == 0) {
-            throw new IllegalArgumentException("No dashboards could be found.");
+            throw new EntityNotFoundException("No dashboards could be found.");
           }
           Query query = em.createQuery("DELETE from Dashboard d where d.id=?1 and d.realm =?2");
           query.setParameter(1, dashboardId);
