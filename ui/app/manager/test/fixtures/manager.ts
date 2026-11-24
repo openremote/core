@@ -157,7 +157,10 @@ export class Manager {
    */
   async switchToRealmByRealmPicker(realm: string) {
     await this.page.click("#realm-picker");
-    await this.page.locator("#realm-picker").getByRole("option").filter({ hasText: realm }).click();
+    const option = this.page.locator("#realm-picker").getByRole("option").filter({ hasText: realm });
+    await option.click();
+    // The dropdown covers the picker and keeps taking clicks until its closing animation ends
+    await expect(option).toBeHidden();
   }
 
   /**
