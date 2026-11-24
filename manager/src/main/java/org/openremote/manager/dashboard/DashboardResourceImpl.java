@@ -111,7 +111,7 @@ public class DashboardResourceImpl extends ManagerWebResource implements Dashboa
       dashboard.setAccess(DashboardAccess.SHARED);
       return this.dashboardStorageService.createNew(ValueUtil.clone(dashboard));
     } catch (IllegalArgumentException ex) {
-      throw new WebApplicationException("A dashboard with this id already exists", ex, CONFLICT);
+      throw new WebApplicationException(ex, BAD_REQUEST);
     } catch (IllegalStateException ex) {
       throw new WebApplicationException(ex, INTERNAL_SERVER_ERROR);
     }
