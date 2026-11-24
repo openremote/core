@@ -20,6 +20,7 @@ package org.openremote.test.dashboard
 
 import jakarta.ws.rs.ForbiddenException
 import jakarta.ws.rs.NotFoundException
+import jakarta.ws.rs.WebApplicationException
 import org.openremote.manager.asset.AssetStorageService
 import org.openremote.manager.setup.SetupService
 import org.openremote.model.asset.AssetResource
@@ -399,5 +400,58 @@ class DashboardTest extends Specification implements ManagerContainerTrait {
 
     then: "it cannot be found as well, since it got deleted"
     thrown NotFoundException
+
+    /* ------------------------- */
+
+    // Test to verify reading a dashboard does not change its version, so a fetch by
+    // another user cannot make an editor's save fail with a version conflict
+
+    when: "a dashboard with a widget is created and fetched by the admin and another user"
+    def versionWidget = new DashboardWidget()
+            .setDisplayName("Version widget")
+            .setWidgetTypeId("linechart")
+            .setGridItem(new DashboardGridItem().setX(0).setY(0).setW(1).setH(1))
+    def versionDashboard = new Dashboard(MASTER_REALM, "Version dashboard", screenPresets, adminUser.id)
+            .setTemplate(new DashboardTemplate(screenPresets).setWidgets([versionWidget] as DashboardWidget[]))
+    def versioned = adminUserDashboardResource.create(null, versionDashboard)
+    def fetchedByAdmin = adminUserDashboardResource.get(null, MASTER_REALM, versioned.id)
+    def fetchedByUser = alternativeUserDashboardResource.get(null, MASTER_REALM, versioned.id)
+
+    then: "the reads leave the version unchanged"
+    assert fetchedByAdmin.version == versioned.version
+    assert fetchedByUser.version == versioned.version
+
+    when: "the admin alters their fetched copy, and saves it"
+    fetchedByAdmin.displayName = "Version dashboard (edited)"
+    def versionedSaved = adminUserDashboardResource.update(null, fetchedByAdmin)
+
+    then: "the save succeeds and bumps the version by one"
+    assert versionedSaved.displayName == "Version dashboard (edited)"
+    assert versionedSaved.version == fetchedByAdmin.version + 1
+
+    when: "the now stale copy of the regular user is altered and saved"
+    fetchedByUser.displayName = "Stale edit"
+    adminUserDashboardResource.update(null, fetchedByUser)
+
+    then: "the stale save is rejected with 409 conflict"
+    WebApplicationException conflictEx = thrown()
+    conflictEx.response.withCloseable { r ->
+      assert r.status == 409
+      return true
+    }
+
+    /* ------------------------- */
+
+    // Test to verify a dashboard with the same unique ID cannot be created.
+
+    when: "a dashboard is created with an id that already exists"
+    alternativeUserDashboardResource.create(null, new Dashboard(MASTER_REALM, "Duplicate dashboard", screenPresets, alternativeUser.id).setId(versioned.id))
+
+    then: "the duplicate create is rejected with 409 conflict"
+    WebApplicationException duplicateEx = thrown()
+    duplicateEx.response.withCloseable { r ->
+      assert r.status == 409
+      return true
+    }
   }
 }

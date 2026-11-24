@@ -20,6 +20,7 @@ package org.openremote.manager.dashboard;
 
 import static jakarta.ws.rs.core.Response.Status.*;
 
+import jakarta.persistence.OptimisticLockException;
 import jakarta.ws.rs.WebApplicationException;
 import java.util.HashSet;
 import java.util.Optional;
@@ -98,17 +99,19 @@ public class DashboardResourceImpl extends ManagerWebResource implements Dashboa
 
   @Override
   public Dashboard create(RequestParams requestParams, Dashboard dashboard) {
-    String realm = dashboard.getRealm();
-    if (realm == null) {
+    if (dashboard == null || dashboard.getRealm() == null) {
       throw new WebApplicationException(BAD_REQUEST);
     }
-    if (!isRealmActiveAndAccessible(dashboard.getRealm())) {
+    String realm = dashboard.getRealm();
+    if (!isRealmActiveAndAccessible(realm)) {
       throw new WebApplicationException(FORBIDDEN);
     }
     try {
       dashboard.setOwnerId(getUserId());
       dashboard.setAccess(DashboardAccess.SHARED);
       return this.dashboardStorageService.createNew(ValueUtil.clone(dashboard));
+    } catch (IllegalArgumentException ex) {
+      throw new WebApplicationException("A dashboard with this id already exists", ex, CONFLICT);
     } catch (IllegalStateException ex) {
       throw new WebApplicationException(ex, INTERNAL_SERVER_ERROR);
     }
@@ -116,10 +119,10 @@ public class DashboardResourceImpl extends ManagerWebResource implements Dashboa
 
   @Override
   public Dashboard update(RequestParams requestParams, Dashboard dashboard) {
-    String realm = dashboard.getRealm();
-    if (realm == null) {
+    if (dashboard == null || dashboard.getRealm() == null) {
       throw new WebApplicationException(BAD_REQUEST);
     }
+    String realm = dashboard.getRealm();
     if (!isRealmActiveAndAccessible(realm)) {
       throw new WebApplicationException(FORBIDDEN);
     }
@@ -129,6 +132,11 @@ public class DashboardResourceImpl extends ManagerWebResource implements Dashboa
       throw new WebApplicationException(ex, NOT_FOUND);
     } catch (IllegalStateException ex) {
       throw new WebApplicationException(ex, INTERNAL_SERVER_ERROR);
+    } catch (OptimisticLockException opEx) {
+      throw new WebApplicationException(
+          "Refresh the dashboard from the server and try to update the changes again",
+          opEx,
+          CONFLICT);
     }
   }
 
