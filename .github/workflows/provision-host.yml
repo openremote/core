@@ -75,7 +75,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 68ec88625c1a5f463a7360158e575257de088051 # The EC2 template after this commit exceeds the 50kb size limit, which will break the script.
+          ref: bf6ea01acd63552bfc9eaae07d44d10dd4000424 # The EC2 template after this commit exceeds the 50kb size limit, which will break the script.
 
       - name: Provision Host
         if: ${{ steps.checkUserMember.outputs.isTeamMember == 'true' }}
