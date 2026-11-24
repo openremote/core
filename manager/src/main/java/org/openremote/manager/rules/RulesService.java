@@ -636,6 +636,9 @@ public class RulesService extends RouteBuilder implements ContainerService {
         return;
       }
 
+      // Deployment and startEngines() share ENGINE_LOCK. If deployment runs first, startEngines()
+      // sees this engine. If startup runs first, this volatile read sees true. Calling start()
+      // again on a running engine is harmless.
       if (startDone) {
         engine.start();
       }
