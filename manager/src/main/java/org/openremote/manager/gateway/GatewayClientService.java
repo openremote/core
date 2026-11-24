@@ -30,7 +30,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
-import java.util.stream.Collectors;
 import org.apache.camel.builder.RouteBuilder;
 import org.openremote.container.message.MessageBrokerService;
 import org.openremote.container.persistence.PersistenceService;
@@ -70,6 +69,7 @@ public class GatewayClientService extends RouteBuilder implements ContainerServi
   protected final Map<String, GatewayClientConnector> connectionRealmMap =
       new ConcurrentHashMap<>();
   protected GatewayTunnelFactory tunnelFactory;
+  private boolean producersStarted;
 
   @Override
   public void init(Container container) throws Exception {
@@ -138,22 +138,26 @@ public class GatewayClientService extends RouteBuilder implements ContainerServi
     if (tunnelFactory != null) {
       tunnelFactory.start();
     }
-
-    // Get existing connections
-    connectionRealmMap.putAll(
-        persistenceService
-            .doReturningTransaction(
-                entityManager ->
-                    entityManager
-                        .createQuery("select gc from GatewayConnection gc", GatewayConnection.class)
-                        .getResultList())
-            .stream()
-            .collect(
-                Collectors.toMap(GatewayConnection::getLocalRealm, this::createClientConnector)));
   }
 
   @Override
-  public void stop(Container container) throws Exception {
+  public synchronized void startProducers(Container container) {
+    // The database includes any changes received before the producer phase.
+    List<GatewayConnection> connections =
+        persistenceService.doReturningTransaction(
+            entityManager ->
+                entityManager
+                    .createQuery("select gc from GatewayConnection gc", GatewayConnection.class)
+                    .getResultList());
+    for (GatewayConnection connection : connections) {
+      connectionRealmMap.put(connection.getLocalRealm(), createClientConnector(connection));
+    }
+    producersStarted = true;
+  }
+
+  @Override
+  public synchronized void stop(Container container) throws Exception {
+    producersStarted = false;
     connectionRealmMap.forEach(
         (realm, client) -> {
           try {
@@ -188,12 +192,19 @@ public class GatewayClientService extends RouteBuilder implements ContainerServi
   protected synchronized void processConnectionChange(
       GatewayConnection connection, PersistenceEvent.Cause cause) {
 
+    if (!producersStarted) {
+      return;
+    }
+
     LOG.info("Modified gateway client connection '" + cause + "': " + connection);
 
     connectionRealmMap.compute(
         connection.getLocalRealm(),
         (realm, existingConnection) -> {
           if (existingConnection != null) {
+            if (cause == PersistenceEvent.Cause.CREATE) {
+              return existingConnection;
+            }
             try {
               existingConnection.close();
             } catch (Exception ignored) {

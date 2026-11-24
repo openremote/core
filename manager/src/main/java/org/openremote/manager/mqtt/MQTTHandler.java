@@ -123,6 +123,9 @@ public abstract class MQTTHandler {
     }
   }
 
+  /** Starts work that needs running event consumers before the public MQTT acceptor opens. */
+  public void startProducers(Container container) throws Exception {}
+
   /** Called when the system stops to allow for any cleanup. */
   public void stop() throws Exception {
     if (clientSession != null) {
