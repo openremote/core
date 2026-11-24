@@ -62,7 +62,8 @@ jobs:
   ui-app-tests-status:
     name: UI App Tests Status
     needs: ui-app-tests
-    if: always()
+    # A skipped check satisfies branch protection, so a canceled merge queue run must still fail
+    if: ${{ !cancelled() || github.event_name == 'merge_group' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check matrix job result
