@@ -104,6 +104,10 @@ class AssetModelTest extends Specification implements ManagerContainerTrait {
     assetStorageService = container.getService(AssetStorageService.class)
   }
 
+  def cleanupSpec() {
+    Files.deleteIfExists(Paths.get(PersistenceService.OR_STORAGE_DIR_DEFAULT, AssetModelService.DIRECTORY_NAME, CUSTOM_ASSET_TYPE))
+  }
+
   def "Check AttributeMap equality checking"() {
     given: "required services"
     def managerTestSetup = container.getService(SetupService.class).getTaskOfType(ManagerTestSetup.class)

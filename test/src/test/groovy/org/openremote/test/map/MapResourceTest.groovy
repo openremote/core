@@ -80,6 +80,11 @@ class MapResourceTest extends Specification implements ManagerContainerTrait {
     mapResource = clientTarget.proxy(MapResource.class)
   }
 
+  def cleanupSpec() {
+    Files.deleteIfExists(Path.of("tmp/manager/mapsettings.json"))
+    Files.deleteIfExists(Path.of("tmp/map/eindhoven.mbtiles"))
+  }
+
   private static void verifyMapTiles() {
     def message = """
     Invalid or missing map tiles file: ${MAPDATA_MBTILES_PATH}

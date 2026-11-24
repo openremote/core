@@ -178,7 +178,12 @@ fi
 EXISTING_DNS=""
 if [ "$CLUSTER_EXISTS" = true ]; then
   cluster_cli kubeconfig
-  releases="$(helm list --all --kube-context "$K_CONTEXT" --namespace kube-system --filter '^openremote-external-dns$' --output json)"
+  helm_list_args=(list --kube-context "$K_CONTEXT" --namespace kube-system
+    --filter '^openremote-external-dns$' --output json)
+  # Helm 4 lists releases in all states by default and removed --all.
+  helm_version="$(helm version --template '{{.Version}}')"
+  if [[ "$helm_version" = v3.* ]]; then helm_list_args+=(--all); fi
+  releases="$(helm "${helm_list_args[@]}")"
   if [ "$(jq 'length' <<< "$releases")" -gt 0 ]; then
     EXISTING_DNS="$(helm get values openremote-external-dns --kube-context "$K_CONTEXT" --namespace kube-system --output json)"
   fi
