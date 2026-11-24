@@ -72,6 +72,9 @@ public class ApplyPredictedDataPointsService implements ContainerService {
   protected final Map<AttributeRef, ScheduledEntry> scheduledEntries = new HashMap<>();
   protected ScheduledFuture<?> scheduledFuture;
   private boolean stopped;
+  private final Consumer<AssetPredictedDatapointEvent> predictedDatapointsConsumer =
+      this::onPredictedDatapointsChanged;
+  private final Consumer<AttributeEvent> attributeEventConsumer = this::onAttributeEvent;
 
   @Override
   public int getPriority() {
