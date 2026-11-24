@@ -11,6 +11,10 @@ The backend is written in Java, we target JDK 21, use modern language features u
 Gradle is used as the build system; run `./gradlew clean installDist` for a full clean build.  
 In sandboxed environments, add `--offline` (requires dependencies to already be cached).
 
+## Commits
+
+- Do not add "Co-authored-by", "Generated with", or any other AI attribution trailers or footers to commit messages or PR descriptions.
+
 ## Tests
 
 ### Writing tests

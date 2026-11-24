@@ -182,7 +182,10 @@ public abstract class WebService implements ContainerService {
   }
 
   @Override
-  public void start(Container container) throws Exception {
+  public void start(Container container) throws Exception {}
+
+  @Override
+  public void startIngress(Container container) throws Exception {
     if (undertow != null) {
       undertow.start();
       LOG.log(INFO, "Webserver ready on http://" + host + ":" + port);

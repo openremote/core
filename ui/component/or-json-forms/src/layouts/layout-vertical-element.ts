@@ -381,7 +381,7 @@ export class LayoutVerticalElement extends LayoutBaseElement<VerticalLayout | Gr
         const handleChange = (selectedSchema: CombinatorInfo) => {
           selectedOneOf = selectedSchema;
           (dialog.shadowRoot!.getElementById("add-btn") as OrMwcInput).disabled = !selectedOneOf;
-          (dialog.shadowRoot!.getElementById("schema-description") as HTMLParagraphElement).innerHTML =
+          (dialog.shadowRoot!.getElementById("schema-description") as HTMLParagraphElement).textContent =
             (selectedOneOf ? selectedOneOf.description : i18next.t("schema.selectTypeMessage")) ||
             i18next.t("schema.noDescriptionAvailable");
         };

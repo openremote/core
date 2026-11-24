@@ -494,7 +494,7 @@ services:
   # Query Exporter - Prometheus metrics from PostgreSQL queries
   # Documentation: https://github.com/albertodonato/query-exporter
   query-exporter:
-    image: adonato/query-exporter:latest
+    image: adonato/query-exporter:${QUERY_EXPORTER_VERSION:-latest}
     restart: always
     depends_on:
       postgresql:
@@ -528,7 +528,7 @@ services:
     #  - "8082:80" # Web server port
 
   sish:
-    image: antoniomika/sish:latest
+    image: antoniomika/sish:${SISH_VERSION:-latest}
     depends_on:
       - proxy
     healthcheck:

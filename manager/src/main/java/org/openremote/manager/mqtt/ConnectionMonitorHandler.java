@@ -29,18 +29,19 @@ import io.netty.buffer.ByteBuf;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutorService;
+import java.util.function.BiConsumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import org.apache.activemq.artemis.core.config.Configuration;
 import org.apache.activemq.artemis.spi.core.protocol.RemotingConnection;
 import org.apache.camel.builder.RouteBuilder;
-import org.openremote.container.message.MessageBrokerService;
 import org.openremote.container.persistence.PersistenceService;
 import org.openremote.container.security.AuthContext;
 import org.openremote.container.security.IdentityProvider;
+import org.openremote.manager.asset.AssetProcessingException;
 import org.openremote.manager.asset.AssetProcessingService;
+import org.openremote.manager.asset.AssetProcessingService.AttributeEventProcessorUnavailableException;
 import org.openremote.manager.asset.AssetStorageService;
 import org.openremote.manager.gateway.GatewayService;
 import org.openremote.manager.security.ManagerIdentityProvider;
@@ -71,7 +72,6 @@ public class ConnectionMonitorHandler extends MQTTHandler {
 
   protected static final Logger LOG = SyslogCategory.getLogger(API, ConnectionMonitorHandler.class);
   protected MQTTBrokerService mqttBrokerService;
-  protected ExecutorService executorService;
   protected AssetStorageService assetStorageService;
   protected AssetProcessingService assetProcessingService;
   protected GatewayService gatewayService;
@@ -82,13 +82,11 @@ public class ConnectionMonitorHandler extends MQTTHandler {
   @Override
   public void init(Container container, Configuration serverConfiguration) throws Exception {
     super.init(container, serverConfiguration);
-    executorService = container.getExecutor();
     mqttBrokerService = container.getService(MQTTBrokerService.class);
     assetStorageService = container.getService(AssetStorageService.class);
     assetProcessingService = container.getService(AssetProcessingService.class);
     gatewayService = container.getService(GatewayService.class);
     persistenceService = container.getService(PersistenceService.class);
-    MessageBrokerService messageBrokerService = container.getService(MessageBrokerService.class);
     messageBrokerService
         .getContext()
         .addRoutes(
@@ -149,37 +147,50 @@ public class ConnectionMonitorHandler extends MQTTHandler {
 
   @Override
   public void start(Container container) throws Exception {
-    // Don't do super start as don't need to publish or subscribe
-    // super.start(container);
+    // This handler has no internal MQTT session to start.
+  }
 
-    // Don't block start
-    executorService.submit(
-        () -> {
-          // Get all assets that have attributes with user connected meta and initialize them
-          List<Asset<?>> assets =
-              assetStorageService.findAll(
-                  new AssetQuery()
-                      .attributes(
-                          new AttributePredicate()
-                              .meta(new NameValuePredicate(USER_CONNECTED, null))));
+  @Override
+  public void startProducers(Container container) {
+    // Get all assets that have attributes with user connected meta and initialize them
+    List<Asset<?>> assets =
+        assetStorageService.findAll(
+            new AssetQuery()
+                .attributes(
+                    new AttributePredicate().meta(new NameValuePredicate(USER_CONNECTED, null))));
 
-          Map<String, List<Asset<?>>> realmAttributeMap =
-              assets.stream().collect(Collectors.groupingBy(Asset::getRealm));
+    Map<String, List<Asset<?>>> realmAttributeMap =
+        assets.stream().collect(Collectors.groupingBy(Asset::getRealm));
 
-          realmAttributeMap.forEach(
-              (realm, realmAssets) -> {
-                List<Pair<String, Attribute<?>>> assetIdsAttrs =
-                    realmAssets.stream()
-                        .flatMap(
-                            asset ->
-                                asset.getAttributes().stream()
-                                    .filter(ConnectionMonitorHandler::attributeMatches)
-                                    .map(
-                                        attr ->
-                                            new Pair<String, Attribute<?>>(asset.getId(), attr)))
-                        .toList();
+    realmAttributeMap.forEach(
+        (realm, realmAssets) -> {
+          List<Pair<String, Attribute<?>>> assetIdsAttrs =
+              realmAssets.stream()
+                  .flatMap(
+                      asset ->
+                          asset.getAttributes().stream()
+                              .filter(ConnectionMonitorHandler::attributeMatches)
+                              .map(attr -> new Pair<String, Attribute<?>>(asset.getId(), attr)))
+                  .toList();
 
-                addSessionAttributes(realm, assetIdsAttrs);
+          forEachSessionAttribute(
+              realm,
+              assetIdsAttrs,
+              (userID, attributeRef) -> {
+                registerSessionAttribute(userID, attributeRef);
+                boolean connected = !mqttBrokerService.getUserConnections(userID).isEmpty();
+                // Finish the initial write before the public acceptor can receive a connection.
+                try {
+                  assetProcessingService.sendAttributeEventAndWait(
+                      new AttributeEvent(attributeRef, connected), getClass().getSimpleName());
+                } catch (AssetProcessingException e) {
+                  // Continue with the next attribute after a rejected write. An unavailable route
+                  // or a Camel execution failure must abort startup before the acceptor opens.
+                  LOG.log(
+                      Level.WARNING,
+                      "Could not initialize connection status for " + attributeRef,
+                      e);
+                }
               });
         });
   }
@@ -265,6 +276,13 @@ public class ConnectionMonitorHandler extends MQTTHandler {
 
   protected void addSessionAttributes(
       String realm, List<Pair<String, Attribute<?>>> assetIdsAttrs) {
+    forEachSessionAttribute(realm, assetIdsAttrs, this::addSessionAttribute);
+  }
+
+  private void forEachSessionAttribute(
+      String realm,
+      List<Pair<String, Attribute<?>>> assetIdsAttrs,
+      BiConsumer<String, AttributeRef> action) {
     LOG.finest(
         "Adding '"
             + assetIdsAttrs.size()
@@ -275,12 +293,8 @@ public class ConnectionMonitorHandler extends MQTTHandler {
         assetIdsAttrs.stream()
             .map(assetIdAttr -> assetIdAttr.getValue().getMetaValue(USER_CONNECTED).orElse(null))
             .filter(Objects::nonNull)
+            .map(ConnectionMonitorHandler::toServiceAccountUsername)
             .distinct()
-            .map(
-                username ->
-                    username.startsWith(User.SERVICE_ACCOUNT_PREFIX)
-                        ? username
-                        : User.SERVICE_ACCOUNT_PREFIX + username)
             .toList();
 
     // Convert usernames to userIds
@@ -294,7 +308,7 @@ public class ConnectionMonitorHandler extends MQTTHandler {
                 .ifPresent(
                     username -> {
                       String userID =
-                          userIds.get(usernames.indexOf(User.SERVICE_ACCOUNT_PREFIX + username));
+                          userIds.get(usernames.indexOf(toServiceAccountUsername(username)));
 
                       if (userID == null) {
                         LOG.warning(
@@ -303,11 +317,17 @@ public class ConnectionMonitorHandler extends MQTTHandler {
                                 + ", username="
                                 + username);
                       } else {
-                        addSessionAttribute(
+                        action.accept(
                             userID,
                             new AttributeRef(assetIdAttr.key, assetIdAttr.getValue().getName()));
                       }
                     }));
+  }
+
+  private static String toServiceAccountUsername(String username) {
+    return username.startsWith(User.SERVICE_ACCOUNT_PREFIX)
+        ? username
+        : User.SERVICE_ACCOUNT_PREFIX + username;
   }
 
   protected void addSessionAttribute(String userID, AttributeRef attributeRef) {
@@ -316,9 +336,13 @@ public class ConnectionMonitorHandler extends MQTTHandler {
         userID,
         Collections.singletonList(attributeRef),
         !mqttBrokerService.getUserConnections(userID).isEmpty());
-    Set<AttributeRef> refs =
-        userIDAttributeRefs.computeIfAbsent(userID, ID -> ConcurrentHashMap.newKeySet());
-    refs.add(attributeRef);
+    registerSessionAttribute(userID, attributeRef);
+  }
+
+  private void registerSessionAttribute(String userID, AttributeRef attributeRef) {
+    userIDAttributeRefs
+        .computeIfAbsent(userID, id -> ConcurrentHashMap.newKeySet())
+        .add(attributeRef);
   }
 
   protected void removeSessionAttribute(String userID, AttributeRef attributeRef) {
@@ -334,6 +358,14 @@ public class ConnectionMonitorHandler extends MQTTHandler {
 
   protected void updateUserConnectedStatus(
       String userID, Collection<AttributeRef> attributeRefs, boolean connected) {
+    if (!messageBrokerService.isStarted()) {
+      LOG.fine(
+          () ->
+              "Skipping MQTT connection status update for user "
+                  + userID
+                  + " because Camel is stopped");
+      return;
+    }
 
     // Only update statuses if this is the only connection
     Set<RemotingConnection> connections = mqttBrokerService.getUserConnections(userID);
@@ -357,10 +389,19 @@ public class ConnectionMonitorHandler extends MQTTHandler {
             + attributeRefs.size()
             + " attribute(s) connected="
             + connected);
-    attributeRefs.forEach(
-        attributeRef ->
-            assetProcessingService.sendAttributeEvent(
-                new AttributeEvent(attributeRef, connected), getClass().getSimpleName()));
+    try {
+      for (AttributeRef attributeRef : attributeRefs) {
+        assetProcessingService.sendAttributeEvent(
+            new AttributeEvent(attributeRef, connected), getClass().getSimpleName());
+      }
+    } catch (AttributeEventProcessorUnavailableException e) {
+      LOG.log(
+          messageBrokerService.isStarted() ? Level.WARNING : Level.FINE,
+          () ->
+              "Skipping remaining MQTT connection status updates for user "
+                  + userID
+                  + " because the attribute event processor is unavailable");
+    }
   }
 
   protected Pair<String, Set<AttributeRef>> getUserIDAndAttributeRefs(
