@@ -5,9 +5,10 @@ Prometheus. An optional override receives application traces and forwards them t
 Tempo. The collector is independent of the application Compose network and lifecycle.
 Application logging to CloudWatch and existing application-metric scrapes continue.
 
-This is the collector configuration. Automated deployment through SSM, Secrets
-Manager retrieval, data-mount checks and release/rollback handling are still being
-implemented. Do not use this change alone to replace a running collector.
+The [host deployment script](deployment.md) adds mount/ownership checks, direct
+Secrets Manager retrieval, Compose deployment and explicit rollback. Local tests and
+the disposable staging Docker lifecycle check have passed. SSM/workflow integration
+remains pending. Review the staging cutover together before replacing a live collector.
 
 ## Files and settings
 
