@@ -1,0 +1,129 @@
+// Linux host metrics and Alloy self-observation. Coordinate job identities
+// with the existing central scrapes before enabling this collector.
+prometheus.exporter.unix "host_metrics" {
+  rootfs_path    = "/host/root"
+  procfs_path    = "/host/proc"
+  sysfs_path     = "/host/sys"
+  udev_data_path = "/host/root/run/udev/data"
+
+  set_collectors = [
+    "cpu", "diskstats", "filesystem", "loadavg", "meminfo",
+    "netclass", "netdev", "stat", "time", "uname", "vmstat",
+  ]
+
+  filesystem {
+    // Keep the actual /var/lib/docker/volumes filesystem, excluding its
+    // descendants and transient container mounts. Do not use Docker's whole
+    // parent directory as an exclusion.
+    mount_points_exclude = "^/(dev|proc|sys|run|var/lib/docker/(containers|overlay2|buildkit)|var/lib/docker/volumes/.+|var/lib/kubelet)($|/)"
+    fs_types_exclude     = "^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tmpfs|tracefs)$"
+    mount_timeout        = "5s"
+  }
+
+  netclass {
+    ignored_devices = "^(lo|veth.*|docker.*|br-.*)$"
+  }
+
+  netdev {
+    device_exclude = "^(lo|veth.*|docker.*|br-.*)$"
+  }
+}
+
+discovery.relabel "host_metrics" {
+  targets = prometheus.exporter.unix.host_metrics.targets
+
+  rule {
+    target_label = "job"
+    replacement  = sys.env("HOST_METRICS_JOB")
+  }
+  rule {
+    target_label = "instance"
+    replacement  = sys.env("HOST_METRICS_INSTANCE")
+  }
+  rule {
+    target_label = "service"
+    replacement  = "node"
+  }
+}
+
+prometheus.scrape "host_metrics" {
+  targets         = discovery.relabel.host_metrics.output
+  scrape_interval = "15s"
+  scrape_timeout  = "10s"
+  sample_limit    = 3000
+  forward_to      = [prometheus.remote_write.host_metrics.receiver]
+}
+
+prometheus.exporter.self "collector_metrics" {}
+
+discovery.relabel "collector_metrics" {
+  targets = prometheus.exporter.self.collector_metrics.targets
+
+  rule {
+    target_label = "job"
+    replacement  = sys.env("ALLOY_METRICS_JOB")
+  }
+  rule {
+    target_label = "instance"
+    replacement  = sys.env("ALLOY_HOST")
+  }
+  rule {
+    target_label = "service"
+    replacement  = "alloy"
+  }
+}
+
+prometheus.scrape "collector_metrics" {
+  targets         = discovery.relabel.collector_metrics.output
+  scrape_interval = "15s"
+  scrape_timeout  = "10s"
+  sample_limit    = 3000
+  forward_to      = [prometheus.relabel.collector_metrics.receiver]
+}
+
+prometheus.relabel "collector_metrics" {
+  forward_to = [prometheus.remote_write.host_metrics.receiver]
+
+  rule {
+    source_labels = ["__name__"]
+    regex         = "up|scrape_.*|process_(cpu_seconds_total|resident_memory_bytes|start_time_seconds|open_fds|max_fds)|go_memstats_(heap_alloc_bytes|heap_inuse_bytes)|prometheus_remote_storage_.*|prometheus_remote_write_wal_.*|prometheus_remote_write_data_replay_duration_seconds|prometheus_wal_.*|alloy_component_controller_.*"
+    action        = "keep"
+  }
+}
+
+prometheus.remote_write "host_metrics" {
+  external_labels = {
+    customer    = sys.env("ALLOY_CUSTOMER"),
+    environment = sys.env("ALLOY_ENVIRONMENT"),
+  }
+
+  endpoint {
+    name             = "central_host_metrics"
+    url              = sys.env("METRICS_URL")
+    remote_timeout   = "15s"
+    follow_redirects = false
+
+    basic_auth {
+      username      = sys.env("METRICS_USERNAME")
+      password_file = "/run/secrets/metrics_password"
+    }
+
+    queue_config {
+      min_shards           = 1
+      max_shards           = 2
+      capacity             = 5000
+      max_samples_per_send = 1000
+      batch_send_deadline  = "5s"
+      min_backoff          = "500ms"
+      max_backoff          = "30s"
+      retry_on_http_429    = true
+    }
+  }
+
+  // These age settings are not a filesystem quota or a guaranteed replay SLA.
+  wal {
+    truncate_frequency = "15m"
+    min_keepalive_time = "5m"
+    max_keepalive_time = "2h"
+  }
+}

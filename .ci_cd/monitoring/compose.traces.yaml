@@ -1,0 +1,16 @@
+# Opt-in application traces on the same collector, without an app-network dependency.
+# Always combine with compose.yaml; no public/wildcard listening defaults.
+services:
+  alloy:
+    environment:
+      OTLP_GRPC_LISTEN_ADDRESS: ${OTLP_GRPC_LISTEN_ADDRESS:?Set an explicit loopback or private host IP and gRPC port}
+      OTLP_HTTP_LISTEN_ADDRESS: ${OTLP_HTTP_LISTEN_ADDRESS:?Set an explicit loopback or private host IP and HTTP port}
+      TEMPO_OTLP_ENDPOINT: ${TEMPO_OTLP_ENDPOINT:?Set the central Tempo OTLP HTTP base URL}
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=${ALLOY_ENVIRONMENT:?Set ALLOY_ENVIRONMENT},openremote.customer=${ALLOY_CUSTOMER:?Set ALLOY_CUSTOMER},cloud.account.id=${ALLOY_AWS_ACCOUNT_ID:?Set ALLOY_AWS_ACCOUNT_ID}
+    volumes:
+      - type: bind
+        source: ./config/traces.alloy
+        target: /etc/alloy/config/traces.alloy
+        read_only: true
+        bind:
+          create_host_path: false
