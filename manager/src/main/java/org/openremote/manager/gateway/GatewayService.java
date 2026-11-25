@@ -122,6 +122,7 @@ public class GatewayService extends RouteBuilder implements ContainerService {
 
   protected final Map<String, String> assetIdGatewayIdMap = new ConcurrentHashMap<>();
   protected boolean active;
+  private boolean producersStarted;
   protected List<String> realmIds = new ArrayList<>();
   protected Map<String, GatewayTunnelInfo> tunnelInfos = new ConcurrentHashMap<>();
   protected AtomicInteger pendingTunnelCounter = new AtomicInteger();
@@ -276,17 +277,7 @@ public class GatewayService extends RouteBuilder implements ContainerService {
               createUpdateGatewayServiceUser(gateway);
             }
 
-            // Create connector
-            GatewayConnector connector =
-                new GatewayConnector(
-                    assetStorageService,
-                    assetProcessingService,
-                    executorService,
-                    scheduledExecutorService,
-                    this,
-                    timerService,
-                    gateway);
-            gatewayConnectorMap.put(gateway.getId().toLowerCase(Locale.ROOT), connector);
+            registerGateway(gateway);
 
             // Get IDs of all assets under this gateway
             List<Asset<?>> gatewayAssets =
@@ -301,8 +292,46 @@ public class GatewayService extends RouteBuilder implements ContainerService {
     }
   }
 
+  private synchronized void registerGateway(GatewayAsset gateway) {
+    GatewayConnector connector =
+        new GatewayConnector(
+            assetStorageService,
+            assetProcessingService,
+            executorService,
+            scheduledExecutorService,
+            this,
+            timerService,
+            gateway);
+    gatewayConnectorMap.put(gateway.getId().toLowerCase(Locale.ROOT), connector);
+    if (producersStarted) {
+      connector.publishAttributeEvent(connector.disconnectedStatusEvent());
+    }
+  }
+
+  @Override
+  public void startProducers(Container container) {
+    List<AttributeEvent> initialStatuses;
+    synchronized (this) {
+      initialStatuses =
+          gatewayConnectorMap.values().stream()
+              .map(GatewayConnector::disconnectedStatusEvent)
+              .toList();
+      producersStarted = true;
+    }
+    for (AttributeEvent status : initialStatuses) {
+      try {
+        assetProcessingService.sendAttributeEventAndWait(status, GatewayConnector.EVENT_SOURCE);
+      } catch (AssetProcessingException e) {
+        LOG.log(Level.WARNING, "Could not initialize gateway status for " + status.getId(), e);
+      }
+    }
+  }
+
   @Override
   public void stop(Container container) throws Exception {
+    synchronized (this) {
+      producersStarted = false;
+    }
     gatewayConnectorMap
         .values()
         .forEach(connector -> connector.disconnect(GatewayDisconnectEvent.Reason.TERMINATING));
@@ -855,16 +884,7 @@ public class GatewayService extends RouteBuilder implements ContainerService {
     switch (persistenceEvent.getCause()) {
       case CREATE -> {
         createUpdateGatewayServiceUser(gateway);
-        GatewayConnector connector =
-            new GatewayConnector(
-                assetStorageService,
-                assetProcessingService,
-                executorService,
-                scheduledExecutorService,
-                this,
-                timerService,
-                gateway);
-        gatewayConnectorMap.put(gateway.getId().toLowerCase(Locale.ROOT), connector);
+        registerGateway(gateway);
       }
       case UPDATE -> {
         // Check if this gateway has a connector
