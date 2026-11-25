@@ -71,6 +71,7 @@ Try creating assets, agents, rules, users, realms, etc. using the Manager UI, pl
 
 Persistent data is stored in a PostgreSQL DB which is stored in the `openremote_postgresql-data` docker volume which is durably stored independently of the running containers (see all with `docker volume ls`).
 Note that historical attribute data is kept indefinitely by default; set `OR_DATA_POINTS_MAX_AGE_WEEKS` to purge data older than the given number of weeks.
+Historical data is stored in 7 day chunks; on systems that write a lot of data points set `OR_DATA_POINTS_CHUNK_INTERVAL_DAYS` so the chunk being written fits in about 25% of the database memory (see `profile/deploy.yml`).
 See the [Developer Guide](https://docs.openremote.io/docs/developer-guide/system-administration/#backuprestore) for details on making backups of the database.
 
 ## OpenTelemetry tracing

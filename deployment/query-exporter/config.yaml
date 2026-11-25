@@ -108,7 +108,7 @@ metrics:
 
   pg_datapoint_chunks_needing_compression:
     type: gauge
-    description: Asset datapoint table hypertable chunks needing compression count
+    description: Asset datapoint table hypertable chunks the columnstore policy should already have compressed (over 0 indicates the policy is failing or behind)
 
   pg_datapoint_chunk_start_weeks:
     type: gauge
@@ -117,6 +117,22 @@ metrics:
   pg_datapoint_chunk_end_weeks:
     type: gauge
     description: Asset datapoint table newest hypertable chunk in weeks
+
+  pg_datapoint_chunk_interval_days:
+    type: gauge
+    description: Asset datapoint table hypertable chunk interval in days used for new chunks (set with OR_DATA_POINTS_CHUNK_INTERVAL_DAYS)
+
+  pg_datapoint_write_rate_per_day:
+    type: gauge
+    description: Asset datapoint data written per day in MB (including indexes), estimated from the current chunk
+
+  pg_datapoint_projected_chunk_size:
+    type: gauge
+    description: Asset datapoint projected size in MB of the current chunk once full (including indexes)
+
+  pg_datapoint_chunk_memory_ratio:
+    type: gauge
+    description: Asset datapoint projected current chunk size to shared_buffers ratio (over 1 indicates the chunk interval should be reduced)
 
   pg_datapoint_chunks_not_analyzed:
     type: gauge
@@ -336,22 +352,70 @@ queries:
         pg_datapoint_chunks_needing_compression,
         pg_datapoint_chunk_start_weeks,
         pg_datapoint_chunk_end_weeks,
+        pg_datapoint_chunk_interval_days,
       ]
     sql: |
       SELECT
         count(*) AS pg_datapoint_chunk_count,
-        -- Count chunks that are NOT compressed
-        count(*) FILTER (WHERE is_compressed = false) AS pg_datapoint_uncompressed_chunk_count,
-        -- Count chunks older than 7 days (604800 seconds) that are NOT compressed
+        -- Count chunks that are NOT compressed (the chunk being written and, for up to compress_after + the policy
+        -- schedule after each chunk boundary, the previous chunk; so more than one is normal)
+        count(*) FILTER (WHERE NOT c.is_compressed) AS pg_datapoint_uncompressed_chunk_count,
+        -- Count chunks that the columnstore policy should already have compressed: NOT compressed and ended more
+        -- than compress_after + schedule_interval ago (taken from the policy job so it follows any policy change)
         count(*) FILTER (
-        WHERE is_compressed = false
-        AND range_end < (now() - INTERVAL '7 days')
+          WHERE NOT c.is_compressed
+          AND c.range_end < now() - p.compress_after - p.schedule_interval
         ) AS pg_datapoint_chunks_needing_compression,
-        ROUND((EXTRACT(EPOCH FROM (now() - min(range_start::timestamptz))) / 604800.0)::numeric, 1) AS pg_datapoint_chunk_start_weeks,
-        ROUND((EXTRACT(EPOCH FROM (now() - max(range_end::timestamptz))) / 604800.0)::numeric, 1) AS pg_datapoint_chunk_end_weeks
-      FROM timescaledb_information.chunks
-      WHERE hypertable_name = 'asset_datapoint'
-      GROUP BY hypertable_name;
+        ROUND((EXTRACT(EPOCH FROM (now() - min(c.range_start::timestamptz))) / 604800.0)::numeric, 1) AS pg_datapoint_chunk_start_weeks,
+        ROUND((EXTRACT(EPOCH FROM (now() - max(c.range_end::timestamptz))) / 604800.0)::numeric, 1) AS pg_datapoint_chunk_end_weeks,
+        -- Interval used for new chunks (existing chunks keep the interval they were created with)
+        (
+          SELECT ROUND((EXTRACT(EPOCH FROM d.time_interval) / 86400.0)::numeric, 2)
+          FROM timescaledb_information.dimensions d
+          WHERE d.hypertable_name = 'asset_datapoint' AND d.dimension_type = 'Time'
+        ) AS pg_datapoint_chunk_interval_days
+      FROM timescaledb_information.chunks c
+      LEFT JOIN (
+        SELECT hypertable_schema, hypertable_name, (config->>'compress_after')::interval AS compress_after, schedule_interval
+        FROM timescaledb_information.jobs
+        WHERE proc_name = 'policy_compression'
+      ) p ON p.hypertable_schema = c.hypertable_schema AND p.hypertable_name = c.hypertable_name
+      WHERE c.hypertable_name = 'asset_datapoint'
+      GROUP BY c.hypertable_name;
+
+  # Projects the size of the chunk currently being written from how much it holds so far. If the projected size is
+  # bigger than shared_buffers (pg_datapoint_chunk_memory_ratio > 1) the chunk will not stay cached while it is written
+  # and queried, so reduce OR_DATA_POINTS_CHUNK_INTERVAL_DAYS (or add memory). Returns no row until the chunk is 6 hours
+  # old, as the projection is too noisy before then. Runs every 12 hours rather than daily: query intervals are relative
+  # to the exporter start, so a daily run could always land in the first 6 hours of a 1 day chunk and never report.
+  datapoint_chunk_sizing:
+    interval: 43200 # Every 12 hours
+    databases: [openremote]
+    metrics:
+      [
+        pg_datapoint_write_rate_per_day,
+        pg_datapoint_projected_chunk_size,
+        pg_datapoint_chunk_memory_ratio,
+      ]
+    sql: |
+      WITH current_chunk AS (
+        SELECT
+          s.total_bytes::numeric AS total_bytes,
+          EXTRACT(EPOCH FROM (now() - c.range_start)) AS elapsed_seconds,
+          EXTRACT(EPOCH FROM (c.range_end - c.range_start)) AS range_seconds
+        FROM timescaledb_information.chunks c
+        JOIN chunks_detailed_size('asset_datapoint') s
+          ON s.chunk_schema = c.chunk_schema AND s.chunk_name = c.chunk_name
+        WHERE c.hypertable_name = 'asset_datapoint'
+          AND NOT c.is_compressed
+          AND c.range_start <= now() AND c.range_end > now()
+      )
+      SELECT
+        ROUND(total_bytes / elapsed_seconds * 86400 / 1048576.0, 0) AS pg_datapoint_write_rate_per_day,
+        ROUND(total_bytes / elapsed_seconds * range_seconds / 1048576.0, 0) AS pg_datapoint_projected_chunk_size,
+        ROUND(total_bytes / elapsed_seconds * range_seconds / pg_size_bytes(current_setting('shared_buffers')), 2) AS pg_datapoint_chunk_memory_ratio
+      FROM current_chunk
+      WHERE elapsed_seconds > 21600;
 
   datapoint_largest_uncompressed_chunk:
     interval: 86400 # Daily

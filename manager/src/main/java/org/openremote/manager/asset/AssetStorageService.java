@@ -151,8 +151,16 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
   public static final String OR_ASSET_DELETE_DATAPOINT_BATCH_THRESHOLD =
       "OR_ASSET_DELETE_DATAPOINT_BATCH_THRESHOLD";
   public static final int OR_ASSET_DELETE_DATAPOINT_BATCH_THRESHOLD_DEFAULT = 100000;
+
+  /**
+   * Time range in weeks of each datapoint delete batch when deleting an asset with many datapoints.
+   * Batches start at the oldest chunk's start, so with whole-day chunk intervals the batch bounds
+   * fall on chunk bounds and columnstore segments can be deleted without decompressing them. The
+   * amount of data in a batch depends on the data rate, not the chunk interval.
+   */
   public static final String OR_ASSET_DELETE_DATAPOINT_BATCH_WEEKS =
       "OR_ASSET_DELETE_DATAPOINT_BATCH_WEEKS";
+
   public static final int OR_ASSET_DELETE_DATAPOINT_BATCH_WEEKS_DEFAULT = 4;
   protected static final long FAILED_ASSET_DELETE_RETRY_PERIOD_HOURS = 1L;
 

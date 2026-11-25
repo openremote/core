@@ -45,19 +45,50 @@ import java.util.concurrent.TimeUnit
 
 import static org.openremote.container.persistence.PersistenceService.PERSISTENCE_TOPIC
 import static org.openremote.container.persistence.PersistenceService.isPersistenceEventForEntityType
+import static org.openremote.manager.datapoint.AssetDatapointService.OR_DATA_POINTS_CHUNK_INTERVAL_DAYS
 import static org.openremote.manager.datapoint.AssetDatapointService.OR_DATA_POINTS_MAX_AGE_WEEKS
 
 class AssetDatapointPurgeTest extends Specification implements ManagerContainerTrait {
+
+  def setupSpec() {
+    // 4 week retention and 1 day chunks, so the purge, compression and delete batching below run across many chunks
+    def config = defaultConfig()
+    config.put(OR_DATA_POINTS_MAX_AGE_WEEKS, "4")
+    config.put(OR_DATA_POINTS_CHUNK_INTERVAL_DAYS, "1")
+    startContainer(config, defaultServices())
+  }
+
+  def "Data point chunk interval and columnstore policy are configured"() {
+
+    given: "the persistence service"
+    def persistenceService = container.getService(PersistenceService.class)
+
+    expect: "the hypertable chunk interval to be 1 day"
+    persistenceService.doReturningTransaction { em ->
+      em.createNativeQuery("""
+                SELECT EXTRACT(EPOCH FROM time_interval)::bigint
+                FROM timescaledb_information.dimensions
+                WHERE hypertable_schema = current_schema() AND hypertable_name = 'asset_datapoint'
+            """).getSingleResult() as Long
+    } == 86400L
+
+    and: "the columnstore policy to convert chunks 1 day after they end"
+    persistenceService.doReturningTransaction { em ->
+      em.createNativeQuery("""
+                SELECT config->>'compress_after'
+                FROM timescaledb_information.jobs
+                WHERE hypertable_schema = current_schema() AND hypertable_name = 'asset_datapoint'
+                  AND proc_name = 'policy_compression'
+            """).getSingleResult() as String
+    } == "1 day"
+  }
 
   def "Test TimescaleDB hypercore compression and purge"() {
 
     given: "expected conditions"
     def conditions = new PollingConditions(timeout: 30, delay: 1)
 
-    and: "the container is started with a 4-week retention period"
-    def config = defaultConfig()
-    config.put(OR_DATA_POINTS_MAX_AGE_WEEKS, "4")
-    def container = startContainer(config, defaultServices())
+    and: "the services"
     def keycloakTestSetup = container.getService(SetupService.class).getTaskOfType(KeycloakTestSetup.class)
     def originalAssetStorageService = container.getService(AssetStorageService.class)
     def assetStorageService = Spy(originalAssetStorageService)

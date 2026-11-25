@@ -325,6 +325,7 @@ Resources:
                               "pg_cache_hit_percentage": "Percent",
                               "pg_datapoint_chunks_needing_compression": "Count",
                               "pg_datapoint_uncompressed_cache_hit_ratio": "Count",
+                              "pg_datapoint_chunk_memory_ratio": "None",
                               "pg_timescale_job_total_failures_total": "Count",
                               "pg_dead_tuple_percent": "Percent",
                               "pg_table_bloat_count": "Count",
@@ -401,7 +402,8 @@ Resources:
                                   [ "InstanceName" ]
                                 ],
                                 "metric_selectors": [
-                                  "^pg_datapoint_chunks_needing_compression$"
+                                  "^pg_datapoint_chunks_needing_compression$",
+                                  "^pg_datapoint_chunk_memory_ratio$"
                                 ]
                               },
                               {
@@ -567,7 +569,7 @@ Resources:
                       metric_relabel_configs:
                         - action: keep
                           source_labels: [__name__]
-                          regex: '(pg_datapoint_chunks_needing_compression)'
+                          regex: '(pg_datapoint_chunks_needing_compression|pg_datapoint_chunk_memory_ratio)'
                         - action: replace # THIS IS A WORKAROUND FOR BROKEN LABELS ABOVE
                           source_labels: [ InstanceName ]
                           regex: '(.*)'
@@ -1490,6 +1492,28 @@ Resources:
       EvaluationPeriods: 1
       ComparisonOperator: LessThanOrEqualToThreshold
       Threshold: 95
+      AlarmActions:
+        - !Ref SnsTopic
+      OKActions:
+        - !Ref SnsTopic
+      Dimensions:
+        - Name: InstanceName
+          Value: !Ref Host
+
+  # The chunk being written is projected to outgrow shared_buffers; reduce OR_DATA_POINTS_CHUNK_INTERVAL_DAYS (or add
+  # memory). The metric is computed every 12 hours and scraped daily.
+  ChunkMemoryRatioAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: MetricsEnabled
+    Properties:
+      Namespace: CWAgent-Prometheus
+      MetricName: pg_datapoint_chunk_memory_ratio
+      Statistic: Average
+      Period: 86400
+      EvaluationPeriods: 1
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: 1
+      TreatMissingData: notBreaching
       AlarmActions:
         - !Ref SnsTopic
       OKActions:

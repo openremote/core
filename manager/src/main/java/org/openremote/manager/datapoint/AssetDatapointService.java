@@ -63,13 +63,55 @@ import org.postgresql.copy.CopyManager;
 
 /**
  * Store and retrieve datapoints for asset attributes and periodically purge data points using
- * TimescaleDB's {@code drop_chunks()} with week-based retention aligned to 7-day chunk intervals.
- * Retention defaults to infinite.
+ * TimescaleDB's {@code drop_chunks()} with week-based retention. Retention defaults to infinite.
+ *
+ * <h2>Storage layout</h2>
+ *
+ * The {@code asset_datapoint} table is a TimescaleDB hypertable split into chunks by time. The
+ * chunk currently being written is kept in the rowstore, where the rows of every series are
+ * interleaved in arrival order. A columnstore policy converts each chunk 1 day after it ends; in
+ * the columnstore, rows are segmented by {@code entity_id} and {@code attribute_name}, so reading a
+ * single series only touches that series' batches. In the rowstore, reading a single series from a
+ * chunk that is not cached reads most of that chunk from disk.
+ *
+ * <h2>Choosing a chunk interval</h2>
+ *
+ * The chunk interval defaults to 7 days and can be changed with {@link
+ * #OR_DATA_POINTS_CHUNK_INTERVAL_DAYS}. The new interval only applies to chunks created after the
+ * change; existing chunks keep their range. Guidelines:
+ *
+ * <ul>
+ *   <li>The chunk being written, including its indexes, should fit in about 25% of the database
+ *       host's memory (roughly {@code shared_buffers}), so writes and queries for recent data are
+ *       served from memory. A chunk that is larger than this makes queries for recent data read
+ *       from disk. As an example, a system writing 1.7 GB of datapoints a day should use 1 day
+ *       chunks unless the database has well over 12 GB of memory for {@code shared_buffers}.
+ *   <li>Every query that filters relative to the current time (as chart and export queries do) pays
+ *       a planning cost for every chunk in the table, and a query over a long range takes a lock
+ *       per chunk it reads (see {@code max_locks_per_transaction}). Smaller chunks mean more
+ *       chunks, so only reduce the interval when the size guideline above requires it, and combine
+ *       small chunks with a retention period ({@link #OR_DATA_POINTS_MAX_AGE_WEEKS}).
+ *   <li>Small chunks on a low volume system compress less well, as each series only has a few rows
+ *       per chunk to put into a columnstore batch.
+ * </ul>
+ *
+ * The query-exporter config in {@code deployment/query-exporter} reports the projected size of the
+ * current chunk relative to {@code shared_buffers} ({@code pg_datapoint_chunk_memory_ratio}, over 1
+ * means the interval should be reduced), the estimated write rate per day and the chunk count.
  */
 public class AssetDatapointService extends AbstractDatapointService<AssetDatapoint>
     implements ProtocolDatapointService {
 
   public static final String OR_DATA_POINTS_MAX_AGE_WEEKS = "OR_DATA_POINTS_MAX_AGE_WEEKS";
+
+  /**
+   * Chunk interval in days for the {@code asset_datapoint} hypertable; applied on startup when it
+   * differs from the current interval and only affects chunks created afterwards. When not set the
+   * interval in the database is left as is (7 days unless previously changed). See the class
+   * documentation for how to choose a value.
+   */
+  public static final String OR_DATA_POINTS_CHUNK_INTERVAL_DAYS =
+      "OR_DATA_POINTS_CHUNK_INTERVAL_DAYS";
 
   /**
    * @deprecated Use {@link #OR_DATA_POINTS_MAX_AGE_WEEKS} instead. If set, value is converted to
@@ -84,6 +126,7 @@ public class AssetDatapointService extends AbstractDatapointService<AssetDatapoi
   private static final Logger DATA_EXPORT_LOG =
       SyslogCategory.getLogger(DATA, AssetDatapointResourceImpl.class);
   protected int maxDatapointAgeWeeks = -1;
+  protected int chunkIntervalDays = -1;
   protected int datapointExportLimit;
 
   @Override
@@ -123,6 +166,15 @@ public class AssetDatapointService extends AbstractDatapointService<AssetDatapoi
       LOG.log(Level.INFO, "Data point purge retention = " + maxDatapointAgeWeeks + " weeks");
     }
 
+    chunkIntervalDays = getInteger(container.getConfig(), OR_DATA_POINTS_CHUNK_INTERVAL_DAYS, -1);
+    if (container.getConfig().containsKey(OR_DATA_POINTS_CHUNK_INTERVAL_DAYS)
+        && chunkIntervalDays < 1) {
+      LOG.warning(
+          OR_DATA_POINTS_CHUNK_INTERVAL_DAYS
+              + " must be a whole number of days of at least 1, ignoring it");
+      chunkIntervalDays = -1;
+    }
+
     datapointExportLimit =
         getInteger(
             container.getConfig(),
@@ -140,12 +192,16 @@ public class AssetDatapointService extends AbstractDatapointService<AssetDatapoi
 
   @Override
   public void start(Container container) throws Exception {
+    applyChunkInterval();
+
     if (maxDatapointAgeWeeks > 0) {
+      // Run daily so chunks are dropped soon after they pass the retention period, whatever the
+      // chunk interval; drop_chunks only touches chunks that are entirely older than the cutoff
       dataPointsPurgeScheduledFuture =
           scheduledExecutorService.scheduleAtFixedRate(
               this::purgeDataPoints,
               getFirstPurgeMillis(timerService.getNow()),
-              Duration.ofDays(7).toMillis(),
+              Duration.ofDays(1).toMillis(),
               TimeUnit.MILLISECONDS);
     }
 
@@ -279,6 +335,78 @@ public class AssetDatapointService extends AbstractDatapointService<AssetDatapoi
     } catch (Exception e) {
       LOG.log(Level.SEVERE, "Failed to run data points purge", e);
     }
+  }
+
+  /**
+   * Sets the chunk interval of the hypertable to {@link #OR_DATA_POINTS_CHUNK_INTERVAL_DAYS} when
+   * configured and different from the current interval. Existing chunks, including the one
+   * currently being written, keep their range; the first chunk created afterwards uses the new
+   * interval.
+   */
+  protected void applyChunkInterval() {
+    if (chunkIntervalDays <= 0) {
+      return;
+    }
+
+    try {
+      persistenceService.doTransaction(
+          em ->
+              em.unwrap(Session.class)
+                  .doWork(
+                      connection -> {
+                        Long currentSeconds = null;
+                        try (PreparedStatement st =
+                            connection.prepareStatement(
+                                "SELECT EXTRACT(EPOCH FROM time_interval)::bigint "
+                                    + "FROM timescaledb_information.dimensions "
+                                    + "WHERE hypertable_schema = current_schema() "
+                                    + "AND hypertable_name = ? AND column_name = 'timestamp'")) {
+                          st.setString(1, AssetDatapoint.TABLE_NAME);
+                          try (var rs = st.executeQuery()) {
+                            if (rs.next()) {
+                              currentSeconds = rs.getLong(1);
+                            }
+                          }
+                        }
+
+                        if (currentSeconds == null) {
+                          LOG.warning(
+                              AssetDatapoint.TABLE_NAME
+                                  + " is not a TimescaleDB hypertable, ignoring "
+                                  + OR_DATA_POINTS_CHUNK_INTERVAL_DAYS);
+                          return;
+                        }
+
+                        long requiredSeconds = Duration.ofDays(chunkIntervalDays).toSeconds();
+                        if (currentSeconds == requiredSeconds) {
+                          LOG.info("Data point chunk interval = " + formatDays(requiredSeconds));
+                          return;
+                        }
+
+                        try (PreparedStatement st =
+                            connection.prepareStatement(
+                                "SELECT public.set_chunk_time_interval("
+                                    + "format('%I.%I', current_schema(), ?)::regclass, "
+                                    + "make_interval(days => ?))")) {
+                          st.setString(1, AssetDatapoint.TABLE_NAME);
+                          st.setInt(2, chunkIntervalDays);
+                          st.execute();
+                        }
+
+                        LOG.info(
+                            "Data point chunk interval changed from "
+                                + formatDays(currentSeconds)
+                                + " to "
+                                + formatDays(requiredSeconds)
+                                + "; this applies to chunks created from now on");
+                      }));
+    } catch (Exception e) {
+      LOG.log(Level.SEVERE, "Failed to set data point chunk interval", e);
+    }
+  }
+
+  protected static String formatDays(long seconds) {
+    return String.format(Locale.ROOT, "%.2f days", seconds / 86400d);
   }
 
   /**
