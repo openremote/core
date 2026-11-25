@@ -21,9 +21,8 @@ package org.openremote.model.dashboard;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
-import org.openremote.model.util.ValueUtil;
-
 import java.util.Objects;
+import org.openremote.model.util.ValueUtil;
 
 public class DashboardWidget {
 
@@ -98,6 +97,7 @@ public class DashboardWidget {
 
   @Override
   public int hashCode() {
+    // widgetConfig is left out; its JSON arrays deserialize to Object[] and hash by identity
     return Objects.hash(id, displayName, gridItem, widgetTypeId);
   }
 }
