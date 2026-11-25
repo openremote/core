@@ -280,6 +280,11 @@ change set with IAM acknowledgement (`CAPABILITY_NAMED_IAM`): expect only two ne
 `AWS::IAM::RolePolicy` resources. The provisioning identity, not the workflow role,
 needs permission to manage those policies.
 
+The [artifact transfer check](artifact-check.md) supplies a separate SSM document
+and staging workflow for the allowed upload/versioned-download path. Provision its
+stack and configure its variables before copying/pushing the workflow. It executes
+no downloaded content and leaves the read-only preflight document unchanged.
+
 After approved provisioning, validate with a harmless uniquely named object under
 `<environment>/releases/access-check-<unique-id>/`, containing no credentials or code
 to execute. Use the intended monitoring role to upload and capture its version ID;

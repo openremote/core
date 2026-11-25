@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Harmless versioned artifact download check; never executes downloaded content
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    AllowedPattern: "[a-z0-9]+(-[a-z0-9]+)*"
+    MaxLength: 32
+  MonitoringRoleName:
+    Type: String
+    Description: Existing dedicated monitoring GitHub role
+    AllowedPattern: "[A-Za-z0-9+=,.@_-]+"
+    MaxLength: 64
+  EC2RoleName:
+    Type: String
+    Description: Expected instance role, verified by STS on the host
+    AllowedPattern: "[A-Za-z0-9+=,.@_-]+"
+    MaxLength: 64
+  InstanceId:
+    Type: AWS::EC2::Instance::Id
+    Description: Exact managed EC2 instance allowed to receive the check
+
+Resources:
+  MonitoringArtifactCheck:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: !Sub "openremote-monitoring-${EnvironmentName}-artifact-check"
+      DocumentType: Command
+      DocumentFormat: YAML
+      TargetType: /AWS::EC2::Instance
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: "2.2"
+        description: Download at most 4 KiB from an explicit test object version and check SHA256
+        parameters:
+          TestId:
+            type: String
+            interpolationType: ENV_VAR
+            allowedPattern: '^[0-9]{1,20}-[0-9]{1,10}$'
+          VersionId:
+            type: String
+            interpolationType: ENV_VAR
+            # SSM's Go regex validation rejects counted repetitions above 1000.
+            minChars: 1
+            maxChars: 1024
+            allowedPattern: '^[A-Za-z0-9._~+/=-]+$'
+          SHA256:
+            type: String
+            interpolationType: ENV_VAR
+            allowedPattern: '^[0-9a-f]{64}$'
+        mainSteps:
+          - name: artifactCheck
+            action: aws:runShellScript
+            precondition:
+              StringEquals: [platformType, Linux]
+            inputs:
+              timeoutSeconds: "120"
+              runCommand:
+                - !Sub |
+                    set -eu
+                    umask 077
+                    fail() { printf 'FAIL %s\n' "$1" >&2; exit 1; }
+                    test "$(id -u)" = 0 || fail 'SSM check must run as root'
+                    for tool in aws timeout mktemp sha256sum cut rm rmdir; do
+                      command -v "$tool" >/dev/null 2>&1 || fail "Missing required tool: $tool"
+                    done
+                    # Require ENV_VAR-capable SSM Agent; never interpolate parameters into shell code.
+                    test -n "$SSM_TestId" && test -n "$SSM_VersionId" && test -n "$SSM_SHA256"
+                    test "$SSM_VersionId" != null || fail 'An explicit non-null version is required'
+                    # Ignore local AWS credential files and inherited credential overrides.
+                    unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_SECURITY_TOKEN AWS_PROFILE AWS_DEFAULT_PROFILE
+                    unset AWS_ROLE_ARN AWS_WEB_IDENTITY_TOKEN_FILE AWS_CONTAINER_CREDENTIALS_RELATIVE_URI AWS_CONTAINER_CREDENTIALS_FULL_URI
+                    export AWS_CONFIG_FILE=/dev/null AWS_SHARED_CREDENTIALS_FILE=/dev/null
+                    export AWS_EC2_METADATA_DISABLED=false AWS_PAGER='' AWS_MAX_ATTEMPTS=2 AWS_RETRY_MODE=standard
+                    caller=$(timeout 20 aws sts get-caller-identity --region '${AWS::Region}' --query Arn --output text --cli-connect-timeout 5 --cli-read-timeout 10)
+                    test "$caller" = 'arn:${AWS::Partition}:sts::${AWS::AccountId}:assumed-role/${EC2RoleName}/${InstanceId}' || fail 'Unexpected EC2 caller identity'
+                    printf 'PASS expected EC2 instance role: %s\n' "$caller"
+
+                    work=$(mktemp -d /tmp/openremote-artifact-check.XXXXXX)
+                    cleanup() { rm -f -- "$work/probe.txt" && rmdir -- "$work"; }
+                    trap cleanup 0
+                    trap 'exit 1' HUP INT TERM
+                    key='${EnvironmentName}/releases/access-check-'"$SSM_TestId"'/probe.txt'
+                    # Bound local disk use. The workflow's harmless file is smaller than this range.
+                    timeout 45 aws s3api get-object \
+                      --region '${AWS::Region}' --expected-bucket-owner '${AWS::AccountId}' \
+                      --bucket 'openremote-monitoring-${AWS::AccountId}-${AWS::Region}' \
+                      --key "$key" --version-id "$SSM_VersionId" --range bytes=0-4095 \
+                      --cli-connect-timeout 5 --cli-read-timeout 20 "$work/probe.txt" >/dev/null
+                    actual=$(sha256sum "$work/probe.txt")
+                    actual=$(printf '%s' "$actual" | cut -d ' ' -f 1)
+                    test "$actual" = "$SSM_SHA256" || fail 'Artifact checksum mismatch'
+                    cleanup
+                    trap - 0 HUP INT TERM
+                    printf 'PASS exact artifact version and checksum; temporary copy removed; no services changed\n'
+      Tags:
+        - Key: Component
+          Value: monitoring
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  MonitoringArtifactCheckAccess:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref MonitoringRoleName
+      PolicyName: !Sub "openremote-monitoring-${AWS::Region}-${EnvironmentName}-artifact-check"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: ssm:SendCommand
+            Resource:
+              - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${MonitoringArtifactCheck}"
+              - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${InstanceId}"
+          - Effect: Allow
+            Action: ssm:GetCommandInvocation
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: !Ref AWS::Region
+
+Outputs:
+  ArtifactCheckDocumentName:
+    Value: !Ref MonitoringArtifactCheck
+  ArtifactCheckInstanceId:
+    Value: !Ref InstanceId
