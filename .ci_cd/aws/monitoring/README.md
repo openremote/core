@@ -3,8 +3,8 @@
 `cloudformation-monitoring-identity.yml` provisions only a dedicated monitoring role.
 It requires the account's shared GitHub OIDC provider, managed through CfCT.
 The identity template alone grants no SSM, S3 or Secrets Manager permissions.
-The separate artifact-access template adds the scoped grants described below.
-Neither template changes running services or the application deployment role.
+The separate artifact-access and preflight templates add the scoped grants described below.
+These templates do not change running services or the application deployment role.
 
 The template and `monitoring-identity-check.yml.example` are local drafts. Review
 them before creating a change set or deploying the identity stack. The first live workflow
@@ -150,11 +150,25 @@ Use the infrastructure provisioning identity to review/apply the role stack with
 4. Verify `get-caller-identity` returns the intended account and assumed role.
 5. Review/provision the storage and environment artifact-access stacks separately,
    then validate upload and versioned retrieval as described below. The secret stack
-   grants direct EC2 credential reads. SSM execution permissions/document follow in
-   a later change, starting with a harmless execution check.
+   grants direct EC2 credential reads. Follow the [read-only SSM preflight](preflight.md) to validate the dedicated
+   command path; actual deployment permissions follow separately.
 
 Artifact-bucket selection and monitoring password migration are not prerequisites
 for this authentication-only check. ECR publishing is not part of its acceptance.
+
+## Read-only SSM command check
+
+`cloudformation-monitoring-preflight.yml` creates a fixed read-only document and a
+policy allowing the monitoring role to invoke it on one specified EC2 instance.
+`monitoring-preflight.yml.example` verifies OIDC identity, invokes a pinned numeric
+document version and checks its result. It verifies the expected retained XFS mount
+before Docker/Compose inspection. No arbitrary command parameters or service changes.
+
+Follow [the preflight instructions](preflight.md) for provisioning inputs, the UUID
+check, GitHub variables, permission limitations and expected results. The temporary
+branch push trigger executes this read-only check after review; remove it after merge.
+This is the next live acceptance step after identity, and does not require S3/secret
+provisioning first. Actual deployment is still a separate, explicitly requested step.
 
 ## Release artifacts and passwords
 
@@ -203,8 +217,9 @@ remain the initial operating model. Alternative secret backends are deferred; no
 provider abstraction or synchronization service is needed.
 
 The environment secret template below supplies direct instance credential reads.
-The artifact-access template supplies the S3 grants; the dedicated SSM document and
-execution permissions follow separately. The identity-only workflow remains unchanged.
+The artifact-access template supplies the S3 grants. The [preflight document](preflight.md)
+and example workflow validate read-only SSM execution; collector deployment follows
+separately. The identity-only workflow remains unchanged.
 
 Local review can check the storage template without accessing AWS. Before live
 provisioning, validate it with CloudFormation and review a change set in the explicit

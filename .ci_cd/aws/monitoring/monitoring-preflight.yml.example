@@ -1,0 +1,104 @@
+# Copy to .github/workflows/monitoring-preflight.yml after the identity check passes.
+# Read-only host check: no checkout, secret retrieval or collector deployment.
+# Create monitoring-staging with exact allowed branches before running this job.
+# Remove the temporary push trigger after this workflow reaches main.
+name: Check monitoring EC2 prerequisites
+
+on:
+  push:
+    branches:
+      - feature/custom-monitoring-deploy
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: monitoring-preflight-staging
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/custom-monitoring-deploy'
+    environment: monitoring-staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    permissions:
+      id-token: write
+    steps:
+      - name: Validate role settings
+        id: settings
+        shell: bash
+        env:
+          ROLE_ARN: ${{ vars.MONITORING_AWS_ROLE_ARN }}
+          AWS_REGION: ${{ vars.MONITORING_AWS_REGION }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$ROLE_ARN" =~ ^arn:aws:iam::([0-9]{12}):role/([A-Za-z0-9+=,.@_-]+)$ ]]; then
+            echo "Set MONITORING_AWS_ROLE_ARN to the CloudFormation output for the dedicated role."
+            exit 1
+          fi
+          printf 'account_id=%s\nrole_name=%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
+          test -n "$AWS_REGION" || { echo "Set MONITORING_AWS_REGION."; exit 1; }
+
+      - name: Authenticate with GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          aws-region: ${{ vars.MONITORING_AWS_REGION }}
+          role-to-assume: ${{ vars.MONITORING_AWS_ROLE_ARN }}
+          allowed-account-ids: ${{ steps.settings.outputs.account_id }}
+          role-session-name: monitoring-oidc-${{ github.run_id }}
+          role-duration-seconds: 900
+          unset-current-credentials: true
+          retry-max-attempts: 3
+
+      - name: Verify assumed identity
+        shell: bash
+        env:
+          EXPECTED_ACCOUNT: ${{ steps.settings.outputs.account_id }}
+          EXPECTED_ROLE: ${{ steps.settings.outputs.role_name }}
+        run: |
+          set -euo pipefail
+          identity=$(aws sts get-caller-identity --output json)
+          jq -e --arg account "$EXPECTED_ACCOUNT" --arg role "$EXPECTED_ROLE" '
+            .Account == $account and
+            (.Arn | startswith("arn:aws:sts::" + $account + ":assumed-role/" + $role + "/"))
+          ' <<< "$identity" >/dev/null
+          jq '{Account, Arn}' <<< "$identity"
+          echo 'Monitoring OIDC identity verified; no deployment was performed.'
+
+      - name: Run the reviewed read-only SSM document
+        shell: bash
+        env:
+          INSTANCE_ID: ${{ vars.MONITORING_EC2_INSTANCE_ID }}
+          DOCUMENT_NAME: ${{ vars.MONITORING_PREFLIGHT_DOCUMENT_NAME }}
+          DOCUMENT_VERSION: ${{ vars.MONITORING_PREFLIGHT_DOCUMENT_VERSION }}
+          AWS_MAX_ATTEMPTS: "2"
+          AWS_RETRY_MODE: standard
+          AWS_PAGER: ""
+        run: |
+          set -euo pipefail
+          [[ "$INSTANCE_ID" =~ ^i-([0-9a-f]{8}|[0-9a-f]{17})$ ]] || { echo 'Invalid instance ID'; exit 1; }
+          [[ "$DOCUMENT_NAME" == openremote-monitoring-staging-preflight ]] || { echo 'Expected the reviewed staging preflight document'; exit 1; }
+          [[ "$DOCUMENT_VERSION" =~ ^[1-9][0-9]*$ ]] || { echo 'Pin a numeric document version'; exit 1; }
+          command_id=$(aws ssm send-command \
+            --document-name "$DOCUMENT_NAME" --document-version "$DOCUMENT_VERSION" \
+            --instance-ids "$INSTANCE_ID" --timeout-seconds 60 \
+            --comment "Monitoring read-only preflight, GitHub run $GITHUB_RUN_ID" \
+            --query 'Command.CommandId' --output text \
+            --cli-connect-timeout 5 --cli-read-timeout 20)
+          printf 'Command ID: %s; instance: %s; document version: %s\n' "$command_id" "$INSTANCE_ID" "$DOCUMENT_VERSION"
+          if ! aws ssm wait command-executed \
+            --command-id "$command_id" --instance-id "$INSTANCE_ID" --plugin-name preflight \
+            --cli-connect-timeout 5 --cli-read-timeout 20; then
+            echo 'Wait did not report success; inspecting the invocation. Do not automatically resend.'
+          fi
+          if ! result=$(aws ssm get-command-invocation \
+            --command-id "$command_id" --instance-id "$INSTANCE_ID" --plugin-name preflight \
+            --output json --cli-connect-timeout 5 --cli-read-timeout 20); then
+            echo 'Result unavailable. Inspect the printed command ID in SSM before retrying.'
+            exit 1
+          fi
+          jq '{Status, ResponseCode, StandardOutputContent, StandardErrorContent}' <<< "$result"
+          jq -e '.Status == "Success" and .ResponseCode == 0 and
+            (.StandardOutputContent | contains("PASS monitoring host prerequisites; no services changed"))' <<< "$result" >/dev/null
+          echo 'Read-only monitoring preflight passed; no deployment was performed.'

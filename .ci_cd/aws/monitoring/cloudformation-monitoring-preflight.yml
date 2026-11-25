@@ -1,0 +1,114 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Read-only EC2 monitoring prerequisites check and narrowly scoped workflow invocation
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Environment identifier, for example staging
+    AllowedPattern: "[a-z0-9]+(-[a-z0-9]+)*"
+    MaxLength: 32
+  MonitoringRoleName:
+    Type: String
+    Description: Existing dedicated monitoring GitHub role
+    AllowedPattern: "[A-Za-z0-9+=,.@_-]+"
+    MaxLength: 64
+  InstanceId:
+    Type: AWS::EC2::Instance::Id
+    Description: Exact managed EC2 instance allowed to receive the check
+  ExpectedDataVolumeUUID:
+    Type: String
+    Description: Verified XFS filesystem UUID of the retained Docker data volume
+    AllowedPattern: "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+
+Resources:
+  MonitoringPreflight:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: !Sub "openremote-monitoring-${EnvironmentName}-preflight"
+      DocumentType: Command
+      DocumentFormat: YAML
+      TargetType: /AWS::EC2::Instance
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: "2.2"
+        description: Inspect Docker, Compose and the retained data mount without changing services
+        # No invocation parameters: callers cannot supply commands, paths or a different UUID.
+        mainSteps:
+          - name: preflight
+            action: aws:runShellScript
+            precondition:
+              StringEquals: [platformType, Linux]
+            inputs:
+              timeoutSeconds: "90"
+              runCommand:
+                - !Sub |
+                    set -eu
+                    fail() { printf 'FAIL %s\n' "$1" >&2; exit 1; }
+                    test "$(id -u)" = 0 || fail 'SSM check must run as root'
+                    date -u
+                    hostname
+                    uname -m
+                    for tool in timeout findmnt docker df free; do
+                      command -v "$tool" >/dev/null 2>&1 || fail "Missing required tool: $tool"
+                    done
+
+                    data_path=/var/lib/docker/volumes
+                    actual_uuid=$(findmnt -rn -M "$data_path" -o UUID) || fail 'Docker data path is not a mount point'
+                    test "$actual_uuid" = '${ExpectedDataVolumeUUID}' || fail 'Docker data filesystem UUID does not match provisioning'
+                    actual_type=$(findmnt -rn -M "$data_path" -o FSTYPE)
+                    test "$actual_type" = xfs || fail 'Docker data filesystem must be XFS'
+                    root_uuid=$(findmnt -rn -M / -o UUID)
+                    test -n "$root_uuid" || fail 'Cannot identify boot filesystem'
+                    test "$root_uuid" != "$actual_uuid" || fail 'Docker data is on the boot filesystem'
+                    options=$(findmnt -rn -M "$data_path" -o OPTIONS)
+                    case ",$options," in
+                      *,rw,*) ;;
+                      *) fail 'Docker data filesystem is not mounted read-write' ;;
+                    esac
+                    findmnt -rn -M "$data_path" -o TARGET,SOURCE,FSTYPE,UUID
+                    printf 'PASS retained data mount matches provisioning\n'
+
+                    timeout 15 docker version
+                    if timeout 15 docker compose version; then
+                      printf 'Compose command: docker compose\n'
+                    else
+                      command -v docker-compose >/dev/null 2>&1 || fail 'No working Compose command'
+                      timeout 15 docker-compose version
+                      printf 'Compose command: docker-compose\n'
+                    fi
+                    df -hT / "$data_path"
+                    free -h
+                    printf 'PASS monitoring host prerequisites; no services changed\n'
+      Tags:
+        - Key: Component
+          Value: monitoring
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  MonitoringPreflightAccess:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref MonitoringRoleName
+      PolicyName: !Sub "openremote-monitoring-${AWS::Region}-${EnvironmentName}-preflight"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: InvokeOnlyMonitoringPreflightOnSelectedInstance
+            Effect: Allow
+            Action: ssm:SendCommand
+            Resource:
+              - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${MonitoringPreflight}"
+              - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${InstanceId}"
+          - Sid: ReadInvocationResultInDeploymentRegion
+            Effect: Allow
+            Action: ssm:GetCommandInvocation
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: !Ref AWS::Region
+
+Outputs:
+  PreflightDocumentName:
+    Value: !Ref MonitoringPreflight
+  PreflightInstanceId:
+    Value: !Ref InstanceId
