@@ -18,30 +18,43 @@
  */
 import { expect } from "@openremote/test";
 import type { AssetQuery } from "@openremote/model";
+import { getAssetAt } from "./fixtures/data/assets";
 import { gatewayAsset, gatewayTunnels, unavailableGatewayId } from "./fixtures/data/gateway-tunnels";
 import { adminStatePath, test } from "./fixtures/manager";
 
 test.use({ storageState: adminStatePath });
 
+test.afterEach(async ({ manager }) => {
+  await manager.cleanUp();
+});
+
 /**
- * @given Two tunnels point to the same gateway and another gateway name is unavailable
+ * @given Two tunnels point to an existing gateway and another gateway name is unavailable
  * @when The Gateway tunnels page opens
  * @then Both tunnels show the gateway name as an underlined link to the asset
  * @and The other tunnel shows the gateway ID
  * @and Sorting by Gateway uses the visible name or ID
+ * @and Clicking the named gateway opens its asset details
  */
-test("should link tunnels to their gateway assets by name", async ({ page, manager }) => {
+test("should link tunnels to their gateway assets by name", async ({ page, manager, assetViewer }) => {
+  const { data: assetInfos } = await manager.api.AssetModelResource.getAssetInfos();
+  const gatewayDefaults = getAssetAt(
+    assetInfos.filter(({ assetDescriptor }) => assetDescriptor?.name === gatewayAsset.type)
+  );
+  await manager.createAsset({ ...gatewayDefaults, ...gatewayAsset });
   await page.route("**/api/master/gateway/tunnel/master", (route) => route.fulfill({ json: gatewayTunnels }));
-  await page.route("**/api/master/asset/query", (route) => {
-    const query: AssetQuery = route.request().postDataJSON();
-    if (!query.ids?.includes(gatewayAsset.id)) return route.fallback();
 
-    expect(query.ids).toEqual([gatewayAsset.id, unavailableGatewayId]);
-    expect(query.realm?.name).toBe(gatewayAsset.realm);
-    return route.fulfill({ json: [gatewayAsset] });
-  });
+  const gatewayQuery = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === "/api/master/asset/query" &&
+      (request.postDataJSON() as AssetQuery).ids?.includes(gatewayAsset.id) === true
+  );
+  const [request] = await Promise.all([gatewayQuery, page.goto(`${manager.getAppUrl("master")}#/gateway-tunnel`)]);
+  const query: AssetQuery = request.postDataJSON();
+  expect(query.ids).toEqual([gatewayAsset.id, unavailableGatewayId]);
+  expect(query.realm?.name).toBe(gatewayAsset.realm);
 
-  await page.goto(`${manager.getAppUrl("master")}#/gateway-tunnel`);
   const table = page.locator("page-gateway-tunnel").getByRole("table");
   const links = table.getByRole("link", { name: gatewayAsset.name });
   // The gateway cells previously displayed only the asset ID.
@@ -62,5 +75,5 @@ test("should link tunnels to their gateway assets by name", async ({ page, manag
 
   await link.click();
   await expect(page).toHaveURL(new RegExp(`#/assets/false/${gatewayAsset.id}$`));
-  await expect(page.locator("page-assets")).toBeVisible();
+  await expect(assetViewer.getHeaderLocator(gatewayAsset.name)).toBeVisible();
 });
