@@ -288,8 +288,8 @@ public class DashboardStorageService extends RouteBuilder implements ContainerSe
   }
 
   /**
-   * Creates a new dashboard; the dashboard keeps the supplied identifier and version, or gets a newly generated
-   * unique identifier. Callers are responsible for enforcing realm authorization.
+   * Creates a new dashboard; the dashboard keeps the supplied identifier and version, or gets a
+   * newly generated unique identifier. Callers are responsible for enforcing realm authorization.
    *
    * @param dashboard the dashboard to create
    * @return the created dashboard
@@ -301,7 +301,7 @@ public class DashboardStorageService extends RouteBuilder implements ContainerSe
       throw new IllegalArgumentException("No dashboard is specified.");
     }
     if (!TextUtil.isNullOrEmpty(dashboard.getId()) && dashboard.getVersion() == null) {
-      throw new IllegalArgumentException("A dashboard with a supplied identifier must also specifty a version.");
+      throw new IllegalArgumentException("A dashboard with an identifier must specify a version.");
     }
     return persistenceService.doReturningTransaction(
         em -> {
