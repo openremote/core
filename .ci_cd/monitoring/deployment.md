@@ -10,8 +10,8 @@ AWS credential overrides and profile files.
 Docker lifecycle checks passed. The existing collector remained ready and its
 container lifecycle was unchanged. Central delivery and actual instance replacement
 remain rollout checks. Review the staging cutover together before replacing a live
-collector. The SSM artifact download/execution wrapper and final customer deployment
-workflow are not part of this change.
+collector. The [SSM artifact download/execution wrapper](../aws/monitoring/deployment.md) is a
+separate increment; the final customer deployment workflow remains to be integrated.
 
 ## Inputs and ordinary files
 

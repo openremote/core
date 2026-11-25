@@ -170,6 +170,15 @@ branch push trigger executes this read-only check after review; remove it after 
 This is the next live acceptance step after identity, and does not require S3/secret
 provisioning first. Actual deployment is still a separate, explicitly requested step.
 
+## Monitoring deployment document
+
+The [SSM deployment document](deployment.md) is the next increment after the identity,
+preflight, artifact-transfer and direct EC2 secret-read checks. It verifies an exact
+bundle version/checksum and invokes the validated host `plan` or `deploy` action.
+It defaults to plan; reviewed live provisioning, workflow integration and staging
+cutover remain separate steps. Bundles execute trusted code as root, so review the
+permission implications before granting invocation access.
+
 ## Release artifacts and passwords
 
 `cloudformation-monitoring-storage.yml` provisions one dedicated artifact bucket per
