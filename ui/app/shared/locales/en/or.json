@@ -453,7 +453,7 @@
     "copyAddress": "Copy address",
     "copySuccess": "Copied the tunnel address to your clipboard",
     "id": "ID",
-    "gatewayId": "Gateway ID",
+    "gatewayAsset": "Gateway",
     "type": "Type",
     "target": "Target",
     "targetPort": "Target port",

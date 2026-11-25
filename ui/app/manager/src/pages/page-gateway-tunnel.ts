@@ -16,7 +16,7 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
-import { type AppStateKeyed, Page, type PageProvider, router } from "@openremote/or-app";
+import { type AppStateKeyed, Page, type PageProvider } from "@openremote/or-app";
 import { css, html, type TemplateResult, unsafeCSS } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { until } from "lit/directives/until.js";
@@ -24,9 +24,9 @@ import { when } from "lit/directives/when.js";
 import { Task } from "@lit/task";
 import type { Store } from "@reduxjs/toolkit";
 import { i18next } from "@openremote/or-translate";
-import { DefaultColor3, manager } from "@openremote/core";
+import { DefaultColor3, DefaultColor4, manager } from "@openremote/core";
 import { type Asset, type AssetQuery, type GatewayTunnelInfo, GatewayTunnelInfoType } from "@openremote/model";
-import type { TableColumn, TableRow } from "@openremote/or-mwc-components/or-mwc-table";
+import type { SortableTableTemplate, TableColumn, TableRow } from "@openremote/or-mwc-components/or-mwc-table";
 import { getAssetsRoute } from "../routes";
 import { type OrVaadinDialog, showDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
 import { showSnackbar } from "@openremote/or-mwc-components/or-mwc-snackbar";
@@ -161,7 +161,7 @@ export class PageGatewayTunnel extends Page<AppStateKeyed> {
           </div>
           ${this._fetchTunnelsTask.render({
             pending: () => html`${i18next.t("loading")}`,
-            complete: (tunnels) => until(this.getTunnelsTable(tunnels), html`${i18next.t("loading")}`),
+            complete: ({ tunnels, gatewayNames }) => this.getTunnelsTable(tunnels, gatewayNames),
             error: () => html`${i18next.t("errorOccurred")}`,
           })}
         </div>
@@ -174,10 +174,10 @@ export class PageGatewayTunnel extends Page<AppStateKeyed> {
    * Displays the given {@link tunnels} parameter in a nice looking format.
    * Uses the {@link OrMwcTable} component for displaying
    */
-  protected async getTunnelsTable(tunnels?: GatewayTunnelInfo[]): Promise<TemplateResult> {
+  protected getTunnelsTable(tunnels: GatewayTunnelInfo[], gatewayNames: ReadonlyMap<string, string>): TemplateResult {
     const columns: TableColumn[] = [
       { title: i18next.t("gatewayTunnels.id"), isSortable: true },
-      { title: i18next.t("gatewayTunnels.gatewayId") },
+      { title: i18next.t("gatewayTunnels.gatewayAsset"), isSortable: true },
       { title: i18next.t("gatewayTunnels.type"), isSortable: true },
       { title: i18next.t("gatewayTunnels.target"), isSortable: true, hideMobile: true },
       { title: i18next.t("gatewayTunnels.targetPort"), isSortable: true, hideMobile: true },
@@ -185,44 +185,45 @@ export class PageGatewayTunnel extends Page<AppStateKeyed> {
       { title: i18next.t("gatewayTunnels.closesAt"), isSortable: true, hideMobile: true },
       { title: "" },
     ];
-    const rows: TableRow[] =
-      tunnels?.map(
-        (tunnel) =>
-          ({
-            content: [
-              tunnel.id,
-              until(this._getTunnelGatewayIdTemplate(tunnel), html`${i18next.t("loading")}`),
-              tunnel.type,
-              tunnel.target,
-              tunnel.targetPort + "",
-              !tunnel.assignedPort ? "" : tunnel.assignedPort + "",
-              tunnel.autoCloseTime ? moment(tunnel.autoCloseTime).format("lll") : "",
-              until(this._getTunnelActionsTemplate(tunnel), html`${i18next.t("loading")}`),
-            ],
-            clickable: false,
-          }) as TableRow
-      ) || [];
+    const rows: TableRow[] = tunnels.map((tunnel) => ({
+      content: [
+        tunnel.id,
+        this._getTunnelGatewayTemplate(tunnel.gatewayId, gatewayNames),
+        tunnel.type,
+        tunnel.target,
+        tunnel.targetPort + "",
+        !tunnel.assignedPort ? "" : tunnel.assignedPort + "",
+        tunnel.autoCloseTime ? moment(tunnel.autoCloseTime).format("lll") : "",
+        this._getTunnelActionsTemplate(tunnel),
+      ],
+      clickable: false,
+    }));
     return html` <or-mwc-table .columns="${columns}" .rows="${rows}"> </or-mwc-table> `;
   }
 
-  /**
-   * Function that returns an HTML {@link TemplateResult} containing the gateway asset that is linked to the {@link tunnel}.
-   */
-  protected async _getTunnelGatewayIdTemplate(tunnel: GatewayTunnelInfo): Promise<TemplateResult | string> {
-    const onClick = () => {
-      router.navigate(getAssetsRoute(false, tunnel.gatewayId));
+  protected _getTunnelGatewayTemplate(
+    gatewayId: string | undefined,
+    gatewayNames: ReadonlyMap<string, string>
+  ): SortableTableTemplate | string {
+    if (!gatewayId) return "";
+
+    const name = gatewayNames.get(gatewayId) || gatewayId;
+    return {
+      template: html`
+        <a
+          href="#/${getAssetsRoute(false, gatewayId)}"
+          style="color: var(--or-app-color4, ${DefaultColor4}); text-decoration: underline;"
+          >${name}</a
+        >
+      `,
+      sortValue: name,
     };
-    return html`
-      <div style="height: 100%; display: flex; align-items: center;">
-        <span style="cursor: pointer;" @click="${() => onClick()}">${tunnel.gatewayId}</span>
-      </div>
-    `;
   }
 
   /**
    * Function that returns an HTML {@link TemplateResult} containing the actions for the given {@link tunnel}.
    */
-  protected async _getTunnelActionsTemplate(tunnel: GatewayTunnelInfo): Promise<TemplateResult | string> {
+  protected _getTunnelActionsTemplate(tunnel: GatewayTunnelInfo): TemplateResult {
     return html`
       <div style="display: flex; justify-content: end; align-items: center; gap: 12px;">
         <or-vaadin-button theme="icon" @click=${(ev: Event) => this._onStopTunnelClick(ev, tunnel)}>
@@ -482,7 +483,9 @@ export class PageGatewayTunnel extends Page<AppStateKeyed> {
    */
   protected _fetchTunnelsTask = new Task(this, {
     task: async ([realm], { signal }) => {
-      return await this._fetchTunnels(realm, signal);
+      const tunnels = await this._fetchTunnels(realm, signal);
+      const gatewayNames = await this._fetchGatewayNames(tunnels, realm, signal);
+      return { tunnels, gatewayNames };
     },
     args: () => [this._realm],
   });
@@ -492,19 +495,40 @@ export class PageGatewayTunnel extends Page<AppStateKeyed> {
    */
   protected async _fetchTunnels(
     realm: string = manager.displayRealm,
-    _signal?: AbortSignal
+    signal?: AbortSignal
   ): Promise<GatewayTunnelInfo[]> {
-    const response = await manager.rest.api.GatewayServiceResource.getAllActiveTunnelInfos(realm);
+    const response = await manager.rest.api.GatewayServiceResource.getAllActiveTunnelInfos(realm, { signal });
     if (response.status !== 200) {
       throw new Error(response.statusText);
     }
 
-    if (response.data.length > 0) {
+    if (!signal?.aborted) {
       this._updateRefreshTimer(response.data);
-      return response.data;
-    } else {
-      console.warn("No tunnels were received from the manager.");
     }
+    return response.data;
+  }
+
+  protected async _fetchGatewayNames(
+    tunnels: GatewayTunnelInfo[],
+    realm: string,
+    signal: AbortSignal
+  ): Promise<Map<string, string>> {
+    const ids = [...new Set(tunnels.map((tunnel) => tunnel.gatewayId).filter((id): id is string => !!id))];
+    const names = new Map<string, string>();
+    if (ids.length === 0) return names;
+
+    try {
+      const { data } = await manager.rest.api.AssetResource.queryAssets(
+        { ids, realm: { name: realm }, select: { attributes: [] } },
+        { signal }
+      );
+      data.forEach(({ id, name }) => {
+        if (id && name) names.set(id, name);
+      });
+    } catch (error) {
+      if (!signal.aborted) console.warn("Could not resolve gateway asset names.", error);
+    }
+    return names;
   }
 
   /**
