@@ -15,7 +15,7 @@ separate increment; the final customer deployment workflow remains to be integra
 
 ## Inputs and ordinary files
 
-Use the trusted `docker-compose` directory from the selected core revision
+Use the trusted `.ci_cd/monitoring` directory from the selected core revision
 and a customer-owned `customer.env`. Supply the independent project name explicitly;
 `--project` is authoritative for Compose. Keep it distinct from the application project.
 Select `--traces` only when the trace receiver settings and clients have been reviewed.
