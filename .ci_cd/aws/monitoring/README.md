@@ -198,11 +198,9 @@ or command output. Manual rotation and the team's password-manager recovery copy
 remain the initial operating model. Alternative secret backends are deferred; no
 provider abstraction or synchronization service is needed.
 
-Next implementation adds environment secret resources and reviewed instance access,
-then artifact/workflow grants and the dedicated SSM document. Secret values must be
-populated separately from CloudFormation templates. The shared EC2 role's read scope
-must be explicit: separate secret names alone do not isolate staging and production.
-The identity-only workflow remains unchanged until these permissions are reviewed.
+The environment secret template below supplies direct instance read access. Artifact/
+workflow grants and the dedicated SSM document follow separately. The identity-only
+workflow remains unchanged.
 
 Local review can check the storage template without accessing AWS. Before live
 provisioning, validate it with CloudFormation and review a change set in the explicit
@@ -210,6 +208,86 @@ customer account/region: expect only a new bucket and its policy. Check for an
 existing bucket with the chosen name first. After approved creation, verify versioning,
 encryption, public-access blocks and the TLS policy before granting deployment access.
 No collector restart or staging host test is needed for this template-only change.
+
+## Environment credentials
+
+`cloudformation-monitoring-secrets.yml` creates an empty secret and its read policy
+in a separate stack per deployment/environment. It does not populate passwords,
+configure backend authentication, change the EC2 role or start a collector.
+
+| Parameter | Meaning |
+| --- | --- |
+| `DeploymentName` | Stable project identifier, for example `customer`; unique within the account. |
+| `EnvironmentName` | Environment identifier, for example `staging`. |
+| `EC2RoleName` | Existing instance role in this account, for example `ec2-access-eu-west-1`; not the GitHub role. This template supports roles at the root IAM path. |
+
+The secret name is
+`openremote/monitoring/<deployment>/<environment>/credentials`. Use the stack's full
+`MonitoringSecretArn` output in non-secret deployment settings. The template creates
+no password version; an empty secret is not deployment-ready. It uses the default
+AWS-managed `aws/secretsmanager` encryption key for same-account access.
+
+The secret's resource policy grants only `secretsmanager:GetSecretValue` to the
+specified EC2 role for this secret, with public-policy blocking enabled. The monitoring
+stack owns both resources. CfCT retains ownership of the existing role, its trust
+and inline policies; no extra policy is added to that role. No permissions are
+added to the GitHub role, and no cross-account reads are configured. Other existing
+identity grants and explicit denies still apply; this Allow is not an exclusive
+list of everyone who can read the secret.
+
+**All instances using the selected role receive this read grant.** In the pilot,
+staging and production share an EC2 role. Granting it access to both secrets lets
+both environments read both, despite their different names. Review that scope before
+applying the stack; strict separation would require distinct instance identities or
+a separately reviewed access restriction. Do not describe this as environment isolation.
+
+The secret value is a JSON object with two non-empty string fields:
+
+| Key | Consumer |
+| --- | --- |
+| `loki_password` | Loki, and Tempo when traces are enabled. |
+| `metrics_password` | Prometheus remote write. |
+
+Usernames and endpoint URLs remain in the non-secret environment configuration.
+The current trace configuration deliberately reuses the Loki username/password;
+there is no separate `tempo_password` field. Store the actual passwords accepted by
+the central gateways. Creating or rotating this AWS secret does not change them.
+
+After a reviewed staging change set has been applied:
+
+1. An authorized operator opens the secret in the AWS console and supplies the two
+   keys using the password-manager copy of the existing credentials. If using a CLI,
+   supply a protected local file rather than literal values in arguments or shell
+   history. Never put values in CloudFormation parameters, GitHub variables, SSM
+   commands or this repository.
+2. Confirm a version labeled `AWSCURRENT` exists using secret metadata. Metadata
+   inspection does not prove password correctness or EC2 read access.
+3. In the later SSM acceptance check, retrieve from the intended instance into private
+   files without printing values. Validate the two fields, then check backend delivery
+   during collector rollout. That retrieval code is not part of this template change.
+
+The provisioning identity needs secret creation, tagging and resource-policy management
+permissions. Operators populating/rotating the value separately need `PutSecretValue`
+and appropriate console/read access. The template grants neither operator nor GitHub
+access. Use the infrastructure provisioning identity to validate and review a change
+set: expect exactly a new secret and its resource policy, with no IAM role replacement
+or EC2 change. Verify the role exists, the secret name is unused and the account/region
+are correct. No host test is needed before reviewing this local template.
+
+Stack deletion/replacement retains the secret and its versions but removes this
+stack's resource policy. Other IAM permissions may still allow reads. A retained
+secret needs explicit ownership review before creating a stack with the same name;
+this template does not adopt it. Renaming deployment/environment parameters creates
+a different secret and requires populating it before use.
+
+Rotation remains manual: coordinate backend acceptance and the password-manager copy,
+update the secret, explicitly deploy, and verify delivery. Existing Alloy file mounts
+do not refresh merely because Secrets Manager changed. Keep the previous working
+host configuration available for operator rollback; restoring an old secret version
+cannot revive a backend-revoked password.
+
+Secret references: [Empty secrets and default encryption](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-secretsmanager-secret.html),
+[resource-based read access](https://docs.aws.amazon.com/secretsmanager/latest/userguide/auth-and-access_resource-policies.html).
 
 Storage references: [S3 bucket properties](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-s3-bucket.html),
 [bucket policy retention](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-s3-bucketpolicy.html).
