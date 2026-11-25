@@ -133,13 +133,10 @@ public class DashboardResourceImpl extends ManagerWebResource implements Dashboa
       throw new WebApplicationException(ex, BAD_REQUEST); // Parameters are missing or invalid
     } catch (EntityNotFoundException ex) {
       throw new WebApplicationException(ex, NOT_FOUND); // Dashboard does not exist to the user
+    } catch (OptimisticLockException ex) {
+      throw new WebApplicationException("Cannot modify a stale dashboard", ex, CONFLICT);
     } catch (IllegalStateException ex) {
       throw new WebApplicationException(ex, INTERNAL_SERVER_ERROR); // An unexpected error occurred
-    } catch (OptimisticLockException opEx) {
-      throw new WebApplicationException(
-          "Refresh the dashboard from the server and try to update the changes again",
-          opEx,
-          CONFLICT);
     }
   }
 

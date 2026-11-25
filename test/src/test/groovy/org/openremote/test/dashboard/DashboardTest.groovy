@@ -429,6 +429,13 @@ class DashboardTest extends Specification implements ManagerContainerTrait {
     assert versionedSaved.displayName == "Version dashboard (edited)"
     assert versionedSaved.version == fetchedByAdmin.version + 1
 
+    when: "the admin fetches and tries to save the same dashboard again"
+    def refetched = adminUserDashboardResource.get(null, MASTER_REALM, versionedSaved.id)
+    def unchangedSave = adminUserDashboardResource.update(null, refetched)
+
+    then: "a save with no changes does not bump the version"
+    assert unchangedSave.version == versionedSaved.version
+
     when: "the now stale copy of the regular user is altered and saved"
     fetchedByUser.displayName = "Stale edit"
     alternativeUserDashboardResource.update(null, fetchedByUser)

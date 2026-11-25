@@ -26,6 +26,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.apache.camel.builder.RouteBuilder;
+import org.hibernate.jpa.AvailableHints;
 import org.openremote.container.message.MessageBrokerService;
 import org.openremote.container.persistence.PersistenceService;
 import org.openremote.container.timer.TimerService;
@@ -134,6 +135,7 @@ public class DashboardStorageService extends RouteBuilder implements ContainerSe
 
               // Create query object and apply parameters
               Query query = em.createNativeQuery(sql.toString(), Dashboard.class);
+              query.setHint(AvailableHints.HINT_READ_ONLY, true);
               parameters.forEach(query::setParameter);
 
               return query.getResultList().toArray(new Dashboard[0]);
@@ -354,7 +356,9 @@ public class DashboardStorageService extends RouteBuilder implements ContainerSe
                 .setParameter("realm", realm)
                 .getSingleResult();
 
-            return em.merge(dashboard);
+            Dashboard d = em.merge(dashboard);
+            em.flush();
+            return d;
           } catch (NoResultException e) {
             throw new EntityNotFoundException("Dashboard does not exist or is inaccessible.");
           }
