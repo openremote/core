@@ -1,15 +1,21 @@
 # Copy to .github/workflows/monitoring-identity-check.yml in the customer repo.
 # Authentication-only: no checkout, SSM invocation or application deployment.
+# Create monitoring-staging with exact allowed branches before running this job.
+# Remove the temporary push trigger after this workflow reaches main.
 name: Check monitoring AWS identity
 
 on:
+  push:
+    branches:
+      - feature/custom-monitoring-deploy
   workflow_dispatch:
 
 permissions: {}
 
 jobs:
   identity:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/custom-monitoring-deploy'
+    environment: monitoring-staging
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

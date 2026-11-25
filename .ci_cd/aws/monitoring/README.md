@@ -71,52 +71,62 @@ a retained provider must not subsequently be recreated by another stack. Review 
 users and CloudFormation ownership before any later removal or ownership transfer.
 IAM retrieves the CA thumbprint because the optional thumbprint property is omitted.
 
-## First check: protected main branch
+## First check: staging environment and implementation branch
 
-The initial workflow uses branch-based trust, without a GitHub environment. Use the
-exact subject `repo:OWNER/REPOSITORY:ref:refs/heads/main`, substituting the customer
-repository and verifying its actual subject format. The example runs only from
-`main`; branch selection in the dispatch UI does not broaden AWS trust. A branch
-subject permits qualifying jobs on that branch, not only this workflow file.
+Use the GitHub environment `monitoring-staging` in the customer repository. Before
+pushing the test workflow, create the environment under **Settings → Environments**
+and configure **Deployment branches and tags → Selected branches and tags** with
+branch rules for exactly:
 
-After reviewing and provisioning the identity stack, copy the example to the customer
-repository as `.github/workflows/monitoring-identity-check.yml` and merge it through
-normal review. Configure two non-secret repository Actions variables:
+- `main`
+- `feature/custom-monitoring-deploy`
 
-- `MONITORING_AWS_ROLE_ARN`: the stack's `MonitoringRoleArn` output.
+Do not add a wildcard or tag rule. If the implementation branch has a different
+name, update the environment rule, workflow push filter and job condition together.
+The environment must be configured explicitly before use; simply naming it in the
+workflow is not sufficient to establish these restrictions. Environment feature
+availability depends on repository visibility and GitHub plan.
+
+Set the CloudFormation `GitHubSubject` to
+`repo:OWNER/REPOSITORY:environment:monitoring-staging`, substituting the customer
+repository and verifying its actual subject format. AWS matches this exact value
+with `StringEquals`. The job's environment replaces the branch part of the standard
+OIDC subject: GitHub's environment rules control allowed branches. This trust can be
+used by other qualifying jobs in that repository/environment, not only this file.
+Repositories with customized or immutable subjects require their actual subject.
+
+Configure two non-secret Actions variables in `monitoring-staging`:
+
+- `MONITORING_AWS_ROLE_ARN`: the role stack's `MonitoringRoleArn` output.
 - `MONITORING_AWS_REGION`: the deployment region, initially `eu-west-1`.
 
-Dispatch **Check monitoring AWS identity** on `main`. It requests a short-lived
-session and verifies the account and assumed role before printing their identifiers.
-It does not print credentials or tokens. Workflow dispatch requires the workflow to
-be present on the repository's default branch. Any later choice of another trusted
-branch must update the workflow condition and CloudFormation subject together.
+After the provider and identity-only role exist, copy the example into the customer
+repository as `.github/workflows/monitoring-identity-check.yml`. Push it on the exact
+implementation branch to run the pre-merge identity check. The temporary `push`
+trigger is restricted to that branch. No initial merge is required for this test.
+The check requests temporary credentials and verifies the account and assumed role;
+it prints neither credentials nor tokens and performs no deployment or secret read.
 
-## Choose the trust scope
+Once the workflow is on the default branch, remove its temporary `push` trigger and
+use **Run workflow** (`workflow_dispatch`) for subsequent checks. Manual dispatch
+requires the workflow to exist on the default branch; selecting another branch does
+not bypass environment restrictions. Retain the exact implementation-branch rule
+only while it is needed for testing, then remove it and the corresponding job
+condition alternative. Actual monitoring deployment will be explicitly requested,
+not triggered by this identity-check push. Production uses a separate environment
+and role, restricted to `main`, in a later rollout.
 
-`GitHubSubject` is an exact value matched with `StringEquals`, not a wildcard.
-Confirm the repository's OIDC settings before selecting it. Standard examples are:
-
-- Environment: `repo:example/customer:environment:monitoring-staging`.
-- Branch, with no job environment: `repo:example/customer:ref:refs/heads/main`.
-
-A GitHub environment is repository deployment configuration, not an AWS resource.
-It can hold non-secret role/region variables and enforce deployment branch rules.
-Approval features depend on the repository visibility and GitHub plan. A workflow
-input or shell variable called ENVIRONMENT does not create this job environment.
-
-When the job uses an environment, that environment replaces the branch part of the
-standard subject. Configure allowed branches in GitHub; an environment subject
-alone does not restrict branches or uniquely identify one workflow. Repositories
-using immutable or customized subjects require their actual subject instead of
-copying the examples above. Do not log OIDC tokens or AWS credentials.
+An environment's branch rules complement AWS trust; they do not replace versioned
+non-secret deployment settings in environment files. No GitHub AWS access-key
+secrets are needed. Optional reviewer gates can be configured where supported, but
+are not a prerequisite for this identity-only test.
 
 ## CloudFormation inputs and ownership
 
 | Parameter | Value |
 | --- | --- |
 | `RoleName` | Dedicated monitoring role name, for example `monitoring-staging`. |
-| `GitHubSubject` | Verified exact subject for the intended repository and environment/branch. |
+| `GitHubSubject` | Verified exact subject for the customer repository and `monitoring-staging` environment. |
 
 The role references the fixed GitHub provider URL using the stack's account ID and
 AWS partition. No provider ARN parameter, cross-stack export or SSM lookup is needed.
@@ -129,11 +139,12 @@ Use the infrastructure provisioning identity to review/apply the role stack with
 
 ## Acceptance before deployment permissions
 
-1. Agree environment or branch trust and review the corresponding GitHub settings.
+1. Configure `monitoring-staging`, its exact allowed branches and environment variables;
+   review the corresponding AWS environment subject.
 2. Deploy the CfCT provider customization and verify the pilot account, then review and
    provision the monitoring-role stack in that same account.
-3. Add a manual workflow with `id-token: write`, a pinned AWS credentials action,
-   and the stack's role ARN. It needs no AWS access-key secrets.
+3. Run the identity-only example from the implementation branch using its temporary
+   push trigger; switch to manual dispatch once it exists on the default branch.
 4. Verify `get-caller-identity` returns the intended account and assumed role.
 5. Add scoped SSM/artifact permissions in a later reviewed change, followed by a
    harmless SSM execution check. Secret retrieval permissions belong to the EC2 role.
@@ -141,7 +152,9 @@ Use the infrastructure provisioning identity to review/apply the role stack with
 Artifact-bucket selection and monitoring password migration are not prerequisites
 for this authentication-only check. ECR publishing is not part of its acceptance.
 
-References: [CfCT manifest targets](https://docs.aws.amazon.com/controltower/latest/userguide/cfct-manifest-file-resources-section.html),
+References: [Manual workflow dispatch](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow),
+[OIDC subjects](https://docs.github.com/en/actions/reference/security/oidc),
+[CfCT manifest targets](https://docs.aws.amazon.com/controltower/latest/userguide/cfct-manifest-file-resources-section.html),
 [GitHub OIDC trust](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws),
 [CloudFormation OIDC provider](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-iam-oidcprovider.html),
 [GetCallerIdentity](https://docs.aws.amazon.com/cli/latest/reference/sts/get-caller-identity.html).
