@@ -1,4 +1,4 @@
-# Monitoring AWS identity
+# Monitoring AWS prerequisites
 
 `cloudformation-monitoring-identity.yml` provisions only a dedicated monitoring role.
 It requires the account's shared GitHub OIDC provider, managed through CfCT.
@@ -151,6 +151,68 @@ Use the infrastructure provisioning identity to review/apply the role stack with
 
 Artifact-bucket selection and monitoring password migration are not prerequisites
 for this authentication-only check. ECR publishing is not part of its acceptance.
+
+## Release artifacts and passwords
+
+`cloudformation-monitoring-storage.yml` provisions one dedicated artifact bucket per
+customer account and region. Deploy it once through the infrastructure provisioning
+identity, separately from the per-environment identity stacks. This is a customer
+prerequisite, not an OU-wide CfCT rollout. It does not create IAM grants, secrets,
+SSM commands or collectors, and does not change application backup buckets.
+
+The bucket is named `openremote-monitoring-<account-id>-<region>`. Use environment
+prefixes and unique release IDs:
+
+```text
+staging/releases/<release-id>/bundle.tar.gz
+production/releases/<release-id>/bundle.tar.gz
+```
+
+A release contains non-secret Compose/Alloy configuration and deployment files,
+including the resolved image override needed for exact image selection on rollback.
+The deployment request will identify the object key, S3 version ID and expected
+SHA-256 checksum. Keep that selection available outside the EC2 boot disk. S3
+versioning is not an immutability guarantee; do not reuse release IDs or select an
+unqualified latest object when reproducing an earlier deployment.
+
+Storage has versioning, SSE-S3 encryption, disabled ACLs, all public-access blocks
+and an HTTPS-only bucket policy. The bucket and its policy are retained on stack
+deletion/replacement. Retained resources need explicit ownership review before
+recreating the stack; the template does not adopt an existing bucket. It expires
+only incomplete multipart uploads, not completed releases or older object versions.
+Define release cleanup before production while retaining current and rollback
+artifacts. No customer-managed KMS key is required for this artifact bucket.
+
+The existing pilot inventory showed an application backup bucket but no staging
+bucket. Dedicated storage avoids making staging monitoring depend on production
+backups. Prefixes organize environments; they do not provide access isolation by
+themselves. Future workflow grants will allow uploads only to the intended prefix,
+and EC2 will retrieve the selected release. Existing broad instance S3 permissions
+remain effective; a narrower additional Allow does not remove them.
+
+Amazon Secrets Manager is the agreed password source. Keep one secret per environment
+for Loki, Prometheus and optional Tempo credentials. EC2 will retrieve it directly
+into private files mounted read-only into Alloy; GitHub needs no secret-value read
+access. Passwords must not appear in release artifacts, Git, SSM command parameters
+or command output. Manual rotation and the team's password-manager recovery copy
+remain the initial operating model. Alternative secret backends are deferred; no
+provider abstraction or synchronization service is needed.
+
+Next implementation adds environment secret resources and reviewed instance access,
+then artifact/workflow grants and the dedicated SSM document. Secret values must be
+populated separately from CloudFormation templates. The shared EC2 role's read scope
+must be explicit: separate secret names alone do not isolate staging and production.
+The identity-only workflow remains unchanged until these permissions are reviewed.
+
+Local review can check the storage template without accessing AWS. Before live
+provisioning, validate it with CloudFormation and review a change set in the explicit
+customer account/region: expect only a new bucket and its policy. Check for an
+existing bucket with the chosen name first. After approved creation, verify versioning,
+encryption, public-access blocks and the TLS policy before granting deployment access.
+No collector restart or staging host test is needed for this template-only change.
+
+Storage references: [S3 bucket properties](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-s3-bucket.html),
+[bucket policy retention](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-s3-bucketpolicy.html).
 
 References: [Manual workflow dispatch](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow),
 [OIDC subjects](https://docs.github.com/en/actions/reference/security/oidc),
