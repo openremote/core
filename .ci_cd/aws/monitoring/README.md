@@ -2,9 +2,9 @@
 
 `cloudformation-monitoring-identity.yml` provisions only a dedicated monitoring role.
 It requires the account's shared GitHub OIDC provider, managed through CfCT.
-This first slice grants no
-SSM, S3, Secrets Manager or other deployment permissions. It leaves application
-roles, EC2 roles and running services unchanged.
+The identity template alone grants no SSM, S3 or Secrets Manager permissions.
+The separate artifact-access template adds the scoped grants described below.
+Neither template changes running services or the application deployment role.
 
 The template and `monitoring-identity-check.yml.example` are local drafts. Review
 them before creating a change set or deploying the identity stack. The first live workflow
@@ -16,7 +16,9 @@ invoke SSM or deploy monitoring.
 CfCT owns the shared account-wide GitHub provider. The separate monitoring stack
 owns the repository-specific monitoring role and its trust/permissions. The existing
 `create-iam-roles` customization continues to own EC2, developer and application
-roles; this change does not modify those roles or the developers-account provider.
+roles and their existing policies. The artifact-access stack owns only its additional
+named inline policies, including the EC2 artifact read grant; it does not replace
+CfCT policies, change role trust or modify the developers-account provider.
 
 The provider source lives in the CodeCommit repository
 `custom-control-tower-configuration`:
@@ -146,8 +148,10 @@ Use the infrastructure provisioning identity to review/apply the role stack with
 3. Run the identity-only example from the implementation branch using its temporary
    push trigger; switch to manual dispatch once it exists on the default branch.
 4. Verify `get-caller-identity` returns the intended account and assumed role.
-5. Add scoped SSM/artifact permissions in a later reviewed change, followed by a
-   harmless SSM execution check. Secret retrieval permissions belong to the EC2 role.
+5. Review/provision the storage and environment artifact-access stacks separately,
+   then validate upload and versioned retrieval as described below. The secret stack
+   grants direct EC2 credential reads. SSM execution permissions/document follow in
+   a later change, starting with a harmless execution check.
 
 Artifact-bucket selection and monitoring password migration are not prerequisites
 for this authentication-only check. ECR publishing is not part of its acceptance.
@@ -186,8 +190,8 @@ artifacts. No customer-managed KMS key is required for this artifact bucket.
 The existing pilot inventory showed an application backup bucket but no staging
 bucket. Dedicated storage avoids making staging monitoring depend on production
 backups. Prefixes organize environments; they do not provide access isolation by
-themselves. Future workflow grants will allow uploads only to the intended prefix,
-and EC2 will retrieve the selected release. Existing broad instance S3 permissions
+themselves. The artifact-access template grants workflow uploads to the intended prefix
+and EC2 downloads of explicitly selected versions. Existing broad instance S3 permissions
 remain effective; a narrower additional Allow does not remove them.
 
 Amazon Secrets Manager is the agreed password source. Keep one secret per environment
@@ -198,9 +202,9 @@ or command output. Manual rotation and the team's password-manager recovery copy
 remain the initial operating model. Alternative secret backends are deferred; no
 provider abstraction or synchronization service is needed.
 
-The environment secret template below supplies direct instance read access. Artifact/
-workflow grants and the dedicated SSM document follow separately. The identity-only
-workflow remains unchanged.
+The environment secret template below supplies direct instance credential reads.
+The artifact-access template supplies the S3 grants; the dedicated SSM document and
+execution permissions follow separately. The identity-only workflow remains unchanged.
 
 Local review can check the storage template without accessing AWS. Before live
 provisioning, validate it with CloudFormation and review a change set in the explicit
@@ -208,6 +212,78 @@ customer account/region: expect only a new bucket and its policy. Check for an
 existing bucket with the chosen name first. After approved creation, verify versioning,
 encryption, public-access blocks and the TLS policy before granting deployment access.
 No collector restart or staging host test is needed for this template-only change.
+
+## Artifact access
+
+`cloudformation-monitoring-artifact-access.yml` adds two small inline policies to
+existing roles. Deploy one stack per environment, after the dedicated monitoring role
+and artifact bucket exist in the same account/region. Keeping access separate lets
+the first identity check run before granting artifact permissions.
+
+| Parameter | Meaning |
+| --- | --- |
+| `EnvironmentName` | Prefix environment, matching the environment being deployed. |
+| `MonitoringRoleName` | Dedicated monitoring GitHub role from the identity stack; never the application deployment role. |
+| `EC2RoleName` | Existing role used by the intended EC2 instance. |
+
+The template rejects identical workflow/instance role names. The bucket name follows
+the storage template's account/region convention; there is no arbitrary bucket ARN
+or cross-account access parameter. Each policy applies only to objects under
+`<environment>/releases/` in that bucket:
+
+| Principal | New permission | Intended operation |
+| --- | --- | --- |
+| Monitoring workflow role | `s3:PutObject` | Upload one small release bundle and retain the returned version ID. |
+| EC2 instance role | `s3:GetObjectVersion` | Download that exact key/version, then verify the expected checksum. |
+
+The intended CLI operations are `aws s3api put-object` (one request, no ACLs/tags,
+SSE-S3, `--if-none-match '*'`) and `aws s3api get-object --version-id ...`.
+The upload response supplies the version ID without an additional read or list call.
+Reject a missing or `null` version ID; it indicates that the versioned-release
+contract has not been met. Use unique release IDs and an explicit region. The bundle
+contains configuration/scripts, not container images; no multipart transfer is planned.
+Do not substitute `s3 sync`, an unversioned download, or bucket discovery commands
+without reviewing their different permission requirements.
+
+No list, delete, object-version delete, ACL, secret-read, IAM-management or SSM actions
+are added to the workflow role. The EC2 grant adds no upload permission. These are
+additional Allows, not restrictions on existing permissions: the pilot EC2 role still
+has its existing broad S3 grants. `GetObject` does not authorize a download with an
+explicit version ID, which is why `GetObjectVersion` is added. All instances using a
+shared role receive its grants; this does not isolate staging from production.
+
+The access stack owns only policy names
+`openremote-monitoring-<region>-<environment>-artifact-upload` and
+`openremote-monitoring-<region>-<environment>-artifact-download`. Do not declare those
+same policies in CfCT or another stack. Existing role trust and CfCT policies stay
+under their original owners. Delete the access stack before deleting either role;
+removing these grants does not delete artifacts or undo other existing grants.
+
+Before applying, verify the exact account, region, role names and bucket ownership,
+and check that the two policy names are unused. Validate the template and review a
+change set with IAM acknowledgement (`CAPABILITY_NAMED_IAM`): expect only two new
+`AWS::IAM::RolePolicy` resources. The provisioning identity, not the workflow role,
+needs permission to manage those policies.
+
+After approved provisioning, validate with a harmless uniquely named object under
+`<environment>/releases/access-check-<unique-id>/`, containing no credentials or code
+to execute. Use the intended monitoring role to upload and capture its version ID;
+use the intended EC2 identity to retrieve that exact version and compare checksums.
+Test that the dedicated workflow role cannot upload to another environment or read
+monitoring secrets. Existing broad EC2 grants mean a cross-prefix denial cannot be
+assumed for that role. An authorized operator can remove the test object version;
+do not grant deletion to the workflow merely for test cleanup. These live checks
+remain pending; no host/container lifecycle change is required.
+
+Eventually customer infrastructure provisioning creates the account/region bucket
+once and the identity, access and secret stacks when enabling monitoring for an
+environment. Manual staging provisioning validates these same templates first.
+Only the shared OIDC provider belongs in the OU-wide CfCT baseline. Populating
+backend passwords remains an explicit operator step initially.
+
+Artifact API references: [PutObject permissions and version IDs](https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html),
+[versioned GetObject permissions](https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html),
+[standalone role policies](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-iam-rolepolicy.html).
 
 ## Environment credentials
 

@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Environment-scoped monitoring artifact upload and versioned download permissions
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Release prefix environment, for example staging or production
+    AllowedPattern: "[a-z0-9]+(-[a-z0-9]+)*"
+    MaxLength: 32
+
+  MonitoringRoleName:
+    Type: String
+    Description: Existing dedicated monitoring GitHub role; not the application deployment role
+    AllowedPattern: "[A-Za-z0-9+=,.@_-]+"
+    MaxLength: 64
+
+  EC2RoleName:
+    Type: String
+    Description: Existing EC2 instance role in this account
+    AllowedPattern: "[A-Za-z0-9+=,.@_-]+"
+    MaxLength: 64
+
+Rules:
+  SeparateWorkflowAndInstanceRoles:
+    Assertions:
+      - Assert: !Not [!Equals [!Ref MonitoringRoleName, !Ref EC2RoleName]]
+        AssertDescription: Workflow upload and instance download must use different roles
+
+# Provision once per environment in the same account/region as the storage stack.
+# This stack owns only these new inline policies, not either role or its trust.
+Resources:
+  MonitoringArtifactUpload:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref MonitoringRoleName
+      PolicyName: !Sub "openremote-monitoring-${AWS::Region}-${EnvironmentName}-artifact-upload"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: UploadEnvironmentRelease
+            Effect: Allow
+            Action: s3:PutObject
+            Resource: !Sub "arn:${AWS::Partition}:s3:::openremote-monitoring-${AWS::AccountId}-${AWS::Region}/${EnvironmentName}/releases/*"
+
+  MonitoringArtifactDownload:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref EC2RoleName
+      PolicyName: !Sub "openremote-monitoring-${AWS::Region}-${EnvironmentName}-artifact-download"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DownloadEnvironmentReleaseVersion
+            Effect: Allow
+            Action: s3:GetObjectVersion
+            Resource: !Sub "arn:${AWS::Partition}:s3:::openremote-monitoring-${AWS::AccountId}-${AWS::Region}/${EnvironmentName}/releases/*"
+
+Outputs:
+  ArtifactBucketName:
+    Description: Existing bucket provisioned by the monitoring storage stack
+    Value: !Sub "openremote-monitoring-${AWS::AccountId}-${AWS::Region}"
+  ReleasePrefix:
+    Description: Prefix for unique release IDs; deployment selects an explicit object version
+    Value: !Sub "${EnvironmentName}/releases/"
