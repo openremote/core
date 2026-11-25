@@ -840,12 +840,9 @@ public class RulesService extends RouteBuilder implements ContainerService {
       return;
     }
 
-    final AttributeEvent[] previousEventHolder = new AttributeEvent[1];
-    final boolean[] appliedHolder = new boolean[1];
     attributeEventsByRef.compute(
         attributeEvent.getRef(),
         (ref, currentEvent) -> {
-          previousEventHolder[0] = currentEvent;
           if (isOlderThanCurrent(attributeEvent, currentEvent)) {
             LOG.log(
                 FINEST,
@@ -858,36 +855,38 @@ public class RulesService extends RouteBuilder implements ContainerService {
           }
 
           LOG.log(FINEST, () -> "Inserting attribute event: " + attributeEvent);
-          appliedHolder[0] = true;
+          boolean inserted = currentEvent == null;
+
+          // Get the chain of rule engines that we need to pass through
+          List<RulesEngine<?>> rulesEngines =
+              getEnginesInScope(attributeEvent.getRealm(), attributeEvent.getPath());
+
+          // Pass through each rules engine
+          for (RulesEngine<?> rulesEngine : rulesEngines) {
+            rulesEngine.insertOrUpdateAttributeInfo(attributeEvent, inserted);
+          }
+
           return attributeEvent;
         });
-    if (!appliedHolder[0]) {
-      return;
-    }
-    boolean inserted = previousEventHolder[0] == null;
-
-    // Get the chain of rule engines that we need to pass through
-    List<RulesEngine<?>> rulesEngines =
-        getEnginesInScope(attributeEvent.getRealm(), attributeEvent.getPath());
-
-    // Pass through each rules engine
-    for (RulesEngine<?> rulesEngine : rulesEngines) {
-      rulesEngine.insertOrUpdateAttributeInfo(attributeEvent, inserted);
-    }
   }
 
   protected void retractAttributeInfo(AttributeEvent attributeEvent) {
-    LOG.log(FINEST, () -> "Retracting attribute event: " + attributeEvent);
-    attributeEventsByRef.remove(attributeEvent.getRef());
+    attributeEventsByRef.compute(
+        attributeEvent.getRef(),
+        (ref, currentEvent) -> {
+          LOG.log(FINEST, () -> "Retracting attribute event: " + attributeEvent);
 
-    // Get the chain of rule engines that we need to pass through
-    List<RulesEngine<?>> rulesEngines =
-        getEnginesInScope(attributeEvent.getRealm(), attributeEvent.getPath());
+          // Get the chain of rule engines that we need to pass through
+          List<RulesEngine<?>> rulesEngines =
+              getEnginesInScope(attributeEvent.getRealm(), attributeEvent.getPath());
 
-    // Pass through each rules engine
-    for (RulesEngine<?> rulesEngine : rulesEngines) {
-      rulesEngine.retractAttributeInfo(attributeEvent);
-    }
+          // Pass through each rules engine
+          for (RulesEngine<?> rulesEngine : rulesEngines) {
+            rulesEngine.retractAttributeInfo(attributeEvent);
+          }
+
+          return null;
+        });
   }
 
   protected List<AttributeInfo> getAssetStatesInScope(String assetId) {

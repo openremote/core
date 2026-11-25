@@ -47,6 +47,7 @@ import org.openremote.manager.webhook.WebhookService;
 import org.openremote.model.PersistenceEvent;
 import org.openremote.model.asset.Asset;
 import org.openremote.model.attribute.AttributeInfo;
+import org.openremote.model.attribute.AttributeRef;
 import org.openremote.model.query.filter.GeofencePredicate;
 import org.openremote.model.query.filter.LocationAttributePredicate;
 import org.openremote.model.rules.*;
@@ -124,6 +125,7 @@ public class RulesEngine<T extends Ruleset> {
   protected final Set<AttributeInfo> updateInfos = new HashSet<>();
   protected final Set<AttributeInfo> insertInfos = new HashSet<>();
   protected final Set<AttributeInfo> retractInfos = new HashSet<>();
+  protected final Map<AttributeRef, AttributeInfo> queuedInfos = new HashMap<>();
 
   // Only used to optimize toString(), contains the details of this engine
   protected String deploymentInfo;
@@ -541,6 +543,7 @@ public class RulesEngine<T extends Ruleset> {
       insertInfos.clear();
       updateInfos.clear();
       retractInfos.clear();
+      queuedInfos.clear();
     }
 
     retractInfosCopy.forEach(
@@ -669,6 +672,14 @@ public class RulesEngine<T extends Ruleset> {
   public void insertOrUpdateAttributeInfo(AttributeInfo attributeInfo, boolean insert) {
 
     synchronized (insertInfos) {
+      AttributeInfo queuedInfo = queuedInfos.get(attributeInfo.getRef());
+      if (queuedInfo != null && attributeInfo.getTimestamp() < queuedInfo.getTimestamp()) {
+        if (insert && updateInfos.remove(queuedInfo)) {
+          insertInfos.add(queuedInfo);
+        }
+        return;
+      }
+
       insert = insert || insertInfos.remove(attributeInfo);
       updateInfos.remove(attributeInfo);
       retractInfos.remove(attributeInfo);
@@ -678,6 +689,7 @@ public class RulesEngine<T extends Ruleset> {
       } else {
         updateInfos.add(attributeInfo);
       }
+      queuedInfos.put(attributeInfo.getRef(), attributeInfo);
     }
 
     if (running) {
@@ -692,6 +704,7 @@ public class RulesEngine<T extends Ruleset> {
       updateInfos.remove(attributeInfo);
       retractInfos.remove(attributeInfo);
       retractInfos.add(attributeInfo);
+      queuedInfos.remove(attributeInfo.getRef());
     }
 
     if (running) {
