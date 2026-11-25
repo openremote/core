@@ -391,12 +391,7 @@ queries:
   datapoint_chunk_sizing:
     interval: 43200 # Every 12 hours
     databases: [openremote]
-    metrics:
-      [
-        pg_datapoint_write_rate_per_day,
-        pg_datapoint_projected_chunk_size,
-        pg_datapoint_chunk_memory_ratio,
-      ]
+    metrics: [pg_datapoint_write_rate_per_day, pg_datapoint_projected_chunk_size, pg_datapoint_chunk_memory_ratio]
     sql: |
       WITH current_chunk AS (
         SELECT
