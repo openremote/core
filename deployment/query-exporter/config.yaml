@@ -28,11 +28,11 @@ metrics:
 
   pg_connections_used:
     type: gauge
-    description: Count of connections in use
+    description: Count of client connections in use (excludes background processes)
 
   pg_connections_free:
     type: gauge
-    description: Count of connections available
+    description: Count of client connections available before max_connections is reached
 
   pg_connections_stuck:
     type: gauge
@@ -261,7 +261,9 @@ queries:
         idle_xact.idle_in_xact_count as pg_connections_stuck
         FROM
         (SELECT current_setting('max_connections')::int AS max_limit) max_conn,
-        (SELECT count(*) AS total_used FROM pg_stat_activity) active,
+        -- Only client backends count towards max_connections; pg_stat_activity also lists background processes
+        -- (checkpointer, WAL writer, autovacuum, TimescaleDB workers, etc.) which have their own reserved slots
+        (SELECT count(*) AS total_used FROM pg_stat_activity WHERE backend_type = 'client backend') active,
         -- Ignore transactions that are only briefly idle between statements
         (SELECT count(*) AS idle_in_xact_count FROM pg_stat_activity
           WHERE state = 'idle in transaction'
