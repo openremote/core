@@ -407,10 +407,12 @@ class DashboardTest extends Specification implements ManagerContainerTrait {
     // another user cannot make an editor's save fail with a version conflict
 
     when: "a dashboard with a widget is created and fetched by the admin and another user"
+    def configStr = '{"attributeRefs":[{"id":"versionAsset","name":"brightness"}]}'
     def versionWidget = new DashboardWidget()
             .setDisplayName("Version widget")
             .setWidgetTypeId("linechart")
             .setGridItem(new DashboardGridItem().setX(0).setY(0).setW(1).setH(1))
+            .setWidgetConfig(ValueUtil.parse(configStr, Object.class).orElse(null))
     def versionDashboard = new Dashboard(MASTER_REALM, "Version dashboard", screenPresets, adminUser.id)
             .setTemplate(new DashboardTemplate(screenPresets).setWidgets([versionWidget] as DashboardWidget[]))
     def versioned = adminUserDashboardResource.create(null, versionDashboard)

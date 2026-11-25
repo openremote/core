@@ -21,6 +21,8 @@ package org.openremote.model.dashboard;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import org.openremote.model.util.ValueUtil;
+
 import java.util.Objects;
 
 public class DashboardWidget {
@@ -91,11 +93,11 @@ public class DashboardWidget {
         && Objects.equals(displayName, that.displayName)
         && Objects.equals(gridItem, that.gridItem)
         && Objects.equals(widgetTypeId, that.widgetTypeId)
-        && Objects.equals(widgetConfig, that.widgetConfig);
+        && ValueUtil.objectsEqualsWithJSONFallback(widgetConfig, that.widgetConfig);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(id, displayName, gridItem, widgetTypeId, widgetConfig);
+    return Objects.hash(id, displayName, gridItem, widgetTypeId);
   }
 }
