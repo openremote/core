@@ -21,7 +21,7 @@ volumes:
 x-logging: &awslogs
   logging:
     driver: awslogs
-    options:
+    options: &awslogs-options
       awslogs-region: ${AWS_REGION:-eu-west-1}
       awslogs-group: ${OR_HOSTNAME}
       awslogs-create-group: "true"
@@ -74,7 +74,13 @@ services:
       - work_mem=4MB
     volumes:
       - postgresql-data:/var/lib/postgresql/data
-    <<: *awslogs
+    logging:
+      driver: awslogs
+      options:
+        <<: *awslogs-options
+        # Each log message starts with the log_line_prefix ("[pid] [host] "), so lines that don't start with "[" (e.g.                                                                                                           
+        # auto_explain plan lines) belong to the message above them                                                                                                                                                              
+        awslogs-multiline-pattern: '^\['
 
   keycloak:
     restart: always
