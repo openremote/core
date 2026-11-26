@@ -19,7 +19,6 @@
 package org.openremote.manager.system;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
 import org.openremote.container.persistence.PersistenceService;
 import org.openremote.model.Container;
