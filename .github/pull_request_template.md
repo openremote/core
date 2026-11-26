@@ -1,6 +1,6 @@
 <!--
   Use a clear and meaningful title for your pull request because the title will be used in the release notes.
-  If you have permission to manage labels, add a "Bug", "Enhancement", or "Feature" label if appropriate.
+  If you have permission to manage labels, choose at most one PR type label: "Bug", "Enhancement", "Feature", or "Documentation".
 -->
 
 ## Description
