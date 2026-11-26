@@ -2,7 +2,7 @@ changelog:
   categories:
     - title: 🛠 Breaking Changes
       labels:
-        - Breaking Changes
+        - Breaking Change
     - title: 🎉 New features
       labels:
         - Feature

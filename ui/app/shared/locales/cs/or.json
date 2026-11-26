@@ -447,7 +447,7 @@
     "copyAddress": "Kopírovat adresu",
     "copySuccess": "Adresa tunelu byla zkopírována do schránky",
     "id": "ID",
-    "gatewayId": "ID brány",
+    "gatewayAsset": "Brána",
     "type": "Typ",
     "target": "Cíl",
     "targetPort": "Cílový port",

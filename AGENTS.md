@@ -13,7 +13,12 @@ In sandboxed environments, add `--offline` (requires dependencies to already be 
 
 ## Commits
 
-- Do not add "Co-authored-by", "Generated with", or any other AI attribution trailers or footers to commit messages or PR descriptions.
+Do not add "Co-authored-by", "Generated with", or any other AI attribution trailers or footers to commit messages or PR descriptions.
+
+## Pull requests
+
+- Follow the [PR template](.github/pull_request_template.md). Apply at most one type label: `Bug`, `Enhancement`, `Feature`, or `Documentation`.
+- Apply `Breaking Change` for compatibility breaks, including REST API changes, or upgrades that require a manual step beyond the standard procedure. In the PR description, explain what breaks, how to migrate, and which versions are required. Use a **Breaking change and migration** heading or an example when helpful.
 
 ## Tests
 
@@ -73,3 +78,13 @@ Frontend conventions live in `ui/AGENTS.md`. Read it before changing anything un
 ## CI/CD pipeline
 
 Pipeline concepts and conventions live in the [CI/CD pipeline guide](https://docs.openremote.io/docs/developer-guide/ci-cd-pipeline). Read it before changing anything under `.github/` or `.ci_cd/`; the deployment scripts and their variables are covered by `.ci_cd/README.md`.
+
+## Downstream compatibility
+
+Downstream repositories include Extensions, the Custom Project template, and existing public and private custom projects.
+
+- Check downstream impact and make focused companion updates within the task scope. In the Core PR, report follow-ups, checks run or skipped, and links to public companion PRs.
+- Check [Extensions](https://github.com/openremote/extensions) when changing a Core API, extension point, or behavior they may rely on. Preserve compatibility where feasible. Build and test affected extensions against artifacts from the proposed Core change and validate any companion fixes together so Core and Extensions can ship together.
+- Update the [Custom Project template](https://github.com/openremote/custom-project) when affected and coordinate dependency pins with artifact publication. Assess impact on existing custom projects you are authorized to inspect. Their maintainers handle upgrades after release.
+- Describe public migration steps by API, extension, or configuration, using generic examples. Keep private repository names, links, code, configuration, and findings in authorized private channels.
+- Update affected [OpenRemote documentation](https://github.com/openremote/documentation) under its versioning and generated API rules. Link updated migration guidance from the Core PR.
