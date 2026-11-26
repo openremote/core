@@ -442,7 +442,7 @@
     "copyAddress": "Kopiuj adres",
     "copySuccess": "Adres połączenie skopiowano do schowka",
     "id": "ID",
-    "gatewayId": "ID bramki",
+    "gatewayAsset": "Bramka",
     "type": "Typ",
     "target": "Cel",
     "targetPort": "Port docelowy",
