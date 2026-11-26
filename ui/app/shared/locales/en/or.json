@@ -909,6 +909,7 @@
     "interval.quarter": "15 min",
     "interval.one_hour": "1 hour",
     "saveSuccessful": "Saved dashboard successfully!",
+    "saveConflict": "This dashboard has newer changes; your edits were not saved.",
     "initialName": "New Dashboard",
     "openInNewTab": "Open in new tab",
     "whoCanView": "Who can access the dashboard?",
