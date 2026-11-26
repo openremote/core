@@ -191,6 +191,12 @@ public class GatewayService extends RouteBuilder implements ContainerService {
     return PRIORITY;
   }
 
+  /**
+   * Resolves gateway dependencies and installs event handling during container initialization.
+   *
+   * @param container the manager container that provides services, executors, and configuration
+   * @throws Exception if gateway initialization fails
+   */
   @Override
   public void init(Container container) throws Exception {
     assetStorageService = container.getService(AssetStorageService.class);
@@ -249,6 +255,12 @@ public class GatewayService extends RouteBuilder implements ContainerService {
         getInteger(container.getConfig(), OR_GATEWAY_TUNNEL_AUTO_CLOSE_MINUTES, 0);
   }
 
+  /**
+   * Looks up the first activation that enables V2 gateway asset ID mapping on this installation.
+   *
+   * @return the earliest recorded activation of the minimum V2 release or a later version
+   * @throws IllegalStateException if no qualifying activation is recorded
+   */
   protected Instant getGatewayMappingV2ActivatedOn() {
     return applicationVersionService
         .getFirstActivationAtOrAfter(ASSET_ID_MAPPING_V2_VERSION)
@@ -311,6 +323,13 @@ public class GatewayService extends RouteBuilder implements ContainerService {
     }
   }
 
+  /**
+   * Registers a connector for the gateway and publishes its initial status if producers are already
+   * running.
+   *
+   * @param gateway the persisted gateway registration
+   * @throws IllegalStateException if no V2 mapping cutoff is recorded
+   */
   private synchronized void registerGateway(GatewayAsset gateway) {
     GatewayConnector connector =
         new GatewayConnector(
@@ -450,6 +469,19 @@ public class GatewayService extends RouteBuilder implements ContainerService {
     }
   }
 
+  /**
+   * Validates inbound gateway ownership, handles local gateway settings, and forwards outbound
+   * writes to the owning gateway when applicable.
+   *
+   * @param em the entity manager for the attribute processing transaction, which already holds the
+   *     asset write lock for an inbound gateway update
+   * @param event the enriched attribute event, including the authenticated gateway source for
+   *     inbound updates
+   * @return {@code true} if the event was forwarded and consumed, or {@code false} to continue
+   *     local processing
+   * @throws AssetProcessingException if a gateway update cannot be handled or forwarded
+   * @throws IllegalStateException if persisted gateway ownership cannot be verified
+   */
   public boolean onAttributeEventIntercepted(EntityManager em, AttributeEvent event)
       throws AssetProcessingException {
 
@@ -812,8 +844,14 @@ public class GatewayService extends RouteBuilder implements ContainerService {
   }
 
   /**
-   * Look up cached gateway ownership. A known asset takes precedence over the parent hint, which
-   * allows lookups for new assets. Persistence operations validate ancestry separately.
+   * Looks up cached gateway ownership. A cached owner for the asset takes precedence over the
+   * parent hint, which allows lookups for new assets. Persistence operations validate ancestry
+   * separately.
+   *
+   * @param assetId the central asset ID to look up, or {@code null} to use only the parent hint
+   * @param parentId the central parent ID to check if the asset has no cached owner, or {@code
+   *     null} if there is no parent hint
+   * @return the cached gateway ID, or {@code null} if neither lookup identifies a gateway
    */
   public String getLocallyRegisteredGatewayId(String assetId, String parentId) {
     // ConcurrentHashMap rejects null keys so preserve HashMap behavior of mapping to null
@@ -1013,10 +1051,24 @@ public class GatewayService extends RouteBuilder implements ContainerService {
     return clientId;
   }
 
+  /**
+   * Creates or updates the gateway service account and stores any repaired credentials through
+   * asset storage.
+   *
+   * @param gateway the gateway registration and its current credentials and disabled state
+   */
   protected void createUpdateGatewayServiceUser(GatewayAsset gateway) {
     createUpdateGatewayServiceUser(gateway, null);
   }
 
+  /**
+   * Creates or updates the gateway service account. When called during attribute processing,
+   * persists credential repairs in the existing transaction to avoid reacquiring the asset lock.
+   *
+   * @param gateway the gateway registration with the desired disabled state and current credentials
+   * @param em the entity manager for the active attribute transaction holding the per-asset lock,
+   *     or {@code null} to persist repairs through asset storage
+   */
   private void createUpdateGatewayServiceUser(GatewayAsset gateway, EntityManager em) {
     LOG.info("Creating/updating gateway service user for gateway id: " + gateway.getId());
     String clientId = getGatewayClientId(gateway.getId());

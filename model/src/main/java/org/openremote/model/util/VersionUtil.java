@@ -80,9 +80,16 @@ public class VersionUtil {
   }
 
   /**
-   * Normalizes a three-component version using the same numeric parsing as {@link
-   * #compareVersions}. Qualifiers and build metadata are ignored, leading zeros are removed, and
-   * nonnumeric or overflowing components become zero.
+   * Normalizes a three-component version for numeric comparison. The first hyphen or plus sign and
+   * everything after it are discarded. Each remaining component uses the same numeric parsing as
+   * {@link #compareVersions(String, String)}. A component with no leading digits or a value outside
+   * the integer range becomes zero.
+   *
+   * @param version the version in three-component form, optionally with a qualifier or build
+   *     metadata
+   * @return the normalized version as {@code major.minor.patch}, without leading zeros
+   * @throws IllegalArgumentException if the input is null or the version before any suffix does not
+   *     have exactly three components
    */
   public static String normalizeVersion(String version) {
     if (version == null) {

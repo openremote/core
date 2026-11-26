@@ -701,19 +701,23 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
   }
 
   /**
-   * Merge the requested {@link Asset} checking that it meets all constraint requirements before
-   * doing so; the timestamp of each {@link Attribute} will also be updated to the current system
-   * time if it has changed to assist with {@link Attribute} equality (see {@link
-   * Attribute#equals}).
+   * Creates or updates an asset. Missing attribute timestamps are filled in, and changed attributes
+   * on existing assets receive a newer timestamp when necessary. Gateway writes verify persisted
+   * ownership of an existing asset and its requested parent within the write transaction. Callers
+   * are responsible for enforcing realm authorization.
    *
-   * @param overrideVersion If <code>true</code>, the merge will override the data in the database,
-   *     independent of version.
-   * @param requestingGatewayAsset The authenticated gateway whose persisted hierarchy must contain
-   *     the asset and its proposed parent, when supplied
-   * @param userName the user which this asset needs to be assigned to.
-   * @return The current stored asset state.
-   * @throws IllegalArgumentException if the realm or parent is illegal, or other asset constraint
-   *     is violated.
+   * @param <T> the asset type
+   * @param asset the asset to create or update, with central IDs for gateway writes
+   * @param overrideVersion whether to use the current stored version instead of the supplied
+   *     version
+   * @param requestingGatewayAsset the authenticated gateway asset for a gateway write, or {@code
+   *     null} for an ordinary write
+   * @param userName the username to link to the asset in its realm, or {@code null} or empty to
+   *     skip linking
+   * @return the stored asset
+   * @throws IllegalStateException if the realm, parent, asset state, or gateway ownership is
+   *     invalid
+   * @throws ConstraintViolationException if the asset fails standard constraint validation
    */
   @SuppressWarnings("unchecked")
   public <T extends Asset<?>> T merge(
@@ -1178,18 +1182,43 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
     return markAssetsForDeletionAndQueue(ids, assetIds);
   }
 
-  /** Accepts gateway deletes that are already complete or pending for the same owner. */
+  /**
+   * Requests deletion of assets owned by an authenticated gateway. Missing assets and owned assets
+   * already pending deletion are accepted. Callers are responsible for enforcing realm
+   * authorization.
+   *
+   * @param assetIds the central IDs of the assets to delete
+   * @param gatewayId the central asset ID of the authenticated gateway
+   * @return whether the whole request was accepted, independently of background deletion completion
+   * @throws NullPointerException if the gateway ID, asset list, or any asset ID is null
+   */
   public boolean deleteGatewayAssets(List<String> assetIds, String gatewayId) {
     Objects.requireNonNull(gatewayId);
     List<String> ids = assetIds.stream().distinct().sorted().toList();
     return markAssetsForDeletionAndQueue(ids, ids, gatewayId).accepted();
   }
 
-  /** Marks assets as pending deletion and queues them for actual deletion. */
+  /**
+   * Marks an ordinary deletion batch as pending and queues it for background deletion.
+   *
+   * @param ids the distinct target IDs in asset-lock acquisition order
+   * @param assetIds the original IDs for diagnostics
+   * @return the acceptance and completion status of the batch
+   */
   protected DeleteResult markAssetsForDeletionAndQueue(List<String> ids, List<String> assetIds) {
     return markAssetsForDeletionAndQueue(ids, assetIds, null);
   }
 
+  /**
+   * Marks the batch as pending in one transaction and queues accepted targets for background
+   * deletion. Gateway requests check ownership and accept missing or already-pending targets.
+   *
+   * @param ids the distinct target IDs in asset-lock acquisition order
+   * @param assetIds the original IDs for diagnostics
+   * @param gatewayId the authenticated gateway's central asset ID, or {@code null} for an ordinary
+   *     deletion
+   * @return the acceptance and completion status of the batch
+   */
   protected DeleteResult markAssetsForDeletionAndQueue(
       List<String> ids, List<String> assetIds, String gatewayId) {
     if (ids.isEmpty()) {
@@ -2036,21 +2065,46 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
         });
   }
 
+  /** Indicates that an asset's persisted owner differs from the requesting gateway. */
   public static class GatewayAssetOwnershipException extends IllegalStateException {
+    /**
+     * Creates an exception describing the ownership conflict.
+     *
+     * @param message the conflict details
+     */
     private GatewayAssetOwnershipException(String message) {
       super(message);
     }
   }
 
   /**
-   * Validate persisted ancestry. The caller must lock the subject row in this transaction. Ancestor
-   * read locks keep ownership stable until the transaction ends.
+   * Checks that the outermost gateway in the asset's persisted ancestry is the expected owner. The
+   * caller must hold a lock on the subject row. This method read-locks the ancestors in the same
+   * transaction.
+   *
+   * @param em the entity manager for the active transaction that locked the subject
+   * @param asset the locked asset to check
+   * @param gatewayId the expected owner's central asset ID
+   * @param allowGateway whether the subject may be the expected gateway itself
+   * @throws IllegalStateException if the subject or its ancestry is invalid or pending deletion
+   * @throws GatewayAssetOwnershipException if the expected gateway is not the persisted owner
    */
   public void requireGatewayOwnership(
       EntityManager em, Asset<?> asset, String gatewayId, boolean allowGateway) {
     requireGatewayOwnership(em, asset, gatewayId, allowGateway, false);
   }
 
+  /**
+   * Checks persisted gateway ownership, optionally accepting pending deletions during cleanup.
+   *
+   * @param em the entity manager for the active transaction that locked the subject
+   * @param asset the locked asset to check
+   * @param gatewayId the expected owner's central asset ID
+   * @param allowGateway whether the subject may be the expected gateway itself
+   * @param allowDeletePending whether the subject and its ancestors may be pending deletion
+   * @throws IllegalStateException if the subject or its ancestry is invalid or disallowed
+   * @throws GatewayAssetOwnershipException if the expected gateway is not the persisted owner
+   */
   private void requireGatewayOwnership(
       EntityManager em,
       Asset<?> asset,

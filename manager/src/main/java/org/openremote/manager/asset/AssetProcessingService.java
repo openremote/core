@@ -454,9 +454,14 @@ public class AssetProcessingService extends RouteBuilder implements ContainerSer
   }
 
   /**
-   * The {@link AttributeEvent} is passed to each registered {@link AttributeEventInterceptor} and
-   * if no interceptor handles the event then the {@link Attribute} value is updated in the DB with
-   * the new event value and timestamp.
+   * Processes an attribute event under the per-asset lock. Inbound gateway events also hold a
+   * database write lock through ownership validation and the update. Interceptors may consume the
+   * event before it reaches storage.
+   *
+   * @param event the incoming attribute event, including its source
+   * @return {@code true} if an update or outdated event was published, or {@code false} if an
+   *     interceptor consumed the event
+   * @throws AssetProcessingException if the asset or attribute is unavailable or processing fails
    */
   protected boolean processAttributeEvent(AttributeEvent event) throws AssetProcessingException {
 

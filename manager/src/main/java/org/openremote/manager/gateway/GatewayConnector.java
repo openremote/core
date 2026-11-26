@@ -104,6 +104,20 @@ public class GatewayConnector {
             .toList());
   }
 
+  /**
+   * Creates a connector and selects its asset ID mapping from the gateway registration timestamp.
+   *
+   * @param assetStorageService the service that stores synchronized assets on the central manager
+   * @param assetProcessingService the service that processes attribute updates on the central
+   *     manager
+   * @param executorService the executor for asynchronous gateway work
+   * @param scheduledExecutorService the scheduler for synchronization requests and timeouts
+   * @param gatewayService the central gateway service that owns this connector
+   * @param timerService the clock for connection status events
+   * @param gateway the persisted gateway registration, including its creation timestamp
+   * @param mappingV2ActivatedOn the first recorded activation of V2 mapping on this installation
+   * @throws NullPointerException if the gateway, its creation timestamp, or the cutoff is null
+   */
   protected GatewayConnector(
       AssetStorageService assetStorageService,
       AssetProcessingService assetProcessingService,
@@ -192,7 +206,12 @@ public class GatewayConnector {
     startSync();
   }
 
-  /** Connection to the edge gateway instance has been disconnected so stop any synchronization */
+  /**
+   * Ends the active session, cancels pending synchronization work, and publishes the disconnected
+   * status when attribute processing is available. Obsolete session notifications are ignored.
+   *
+   * @param sessionId the identifier of the disconnected session
+   */
   protected void disconnected(String sessionId) {
     synchronized (this.sessionId) {
       if (!sessionId.equals(this.sessionId.get())) {
@@ -490,9 +509,13 @@ public class GatewayConnector {
   }
 
   /**
-   * Filter live events by type and cached ownership before dispatch. Asset writes validate
-   * persisted ancestry in the transaction that applies the change, including writes during sync.
-   * Every event type added to {@link #eventConsumerMap} must be handled here.
+   * Filters live events by type and cached ownership before dispatch. Asset writes validate
+   * persisted ancestry in the transaction that applies the change, including during
+   * synchronization. Every event type added to {@link #eventConsumerMap} must be handled here.
+   *
+   * @param event the event received from the connected gateway
+   * @return the original event if accepted for dispatch, or {@code null} if rejected
+   * @throws IllegalArgumentException if an asset or parent ID is invalid for mapping
    */
   protected SharedEvent authoriseGatewayEvent(SharedEvent event) {
     // Gateway capabilities response events are always authorized
@@ -537,7 +560,10 @@ public class GatewayConnector {
     return null;
   }
 
-  /** Get list of gateway assets (get basic details and then batch load them to minimize load) */
+  /**
+   * Starts an inventory request, schedules a fallback for older gateways, and waits for the initial
+   * inventory before requesting full assets in batches.
+   */
   protected synchronized void startSync() {
     if (syncAborted()) {
       return;
@@ -636,6 +662,15 @@ public class GatewayConnector {
             this::requestAssets, RESPONSE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
   }
 
+  /**
+   * Processes the expected initial inventory or asset batch. An omitted initial inventory is
+   * treated as empty for compatibility with older gateways. A batch with mismatched IDs is retried.
+   *
+   * @param e the response containing the synchronization message ID and available assets
+   * @throws IllegalStateException if the initial inventory is inconsistent or a persistence
+   *     operation rejects an asset
+   * @throws IllegalArgumentException if an inventory asset ID is invalid
+   */
   protected synchronized void onSyncAssetsResponse(AssetsEvent e) {
     if (!isConnected()) {
       return;
@@ -793,6 +828,12 @@ public class GatewayConnector {
     }
   }
 
+  /**
+   * Reconciles cached asset changes, queues obsolete assets for deletion, and requests fresh copies
+   * of assets changed during synchronization.
+   *
+   * @throws IllegalStateException if a cached asset cannot be saved or cleanup is rejected
+   */
   private void completeSync() {
     Set<String> refreshAssets = new HashSet<>();
 
@@ -826,6 +867,11 @@ public class GatewayConnector {
     refreshAssets.forEach(id -> sendMessageToGateway(new ReadAssetEvent(id)));
   }
 
+  /**
+   * Queues deletion of gateway descendants absent from the reconciled edge inventory.
+   *
+   * @throws IllegalStateException if the deletion request is rejected
+   */
   protected void deleteObsoleteLocalAssets() {
 
     // Find obsolete local assets
@@ -859,6 +905,13 @@ public class GatewayConnector {
     getCapabilities();
   }
 
+  /**
+   * Applies a gateway asset event using the connector's ID mapping and persisted ownership checks.
+   *
+   * @param e the gateway event with asset IDs in the edge namespace
+   * @throws IllegalStateException if the asset write or deletion is rejected
+   * @throws IllegalArgumentException if an asset ID is invalid for mapping
+   */
   @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter")
   protected synchronized void onAssetEvent(AssetEvent e) {
 
@@ -872,6 +925,14 @@ public class GatewayConnector {
     }
   }
 
+  /**
+   * Queues an edge attribute update with the authenticated gateway's identity for transactional
+   * ownership validation.
+   *
+   * @param e the attribute update with its edge asset ID
+   * @throws IllegalArgumentException if the asset ID is invalid for mapping
+   * @throws AttributeEventProcessorUnavailableException if attribute processing is unavailable
+   */
   protected void onAttributeEvent(AttributeEvent e) {
     // Just push the event through the processing chain
     assetProcessingService.sendAttributeEvent(
@@ -880,6 +941,16 @@ public class GatewayConnector {
         REMOTE_EVENT_SOURCE_PREFIX + gatewayId);
   }
 
+  /**
+   * Saves a gateway asset on the central manager. Mutates the supplied asset's ID, parent ID, and
+   * realm to their central values before persistence.
+   *
+   * @param <T> the asset type
+   * @param asset the gateway asset with edge-local IDs
+   * @return the stored central asset
+   * @throws IllegalArgumentException if an asset ID is invalid for mapping
+   * @throws IllegalStateException if asset storage rejects the write
+   */
   protected <T extends Asset<?>> T saveAssetLocally(T asset) {
     String assetId = asset.getId();
     asset.setId(mapAssetId(assetId, false));
@@ -907,6 +978,12 @@ public class GatewayConnector {
     }
   }
 
+  /**
+   * Requests deletion of assets owned by this gateway.
+   *
+   * @param assetIds the already-mapped central IDs of the assets to delete
+   * @return whether the deletion request was accepted
+   */
   protected boolean deleteAssetsLocally(List<String> assetIds) {
     LOG.finest(
         "Removing gateway asset: Asset IDs="
@@ -929,18 +1006,47 @@ public class GatewayConnector {
     return "GatewayID=" + gatewayId;
   }
 
-  /** Gateways created before this installation's V2 upgrade retain V1 for all their assets. */
+  /**
+   * Selects the mapping version for a persisted gateway registration.
+   *
+   * @param createdOn the stored gateway registration timestamp
+   * @param mappingV2ActivatedOn the first recorded activation of V2 mapping on this installation
+   * @return {@code 1} for registrations before the cutoff or {@code 2} at or after the cutoff
+   * @throws NullPointerException if either timestamp is null
+   */
   public static int getAssetIdMappingVersion(Instant createdOn, Instant mappingV2ActivatedOn) {
     Objects.requireNonNull(createdOn, "Gateway creation timestamp is required");
     Objects.requireNonNull(mappingV2ActivatedOn, "Gateway mapping cutoff is required");
     return createdOn.isBefore(mappingV2ActivatedOn) ? 1 : 2;
   }
 
-  /** Use the mapping selected from the persisted creation timestamp when connecting. */
+  /**
+   * Maps an asset ID using this connector's mapping version.
+   *
+   * @param assetId the central asset ID for outbound mapping or the edge asset ID for inbound
+   *     mapping
+   * @param outbound {@code true} to map from central to edge or {@code false} to map from edge to
+   *     central
+   * @return the asset ID in the destination namespace
+   * @throws IllegalArgumentException if the asset ID or gateway ID is null or invalid
+   */
   public String mapAssetId(String assetId, boolean outbound) {
     return mapAssetId(gatewayId, assetId, outbound, assetIdMappingVersion);
   }
 
+  /**
+   * Maps one asset ID between an edge gateway and the central manager using an explicit version.
+   *
+   * @param gatewayId the central gateway registration ID
+   * @param assetId the central asset ID for outbound mapping or the edge asset ID for inbound
+   *     mapping
+   * @param outbound {@code true} to map from central to edge or {@code false} to map from edge to
+   *     central
+   * @param version the mapping version, either {@code 1} or {@code 2}
+   * @return the asset ID in the destination namespace
+   * @throws IllegalArgumentException if either ID is null or is not a 22-character alphanumeric
+   *     identifier, or if the version is unsupported
+   */
   public static String mapAssetId(String gatewayId, String assetId, boolean outbound, int version) {
     validateAssetId(gatewayId);
     validateAssetId(assetId);
@@ -952,13 +1058,27 @@ public class GatewayConnector {
     };
   }
 
+  /**
+   * Checks that an ID can be mapped between gateway and central namespaces.
+   *
+   * @param id the gateway or asset ID to validate
+   * @throws IllegalArgumentException if the ID is null or is not a 22-character alphanumeric
+   *     identifier
+   */
   private static void validateAssetId(String id) {
     if (id == null || !Asset.matchesAssetIdPattern(id)) {
       throw new IllegalArgumentException("Invalid gateway asset ID: " + id);
     }
   }
 
-  /** Legacy V1 mapping. Keep its arithmetic unchanged for existing registrations. */
+  /**
+   * Applies the legacy mapping to the first two characters of an asset ID.
+   *
+   * @param gatewayId the validated central gateway registration ID
+   * @param assetId the validated source asset ID
+   * @param outbound whether to map from central to edge rather than from edge to central
+   * @return the asset ID in the destination namespace
+   */
   private static String mapAssetIdV1(String gatewayId, String assetId, boolean outbound) {
     Pair<Function<String, String>, Function<String, String>> gatewayIdMappers =
         ASSET_ID_MAPPERS.computeIfAbsent(
@@ -993,7 +1113,15 @@ public class GatewayConnector {
     return outbound ? gatewayIdMappers.value.apply(assetId) : gatewayIdMappers.key.apply(assetId);
   }
 
-  /** Position-by-position Base62 index addition; subtraction reverses the mapping. */
+  /**
+   * Applies position-by-position Base62 addition for inbound mapping and subtraction for outbound
+   * mapping, using all characters in the gateway ID.
+   *
+   * @param gatewayId the validated central gateway registration ID
+   * @param assetId the validated source asset ID
+   * @param outbound whether to map from central to edge rather than from edge to central
+   * @return the asset ID in the destination namespace
+   */
   private static String mapAssetIdV2(String gatewayId, String assetId, boolean outbound) {
     StringBuilder mapped = new StringBuilder(22);
     for (int i = 0; i < 22; i++) {
