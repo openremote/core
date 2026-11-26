@@ -680,6 +680,7 @@ test.describe(() => {
    * @and switches to the "smartcity" realm
    * @then the filter should be cleared and the asset tree should show the "smartcity" assets
    * @and the "master" asset should no longer be selected
+   * @and adding an asset should not offer the "master" asset as parent
    */
   test("should clear the asset filter and selection when switching realms", async ({
     page,
@@ -705,6 +706,12 @@ test.describe(() => {
     await expect(assetTree.getAssetNodes().filter({ hasText: smartCityAssets[0].name! })).toBeVisible();
     await expect(assetViewer.getHeaderLocator(masterAssets[0].name!)).not.toBeVisible();
     await expect(page).not.toHaveURL(new RegExp(id!));
+    await expect(assetTree.getSelectedNodes()).toHaveCount(0);
+
+    await page.click(".mdi-plus");
+    await page.getByRole("option", { name: "Weather Asset" }).click();
+    // Used to offer the "master" asset as parent, as the tree kept it selected internally
+    await expect(page.getByRole("dialog").getByRole("textbox", { name: "Parent" })).toHaveValue("None");
   });
 
   /**

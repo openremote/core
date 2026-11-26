@@ -159,7 +159,7 @@ export class Manager {
     await this.page.click("#realm-picker");
     const option = this.page.locator("#realm-picker").getByRole("option").filter({ hasText: realm });
     await option.click();
-    // The dropdown covers the picker and keeps taking clicks until its closing animation ends
+    // Wait out the dropdown closing animation, as the overlay intercepts clicks until it's gone
     await expect(option).toBeHidden();
   }
 
