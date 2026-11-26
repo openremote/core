@@ -107,3 +107,26 @@ export const pumpTemplate = {
     flowRate: { type: "number", meta: { label: "Flow rate" } },
   },
 };
+
+/**
+ * A template whose agent links point at agents of another instance, as the links of the config template setup's pump
+ * do: Dimmer and White tone share an agent, Power uses another one.
+ */
+export const linkedLightTemplate = {
+  version: 1,
+  assetType: "LightAsset",
+  attributes: {
+    brightness: {
+      type: "positiveInteger",
+      meta: { label: "Dimmer", agentLink: { type: "SimulatorAgentLink", id: "templateAgentA00000001" } },
+    },
+    colourTemperature: {
+      type: "positiveInteger",
+      meta: { label: "White tone", agentLink: { type: "SimulatorAgentLink", id: "templateAgentA00000001" } },
+    },
+    onOff: {
+      type: "boolean",
+      meta: { label: "Power", agentLink: { type: "SimulatorAgentLink", id: "templateAgentB00000001" } },
+    },
+  },
+};

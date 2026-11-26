@@ -36,7 +36,7 @@ metrics:
 
   pg_connections_stuck:
     type: gauge
-    description: Count of connections with state of idle in transaction
+    description: Count of connections that have been idle in transaction for more than 1 minute
 
   pg_long_running_queries_count:
     type: gauge
@@ -54,7 +54,7 @@ metrics:
   pg_dead_tuple_percent:
     type: gauge
     labels: [table_name]
-    description: Table ratio of dead tuples to live ones a ratio > 10-20% indicates not aggressive enough autovacuum
+    description: Percentage of dead tuples in tables with at least 10,000 dead tuples (0 otherwise); a sustained value > 20-30% indicates autovacuum is not keeping up
 
   pg_last_autovacuum_hours:
     type: gauge
@@ -69,6 +69,14 @@ metrics:
   pg_db_disk_size:
     type: gauge
     description: DB size in MB
+
+  pg_asset_raw_data_size:
+    type: gauge
+    description: Asset table heap size in MB (steady growth without a matching asset count increase indicates bloat)
+
+  pg_asset_disk_size:
+    type: gauge
+    description: Asset table total size including TOAST and indexes in MB
 
   pg_datapoint_raw_data_size:
     type: gauge
@@ -238,7 +246,10 @@ queries:
         FROM
         (SELECT current_setting('max_connections')::int AS max_limit) max_conn,
         (SELECT count(*) AS total_used FROM pg_stat_activity) active,
-        (SELECT count(*) AS idle_in_xact_count FROM pg_stat_activity WHERE state = 'idle in transaction') idle_xact;
+        -- Ignore transactions that are only briefly idle between statements
+        (SELECT count(*) AS idle_in_xact_count FROM pg_stat_activity
+          WHERE state = 'idle in transaction'
+          AND now() - state_change > interval '1 minute') idle_xact;
 
   long_running_queries:
     interval: 60 # 1 minute
@@ -265,8 +276,13 @@ queries:
         THEN ROUND((n_tup_hot_upd::numeric / n_tup_upd) * 100, 2)
         ELSE 0.00
         END AS pg_hot_update_percent,
-        -- Calculate the percentage of the table that is dead space
-        ROUND((n_dead_tup::numeric / NULLIF(n_live_tup + n_dead_tup, 0)) * 100, 2) AS pg_dead_tuple_percent,
+        -- Calculate the percentage of the table that is dead space; report 0 for tables with fewer than 10,000 dead
+        -- tuples, as small tables naturally sit at a high percentage (autovacuum waits for 50 + 20% of live tuples)
+        CASE
+        WHEN n_dead_tup < 10000
+        THEN 0.00
+        ELSE ROUND((n_dead_tup::numeric / NULLIF(n_live_tup + n_dead_tup, 0)) * 100, 2)
+        END AS pg_dead_tuple_percent,
         -- Calculate hours since last autovacuum
         ROUND((EXTRACT(EPOCH FROM (now() - last_autovacuum)) / 3600.0)::numeric, 1) AS pg_last_autovacuum_hours,
         -- Calculate hours since last autoanalyze
@@ -280,6 +296,15 @@ queries:
     metrics: [pg_db_disk_size]
     sql: |
       SELECT ROUND(pg_database_size(current_database()) / 1048576.0, 0) as pg_db_disk_size;
+
+  asset_table_size:
+    interval: 3600 # Hourly
+    databases: [openremote]
+    metrics: [pg_asset_raw_data_size, pg_asset_disk_size]
+    sql: |
+      SELECT
+        ROUND(pg_relation_size('openremote.asset') / 1048576.0, 1) AS pg_asset_raw_data_size,
+        ROUND(pg_total_relation_size('openremote.asset') / 1048576.0, 1) AS pg_asset_disk_size;
 
   datapoint_table_size:
     interval: 3600 # Hourly

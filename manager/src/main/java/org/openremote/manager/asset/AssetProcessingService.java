@@ -32,6 +32,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import org.apache.camel.Exchange;
+import org.apache.camel.FluentProducerTemplate;
+import org.apache.camel.ServiceStatus;
 import org.apache.camel.builder.RouteBuilder;
 import org.apache.camel.builder.RouteConfigurationBuilder;
 import org.openremote.container.message.MessageBrokerService;
@@ -92,6 +94,9 @@ public class AssetProcessingService extends RouteBuilder implements ContainerSer
   public static final String ATTRIBUTE_EVENT_ROUTE_CONFIG_ID = "attributeEvent";
   public static final int PRIORITY = AssetStorageService.PRIORITY + 1000;
   public static final String ATTRIBUTE_EVENT_PROCESSOR = "direct://AttributeEventProcessor";
+  private static final String ATTRIBUTE_EVENT_ROUTE_ID = "AttributeEvent-Processor";
+  private static final String ATTRIBUTE_EVENT_SEND_ENDPOINT =
+      ATTRIBUTE_EVENT_PROCESSOR + "?block=false";
   private static final System.Logger LOG = System.getLogger(AssetProcessingService.class.getName());
   protected final List<AttributeEventInterceptor> eventInterceptors = new ArrayList<>();
   protected TimerService timerService;
@@ -111,6 +116,12 @@ public class AssetProcessingService extends RouteBuilder implements ContainerSer
   protected MeterRegistry meterRegistry;
   protected Timer eventTimer;
   protected Map<String, Counter> eventCounters;
+
+  public static class AttributeEventProcessorUnavailableException extends IllegalStateException {
+    private AttributeEventProcessorUnavailableException() {
+      super("Attribute event processor is not ready");
+    }
+  }
 
   @Override
   public int getPriority() {
@@ -328,9 +339,9 @@ public class AssetProcessingService extends RouteBuilder implements ContainerSer
   @Override
   public void configure() throws Exception {
 
-    // All user authorisation checks MUST have been carried out before events reach this queue
+    // All user authorization checks MUST have been carried out before events reach this queue
     from(ATTRIBUTE_EVENT_PROCESSOR)
-        .routeId("AttributeEvent-Processor")
+        .routeId(ATTRIBUTE_EVENT_ROUTE_ID)
         .routeConfigurationId(ATTRIBUTE_EVENT_ROUTE_CONFIG_ID)
         .threads()
         .executorService(executorService)
@@ -383,24 +394,62 @@ public class AssetProcessingService extends RouteBuilder implements ContainerSer
     eventInterceptors.sort(Comparator.comparingInt(AttributeEventInterceptor::getPriority));
   }
 
-  /** Send internal attribute change events into the {@link #ATTRIBUTE_EVENT_PROCESSOR}. */
+  /**
+   * Send an internal attribute change event for asynchronous processing.
+   *
+   * @throws AttributeEventProcessorUnavailableException if attribute event processing is
+   *     unavailable
+   */
   public void sendAttributeEvent(AttributeEvent attributeEvent) {
     sendAttributeEvent(attributeEvent, null);
   }
 
-  /** Send internal attribute change events into the {@link #ATTRIBUTE_EVENT_PROCESSOR}. */
+  /**
+   * Send an internal attribute change event for asynchronous processing.
+   *
+   * @throws AttributeEventProcessorUnavailableException if attribute event processing is
+   *     unavailable
+   */
   public void sendAttributeEvent(AttributeEvent attributeEvent, String source) {
-    attributeEvent.setSource(source);
+    prepareAttributeEvent(attributeEvent, source).asyncSend();
+  }
 
-    // Set event source time if not already set
+  /**
+   * Process an internal attribute change before continuing startup work that depends on the value.
+   *
+   * @throws AttributeEventProcessorUnavailableException if attribute event processing is
+   *     unavailable
+   * @throws AssetProcessingException if the attribute event cannot be processed
+   */
+  public void sendAttributeEventAndWait(AttributeEvent attributeEvent, String source) {
+    Object result = prepareAttributeEvent(attributeEvent, source).request();
+    if (result instanceof RuntimeException failure) {
+      throw failure;
+    }
+  }
+
+  private FluentProducerTemplate prepareAttributeEvent(
+      AttributeEvent attributeEvent, String source) {
+    if (messageBrokerService == null
+        || !messageBrokerService.isStarted()
+        || messageBrokerService
+                .getContext()
+                .getRouteController()
+                .getRouteStatus(ATTRIBUTE_EVENT_ROUTE_ID)
+            != ServiceStatus.Started) {
+      throw new AttributeEventProcessorUnavailableException();
+    }
+
+    attributeEvent.setSource(source);
     if (attributeEvent.getTimestamp() <= 0) {
       attributeEvent.setTimestamp(timerService.getCurrentTimeMillis());
     }
-    messageBrokerService
+
+    // Fail promptly if the consumer stops between the readiness check and the send.
+    return messageBrokerService
         .getFluentProducerTemplate()
         .withBody(attributeEvent)
-        .to(ATTRIBUTE_EVENT_PROCESSOR)
-        .asyncSend();
+        .to(ATTRIBUTE_EVENT_SEND_ENDPOINT);
   }
 
   /**
@@ -424,7 +473,7 @@ public class AssetProcessingService extends RouteBuilder implements ContainerSer
                   em -> {
                     // Hold the database row lock through ownership checks and the attribute write
                     // so a concurrent move or deletion cannot invalidate gateway authorization.
-                    // TODO: Retrieve optimised DTO rather than whole asset
+                    // TODO: Retrieve optimized DTO rather than whole asset
                     Asset<?> asset =
                         em.find(Asset.class, event.getId(), LockModeType.PESSIMISTIC_WRITE);
 

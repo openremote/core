@@ -154,7 +154,8 @@ public class RulesService extends RouteBuilder implements ContainerService {
   protected long quickFireMillis;
   protected boolean groovyRulesExecutionEnabled;
   protected boolean initDone;
-  protected boolean startDone;
+  private boolean producerPhaseReached;
+  protected volatile boolean startDone;
   protected io.micrometer.core.instrument.Timer rulesFiringTimer;
 
   @Override
@@ -164,6 +165,7 @@ public class RulesService extends RouteBuilder implements ContainerService {
 
   @Override
   public void init(Container container) throws Exception {
+    producerPhaseReached = false;
     executorService = container.getExecutor();
     scheduledExecutorService = container.getScheduledExecutor();
     timerService = container.getService(TimerService.class);
@@ -359,8 +361,21 @@ public class RulesService extends RouteBuilder implements ContainerService {
               });
         });
 
-    // Start the engines
+    // Restart the engines immediately when only the rules service is restarted.
+    if (producerPhaseReached && container.getService(MessageBrokerService.class).isStarted()) {
+      startEngines();
+    }
+  }
 
+  @Override
+  public void startProducers(Container container) {
+    if (!startDone) {
+      startEngines();
+    }
+    producerPhaseReached = true;
+  }
+
+  private void startEngines() {
     synchronized (ENGINE_LOCK) {
       RulesEngine<?> globalRulesEngine = globalEngine.get();
       if (globalRulesEngine != null) {
@@ -370,9 +385,9 @@ public class RulesService extends RouteBuilder implements ContainerService {
       realmEngines.values().forEach(RulesEngine::start);
       assetEngines.values().forEach(RulesEngine::start);
 
-      startDone = true;
       Map<AttributeRef, AttributeEvent> bufferedEvents;
       synchronized (preInitAttributeEvents) {
+        startDone = true;
         bufferedEvents = new LinkedHashMap<>(preInitAttributeEvents);
         preInitAttributeEvents.clear();
       }
@@ -382,11 +397,12 @@ public class RulesService extends RouteBuilder implements ContainerService {
 
   @Override
   public void stop(Container container) throws Exception {
+    startDone = false;
     for (GeofenceAssetAdapter geofenceAssetAdapter : geofenceAssetAdapters) {
       try {
         geofenceAssetAdapter.stop(container);
       } catch (Exception e) {
-        LOG.log(SEVERE, "Exception thrown whilst stopping geofence adapter", e);
+        LOG.log(SEVERE, "Exception thrown while stopping geofence adapter", e);
       }
     }
 
@@ -432,10 +448,15 @@ public class RulesService extends RouteBuilder implements ContainerService {
    */
   public void onAttributeEvent(AttributeEvent event) throws AssetProcessingException {
     if (!startDone) {
-      bufferPreInitAttributeEvent(event);
-    } else {
-      doProcessAttributeUpdate(event);
+      synchronized (preInitAttributeEvents) {
+        // Startup may have drained the buffer while this event was waiting for the lock.
+        if (!startDone) {
+          bufferPreInitAttributeEvent(event);
+          return;
+        }
+      }
     }
+    doProcessAttributeUpdate(event);
   }
 
   protected void doProcessAttributeUpdate(AttributeEvent attributeEvent) {
@@ -596,16 +617,11 @@ public class RulesService extends RouteBuilder implements ContainerService {
         undeployAssetRuleset((AssetRuleset) ruleset);
       }
     } else {
-      if (ruleset instanceof GlobalRuleset) {
-
-        RulesEngine<GlobalRuleset> engine = deployGlobalRuleset((GlobalRuleset) ruleset);
-        engine.start();
-
-      } else if (ruleset instanceof RealmRuleset) {
-
-        RulesEngine<RealmRuleset> engine = deployRealmRuleset((RealmRuleset) ruleset);
-        engine.start();
-
+      RulesEngine<?> engine;
+      if (ruleset instanceof GlobalRuleset globalRuleset) {
+        engine = deployGlobalRuleset(globalRuleset);
+      } else if (ruleset instanceof RealmRuleset realmRuleset) {
+        engine = deployRealmRuleset(realmRuleset);
       } else if (ruleset instanceof AssetRuleset) {
 
         // Must reload from the database, the ruleset might not be completely hydrated on CREATE or
@@ -615,7 +631,15 @@ public class RulesService extends RouteBuilder implements ContainerService {
           undeployAssetRuleset((AssetRuleset) ruleset);
           return;
         }
-        RulesEngine<AssetRuleset> engine = deployAssetRuleset(assetRuleset);
+        engine = deployAssetRuleset(assetRuleset);
+      } else {
+        return;
+      }
+
+      // Deployment and startEngines() share ENGINE_LOCK. If deployment runs first, startEngines()
+      // sees this engine. If startup runs first, this volatile read sees true. Calling start()
+      // again on a running engine is harmless.
+      if (startDone) {
         engine.start();
       }
     }
@@ -1099,9 +1123,7 @@ public class RulesService extends RouteBuilder implements ContainerService {
 
       } catch (Exception e) {
         LOG.log(
-            SEVERE,
-            "Exception thrown by geofence adapter whilst processing location predicates",
-            e);
+            SEVERE, "Exception thrown by geofence adapter while processing location predicates", e);
       } finally {
         // Clear modified assets ready for next batch
         assetsWithModifiedLocationPredicates.clear();

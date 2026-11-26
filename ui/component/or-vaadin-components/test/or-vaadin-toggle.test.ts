@@ -305,7 +305,7 @@ ct.describe("Group", () => {
  * Image snapshots are not used in this repo, so the toggle's key visual invariants are asserted
  * through computed styles instead. This guards the restyled shadow internals against Vaadin
  * upgrades: a change in the base checkbox styles could otherwise e.g. hide the knob in the off
- * state or restore the 500 label weight without any of the behavioural tests failing.
+ * state or restore the 500 label weight without any of the behavioral tests failing.
  * The expected values are the defaults of the public `--or-toggle-*` variables.
  */
 ct.describe("Styling", () => {

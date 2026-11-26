@@ -41,7 +41,7 @@ import org.openremote.model.value.ValueDescriptor;
 public class AttributeEvent extends SharedEvent implements AttributeInfo {
 
   static {
-    // Set the default view for serialisation
+    // Set the default view for serialization
     ValueUtil.JSON.setConfig(ValueUtil.JSON.getSerializationConfig().withView(Basic.class));
   }
 

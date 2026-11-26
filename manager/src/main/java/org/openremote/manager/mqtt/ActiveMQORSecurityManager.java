@@ -206,7 +206,7 @@ public class ActiveMQORSecurityManager implements ActiveMQSecurityManager5 {
       return false;
     }
 
-    // See if a custom handler wants to handle authorisation for this topic pub/sub
+    // See if a custom handler wants to handle authorization for this topic pub/sub
     for (MQTTHandler handler : brokerService.getCustomHandlers()) {
       if (handler.handlesTopic(topic)) {
         LOG.finest(
@@ -229,7 +229,7 @@ public class ActiveMQORSecurityManager implements ActiveMQSecurityManager5 {
           LOG.finest(
               "Handler '"
                   + handler.getName()
-                  + "' has authorised "
+                  + "' has authorized "
                   + (isWrite ? "pub" : "sub")
                   + ": topic="
                   + topic
@@ -239,7 +239,7 @@ public class ActiveMQORSecurityManager implements ActiveMQSecurityManager5 {
           LOG.finest(
               "Handler '"
                   + handler.getName()
-                  + "' has not authorised "
+                  + "' has not authorized "
                   + (isWrite ? "pub" : "sub")
                   + ": topic="
                   + topic

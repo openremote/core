@@ -235,6 +235,7 @@ Resources:
             - env_vars
             - dns_updater
             - s3_backup_service
+            - docker_metrics_service
             - deployment_local_dir
             - daily_cleanup
 
@@ -581,7 +582,6 @@ Resources:
                 journalctl --vacuum-time=7d
             "/etc/cron.d/cleanup":
               content: |
-                #!/bin/bash
                 0 3 * * * root /usr/local/bin/daily-cleanup
           commands:
             01_chmod:
@@ -592,7 +592,7 @@ Resources:
           commands:
             01_create_dir:
               command: |
-                mkdir /deployment.local
+                mkdir -p /deployment.local
                 chown ec2-user:ec2-user /deployment.local
 
         s3_backup_service:
@@ -603,7 +603,7 @@ Resources:
 
                 # ------------------------------------------------------------------------------------------------------
                 #
-                # Script for synchronising files in /deployment.local/backup with S3 bucket with same name as this host
+                # Script for synchronizing files in /deployment.local/backup with S3 bucket with same name as this host
                 #
                 # ------------------------------------------------------------------------------------------------------
 
@@ -650,6 +650,140 @@ Resources:
                 systemctl daemon-reload
                 systemctl start s3-backup.service
                 systemctl enable s3-backup.timer
+
+        docker_metrics_service:
+          files:
+            "/usr/local/bin/push-docker-metrics":
+              content: !Sub |
+                #!/bin/bash
+                set -euo pipefail
+
+                # ------------------------------------------------------------------------------------------------------
+                #
+                # Script for pushing Docker container memory metrics to CloudWatch:
+                #  - ContainerMemoryPercent (per container) and MaxContainerMemoryPercent: anonymous memory as a
+                #    percentage of the container memory limit. docker stats is not used as it includes active page cache
+                #    and shared memory, which for PostgreSQL sits close to the limit by design (shared_buffers plus
+                #    cached data files) and is reclaimable. Containers without a memory limit are skipped.
+                #  - ContainerOomKills: processes killed by the OOM killer inside a container since the last run.
+                #  - ContainerRestarts: container restarts since the last run. An OOM kill of a container's main process
+                #    (e.g. a JVM) restarts the container and resets its cgroup counters, so it is reported here instead.
+                #
+                # ------------------------------------------------------------------------------------------------------
+
+                NAMESPACE="Custom/Docker"
+                # Counters from the previous run, one "<container id> <oom kills> <restart count>" line per container
+                STATE_FILE=/run/docker-metrics/counters
+                mkdir -p "$(dirname "$STATE_FILE")"
+                touch "$STATE_FILE"
+
+                METRIC_DATA=""
+                SEP=""
+                NEW_STATE=""
+                MAX_PCT=""
+                OOM_KILLS=0
+                RESTARTS=0
+
+                # add_metric <name> <value> <unit> [container name]
+                add_metric() {
+                  local DIMENSIONS='{"Name":"InstanceName","Value":"${Host}"}'
+                  if [ $# -gt 3 ]; then
+                    DIMENSIONS="$DIMENSIONS,{\"Name\":\"Container\",\"Value\":\"$4\"}"
+                  fi
+                  METRIC_DATA="$METRIC_DATA$SEP{\"MetricName\":\"$1\",\"Value\":$2,\"Unit\":\"$3\",\"Dimensions\":[$DIMENSIONS]}"
+                  SEP=","
+                }
+
+                while read -r ID NAME RESTART_COUNT; do
+                  CGROUP=/sys/fs/cgroup/system.slice/docker-$ID.scope
+                  [ -d "$CGROUP" ] || CGROUP=/sys/fs/cgroup/docker/$ID
+                  OOM_KILL=""
+
+                  # The cgroup only exists while the container is running
+                  if [ -f "$CGROUP/memory.stat" ]; then
+                    OOM_KILL=$(awk '$1 == "oom_kill" {print $2}' "$CGROUP/memory.events" 2>/dev/null || true)
+                    LIMIT=$(cat "$CGROUP/memory.max" 2>/dev/null || echo max)
+                    ANON=$(awk '$1 == "anon" {print $2}' "$CGROUP/memory.stat" 2>/dev/null || true)
+                    if [ "$LIMIT" != "max" ] && [ -n "$ANON" ]; then
+                      PCT=$(awk -v a="$ANON" -v m="$LIMIT" 'BEGIN {printf "%.1f", 100 * a / m}')
+                      add_metric ContainerMemoryPercent "$PCT" Percent "$NAME"
+                      if [ -z "$MAX_PCT" ] || awk -v a="$PCT" -v b="$MAX_PCT" 'BEGIN {exit !(a > b)}'; then
+                        MAX_PCT=$PCT
+                      fi
+                    fi
+                  fi
+                  [ -n "$OOM_KILL" ] || OOM_KILL=0
+
+                  # A container seen for the first time is the baseline; a counter lower than last time has been reset
+                  # (the cgroup is recreated on restart), so all of its current value is new
+                  read -r PREV_OOM_KILL PREV_RESTART_COUNT <<< "$(awk -v id="$ID" '$1 == id {print $2, $3}' "$STATE_FILE")" || true
+                  [ -n "$PREV_OOM_KILL" ] || PREV_OOM_KILL=$OOM_KILL
+                  [ -n "$PREV_RESTART_COUNT" ] || PREV_RESTART_COUNT=$RESTART_COUNT
+                  if [ "$OOM_KILL" -ge "$PREV_OOM_KILL" ]; then
+                    OOM_KILLS=$((OOM_KILLS + OOM_KILL - PREV_OOM_KILL))
+                  else
+                    OOM_KILLS=$((OOM_KILLS + OOM_KILL))
+                  fi
+                  if [ "$RESTART_COUNT" -ge "$PREV_RESTART_COUNT" ]; then
+                    RESTARTS=$((RESTARTS + RESTART_COUNT - PREV_RESTART_COUNT))
+                  fi
+
+                  NEW_STATE="$NEW_STATE$ID $OOM_KILL $RESTART_COUNT"$'\n'
+                done < <(docker ps -aq --no-trunc | xargs -r docker inspect --format '{{.Id}} {{.Name}} {{.RestartCount}}' | sed 's# /# #')
+
+                [ -z "$MAX_PCT" ] || add_metric MaxContainerMemoryPercent "$MAX_PCT" Percent
+                add_metric ContainerOomKills "$OOM_KILLS" Count
+                add_metric ContainerRestarts "$RESTARTS" Count
+
+                aws cloudwatch put-metric-data \
+                  --region "${AWS::Region}" \
+                  --namespace "$NAMESPACE" \
+                  --metric-data "[$METRIC_DATA]"
+
+                # Only record the counters once they have been published, so a failed push is reported on the next run
+                printf '%s' "$NEW_STATE" > "$STATE_FILE"
+
+            "/lib/systemd/system/docker-metrics.service":
+              content: |
+                [Unit]
+                Description=Push Docker container memory metrics to CloudWatch
+                Wants=docker-metrics.timer
+                After=docker.service
+
+                [Service]
+                Type=oneshot
+                ExecStart=/usr/local/bin/push-docker-metrics
+
+                [Install]
+                WantedBy=multi-user.target
+
+            "/lib/systemd/system/docker-metrics.timer":
+              content: |
+                [Unit]
+                Description=Run Docker CloudWatch metrics push every minute
+                Requires=docker-metrics.service
+
+                [Timer]
+                Unit=docker-metrics.service
+                OnBootSec=1min
+                OnUnitActiveSec=1min
+                AccuracySec=5s
+
+                [Install]
+                WantedBy=timers.target
+
+          commands:
+            01_init_service:
+              command: !If
+                - MetricsEnabled
+                - |
+                  chmod +x /usr/local/bin/push-docker-metrics
+                  systemctl daemon-reload
+                  systemctl enable --now docker-metrics.timer
+                - |
+                  chmod +x /usr/local/bin/push-docker-metrics
+                  systemctl daemon-reload
+                  systemctl disable --now docker-metrics.timer || true
 
         dns_updater:
           packages:
@@ -926,7 +1060,7 @@ Resources:
               owner: root
               group: root
 
-            "/etc/cfn/hooks.d/amazon-cloudwatch-agent-auto-reloader.conf":
+            "/etc/cfn/hooks.d/cfn-auto-reloader.conf":
               content: !Sub |
                 [cfn-auto-reloader-hook]
                 triggers=post.update
@@ -944,7 +1078,7 @@ Resources:
                 ensureRunning: true
                 files:
                   - /etc/cfn/cfn-hup.conf
-                  - /etc/cfn/hooks.d/amazon-cloudwatch-agent-auto-reloader.conf
+                  - /etc/cfn/hooks.d/cfn-auto-reloader.conf
 
     Properties:
       InstanceType: !Ref InstanceType
@@ -1243,11 +1377,12 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Condition: MetricsEnabled
     Properties:
-      AlarmDescription: Attribute event anomaly
+      AlarmDescription: Attribute event rate outside the expected band (3 standard deviations) for 2 of the last 3 5-minute periods
       ComparisonOperator: LessThanLowerOrGreaterThanUpperThreshold
-      EvaluationPeriods: 1
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 2
       Metrics:
-        - Expression: ANOMALY_DETECTION_BAND(m1, 2)
+        - Expression: ANOMALY_DETECTION_BAND(m1, 3)
           Id: ad1
         - Id: m1
           MetricStat:
@@ -1270,7 +1405,7 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Condition: MetricsEnabled
     Properties:
-      AlarmDescription: Available PostgreSQL Connections less then 15% of limit
+      AlarmDescription: Available PostgreSQL connections less than 15% of limit for 15 minutes
       Metrics:
         - Id: e1
           ReturnData: true
@@ -1297,7 +1432,7 @@ Resources:
                   Value: !Ref Host
             Period: 300
             Stat: Average
-      EvaluationPeriods: 1
+      EvaluationPeriods: 3
       ComparisonOperator: GreaterThanThreshold
       Threshold: 0
       AlarmActions:
@@ -1309,11 +1444,12 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Condition: MetricsEnabled
     Properties:
+      AlarmDescription: PostgreSQL queries running for longer than 30 seconds for 15 minutes
       Namespace: CWAgent-Prometheus
       MetricName: pg_long_running_queries_count
       Statistic: Average
       Period: 300
-      EvaluationPeriods: 1
+      EvaluationPeriods: 3
       ComparisonOperator: GreaterThanThreshold
       Threshold: 0
       AlarmActions:
@@ -1362,7 +1498,7 @@ Resources:
         - Name: InstanceName
           Value: !Ref Host
 
-  ChunksNeedsCompressionAlarm:
+  ChunksNeedingCompressionAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: MetricsEnabled
     Properties:
@@ -1370,25 +1506,6 @@ Resources:
       MetricName: pg_datapoint_chunks_needing_compression
       Statistic: Average
       Period: 86400
-      EvaluationPeriods: 1
-      ComparisonOperator: GreaterThanThreshold
-      Threshold: 0
-      AlarmActions:
-        - !Ref SnsTopic
-      OKActions:
-        - !Ref SnsTopic
-      Dimensions:
-        - Name: InstanceName
-          Value: !Ref Host
-
-  TableBloatCountAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Condition: MetricsEnabled
-    Properties:
-      Namespace: CWAgent-Prometheus
-      MetricName: pg_table_bloat_count
-      Statistic: Average
-      Period: 300
       EvaluationPeriods: 1
       ComparisonOperator: GreaterThanThreshold
       Threshold: 0
@@ -1423,15 +1540,18 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Condition: MetricsEnabled
     Properties:
+      # Dead tuples build up between autovacuum runs (which start at 20% dead by default), so only a table staying above
+      # the threshold for an hour indicates autovacuum is blocked or not keeping up
+      AlarmDescription: A table's dead tuples exceeded 30% for an hour (tables with fewer than 10,000 dead tuples report 0)
       Metrics:
         - Id: q1
           Label: pg_dead_tuple_percent
           ReturnData: true
           Expression: SELECT AVG(pg_dead_tuple_percent) FROM SCHEMA("CWAgent-Prometheus", InstanceName,table_name) GROUP BY table_name ORDER BY AVG() DESC
           Period: 300
-      EvaluationPeriods: 1
+      EvaluationPeriods: 12
       ComparisonOperator: GreaterThanThreshold
-      Threshold: 20
+      Threshold: 30
       AlarmActions:
         - !Ref SnsTopic
       OKActions:
@@ -1459,3 +1579,66 @@ Resources:
           Value: "1000"
         - Name: proc_name
           Value: "_timescaledb_functions.policy_compression"
+
+  ContainerMemoryUtilizationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: MetricsEnabled
+    Properties:
+      AlarmDescription: Docker container memory (excluding page cache) exceeded 85% of container limit; see ContainerMemoryPercent for the container
+      Namespace: Custom/Docker
+      MetricName: MaxContainerMemoryPercent
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 5
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: 85
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref SnsTopic
+      OKActions:
+        - !Ref SnsTopic
+      Dimensions:
+        - Name: InstanceName
+          Value: !Ref Host
+
+  ContainerOomKillAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: MetricsEnabled
+    Properties:
+      AlarmDescription: A process inside a Docker container was killed by the OOM killer
+      Namespace: Custom/Docker
+      MetricName: ContainerOomKills
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: 0
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref SnsTopic
+      OKActions:
+        - !Ref SnsTopic
+      Dimensions:
+        - Name: InstanceName
+          Value: !Ref Host
+
+  ContainerRestartAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: MetricsEnabled
+    Properties:
+      AlarmDescription: A Docker container restarted, e.g. its main process crashed or was killed by the OOM killer
+      Namespace: Custom/Docker
+      MetricName: ContainerRestarts
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: 0
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref SnsTopic
+      OKActions:
+        - !Ref SnsTopic
+      Dimensions:
+        - Name: InstanceName
+          Value: !Ref Host

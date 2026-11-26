@@ -255,7 +255,7 @@ export class PageAssets extends Page<AssetsStateKeyed> {
     `;
   }
 
-  // State is only utilised for initial loading, and for changes within the store.
+  // State is only utilized for initial loading, and for changes within the store.
   // On the assets page, we shouldn't change editMode nor assetIds if the URL/state hasn't changed.
   stateChanged(state: AssetsStateKeyed) {
     this.getRealmState(state); // Order is important here!

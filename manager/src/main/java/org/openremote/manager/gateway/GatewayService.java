@@ -76,7 +76,7 @@ import org.openremote.model.value.MetaItemType;
  * Manages {@link org.openremote.model.asset.impl.GatewayAsset}s in the local instance by creating
  * Keycloak clients for them and handles the connection logic of gateways; it is the gateways
  * responsibility to connect to this instance, it is then up to this instance to authenticate the
- * gateway and to initiate synchronisation of gateway assets.
+ * gateway and to initiate synchronization of gateway assets.
  *
  * <p>Also adds an {@link AttributeEventInterceptor} to consume any {@link AttributeEvent} destined
  * for a {@link GatewayAsset} descendant {@link Asset} and routes them to the underlying gateway for
@@ -125,6 +125,7 @@ public class GatewayService extends RouteBuilder implements ContainerService {
 
   protected final Map<String, String> assetIdGatewayIdMap = new ConcurrentHashMap<>();
   protected boolean active;
+  private boolean producersStarted;
   protected List<String> realmIds = new ArrayList<>();
   protected Map<String, GatewayTunnelInfo> tunnelInfos = new ConcurrentHashMap<>();
   protected AtomicInteger pendingTunnelCounter = new AtomicInteger();
@@ -287,18 +288,7 @@ public class GatewayService extends RouteBuilder implements ContainerService {
               createUpdateGatewayServiceUser(gateway);
             }
 
-            // Create connector
-            GatewayConnector connector =
-                new GatewayConnector(
-                    assetStorageService,
-                    assetProcessingService,
-                    executorService,
-                    scheduledExecutorService,
-                    this,
-                    timerService,
-                    gateway,
-                    getGatewayMappingV2ActivatedOn());
-            gatewayConnectorMap.put(gateway.getId().toLowerCase(Locale.ROOT), connector);
+            registerGateway(gateway);
 
             // Get IDs of all assets under this gateway
             List<Asset<?>> gatewayAssets =
@@ -313,8 +303,47 @@ public class GatewayService extends RouteBuilder implements ContainerService {
     }
   }
 
+  private synchronized void registerGateway(GatewayAsset gateway) {
+    GatewayConnector connector =
+        new GatewayConnector(
+            assetStorageService,
+            assetProcessingService,
+            executorService,
+            scheduledExecutorService,
+            this,
+            timerService,
+            gateway,
+            getGatewayMappingV2ActivatedOn());
+    gatewayConnectorMap.put(gateway.getId().toLowerCase(Locale.ROOT), connector);
+    if (producersStarted) {
+      connector.publishAttributeEvent(connector.disconnectedStatusEvent());
+    }
+  }
+
+  @Override
+  public void startProducers(Container container) {
+    List<AttributeEvent> initialStatuses;
+    synchronized (this) {
+      initialStatuses =
+          gatewayConnectorMap.values().stream()
+              .map(GatewayConnector::disconnectedStatusEvent)
+              .toList();
+      producersStarted = true;
+    }
+    for (AttributeEvent status : initialStatuses) {
+      try {
+        assetProcessingService.sendAttributeEventAndWait(status, GatewayConnector.EVENT_SOURCE);
+      } catch (AssetProcessingException e) {
+        LOG.log(Level.WARNING, "Could not initialize gateway status for " + status.getId(), e);
+      }
+    }
+  }
+
   @Override
   public void stop(Container container) throws Exception {
+    synchronized (this) {
+      producersStarted = false;
+    }
     gatewayConnectorMap
         .values()
         .forEach(connector -> connector.disconnect(GatewayDisconnectEvent.Reason.TERMINATING));
@@ -688,12 +717,12 @@ public class GatewayService extends RouteBuilder implements ContainerService {
     } catch (ExecutionException e) {
       if (e.getCause() instanceof TimeoutException) {
         String msg =
-            "Failed to start tunnel: A timeout occurred whilst waiting for the tunnel to be started: id="
+            "Failed to start tunnel: A timeout occurred while waiting for the tunnel to be started: id="
                 + gatewayId;
         LOG.log(Level.WARNING, msg);
       } else {
         String msg =
-            "Failed to start tunnel: An error occurred whilst waiting for the tunnel to be started: id="
+            "Failed to start tunnel: An error occurred while waiting for the tunnel to be started: id="
                 + gatewayId
                 + ", error="
                 + e.getCause().getMessage();
@@ -753,13 +782,13 @@ public class GatewayService extends RouteBuilder implements ContainerService {
       stopFuture.get(20, TimeUnit.SECONDS);
     } catch (ExecutionException e) {
       String msg =
-          "Failed to stop tunnel: An error occurred whilst waiting for the tunnel to be stopped: id="
+          "Failed to stop tunnel: An error occurred while waiting for the tunnel to be stopped: id="
               + tunnelInfo.getGatewayId();
       LOG.log(Level.WARNING, msg, e.getCause());
       throw new RuntimeException(msg, e.getCause());
     } catch (InterruptedException | TimeoutException e) {
       String msg =
-          "Failed to stop tunnel: An error occurred whilst waiting for the tunnel to be stopped: id="
+          "Failed to stop tunnel: An error occurred while waiting for the tunnel to be stopped: id="
               + tunnelInfo.getGatewayId();
       LOG.warning(msg);
       throw new RuntimeException(msg);
@@ -778,7 +807,7 @@ public class GatewayService extends RouteBuilder implements ContainerService {
    * allows lookups for new assets. Persistence operations validate ancestry separately.
    */
   public String getLocallyRegisteredGatewayId(String assetId, String parentId) {
-    // ConcurrentHashMap rejects null keys so preserve HashMap behaviour of mapping to null
+    // ConcurrentHashMap rejects null keys so preserve HashMap behavior of mapping to null
     String gatewayId = assetId != null ? assetIdGatewayIdMap.get(assetId) : null;
 
     if (gatewayId != null) {
@@ -804,7 +833,7 @@ public class GatewayService extends RouteBuilder implements ContainerService {
 
     if (connector == null) {
       LOG.warning(
-          "Gateway connected but not recognised which shouldn't happen: GatewayID=" + gatewayId);
+          "Gateway connected but not recognized which shouldn't happen: GatewayID=" + gatewayId);
       clientEventService.sendToWebsocketSession(
           sessionId, new GatewayDisconnectEvent(GatewayDisconnectEvent.Reason.UNRECOGNISED));
       clientEventService.closeWebsocketSession(sessionId);
@@ -887,17 +916,7 @@ public class GatewayService extends RouteBuilder implements ContainerService {
     switch (persistenceEvent.getCause()) {
       case CREATE -> {
         createUpdateGatewayServiceUser(gateway);
-        GatewayConnector connector =
-            new GatewayConnector(
-                assetStorageService,
-                assetProcessingService,
-                executorService,
-                scheduledExecutorService,
-                this,
-                timerService,
-                gateway,
-                getGatewayMappingV2ActivatedOn());
-        gatewayConnectorMap.put(gateway.getId().toLowerCase(Locale.ROOT), connector);
+        registerGateway(gateway);
       }
       case UPDATE -> {
         // Check if this gateway has a connector

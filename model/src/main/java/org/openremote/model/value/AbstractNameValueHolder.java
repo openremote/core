@@ -46,7 +46,7 @@ public abstract class AbstractNameValueHolder<T> implements NameValueHolder<T>, 
       nullable = true)
   protected T value;
 
-  @JsonIgnore protected String valueStr; // This is for lazy value initialisation when deserialising
+  @JsonIgnore protected String valueStr; // This is for lazy value initialization when deserializing
 
   @NotBlank(message = "{Asset.valueHolder.name.NotBlank}") @Pattern(regexp = "^\\w+$") @Schema(description = "Machine-readable name.", example = "temperature")
   protected String name;

@@ -31,7 +31,7 @@ import org.openremote.container.web.WebService;
 import org.openremote.model.Container;
 
 /**
- * Customised to use existing undertow instance so websocket doesn't have to be on a separate web
+ * Customized to use existing undertow instance so websocket doesn't have to be on a separate web
  * server instance
  */
 // TODO: Move realm into request URI if possible and remove Realm query parameter support

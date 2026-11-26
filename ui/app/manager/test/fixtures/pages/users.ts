@@ -18,7 +18,6 @@
  */
 import { type BasePage, type Locator, type Page, type Shared, expect } from "@openremote/test";
 import type { Manager } from "../manager";
-import type { UserModel } from "../../../src/pages/page-users";
 
 export class UsersPage implements BasePage {
   private _allRoles?: string[];
@@ -66,8 +65,10 @@ export class UsersPage implements BasePage {
    */
   private async getAllRoles(): Promise<string[]> {
     if (!this._allRoles) {
-      const roles = await this.manager.getClientRoles();
-      this._allRoles = (roles ?? []).filter((role) => !role.composite).map((role) => role.name!);
+      const realm = await this.manager.getDisplayRealm();
+      const roles = (await this.manager.getClientRoles(realm)) ?? [];
+      expect(roles, `client roles of realm "${realm}"`).not.toHaveLength(0);
+      this._allRoles = roles.filter((role) => !role.composite).map((role) => role.name!);
     }
     return this._allRoles;
   }
@@ -96,8 +97,7 @@ export class UsersPage implements BasePage {
   /**
    * Create a user with read and write access for the current realm.
    *
-   * Internally checks whether the roles are correctly set and
-   * registers the user for cleanup.
+   * Internally checks whether the roles are correctly set.
    *
    * @param username The users' username
    * @param password The users' password
@@ -117,9 +117,6 @@ export class UsersPage implements BasePage {
     }
     await this.toggleCompositeRoles("Read", "Write");
     await this.toHaveAllRoles();
-    await this.shared.interceptResponse<UserModel>(`user/${this.manager.realm}/users`, (user) => {
-      if (user) this.manager.user = user;
-    });
     await this.page.getByRole("button", { name: "Create" }).click();
   }
 
@@ -141,9 +138,6 @@ export class UsersPage implements BasePage {
     }
     await this.toggleCompositeRoles("Read", "Write");
     await this.toHaveAllRoles();
-    await this.shared.interceptResponse<UserModel>(`user/${this.manager.realm}/users`, (user) => {
-      if (user) this.manager.user = user;
-    });
     await this.page.getByRole("button", { name: "Create" }).click();
   }
 

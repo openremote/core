@@ -66,7 +66,7 @@ export { customElements, packageJson };
 /* ------------------------------------------------------- */
 
 /**
- * Initialises {@link OrTranslate}, awaits initialization, and returns the HTML object.
+ * Initializes {@link OrTranslate}, awaits initialization, and returns the HTML object.
  */
 async function loadOrTranslate(storyArgs: any) {
   console.debug("Loading OrTranslate...");

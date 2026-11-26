@@ -36,7 +36,7 @@ import java.util.zip.ZipOutputStream
 class KNXImportXXETest extends Specification {
 
   def "KNX asset import still processes valid ETS project files"() {
-    given: "a KNX protocol instance with only the import executor initialised"
+    given: "a KNX protocol instance with only the import executor initialized"
     ValueUtil.initialise(null)
     def executor = Executors.newSingleThreadExecutor()
     def protocol = new TestKNXProtocol(new KNXAgent("KNX").setId("knx-agent"), executor)
@@ -101,7 +101,7 @@ class KNXImportXXETest extends Specification {
 </b:KNX>
 """)
 
-    and: "a KNX protocol instance with only the import executor initialised"
+    and: "a KNX protocol instance with only the import executor initialized"
     ValueUtil.initialise(null)
     def executor = Executors.newSingleThreadExecutor()
     def protocol = new TestKNXProtocol(new KNXAgent("KNX").setId("knx-agent"), executor)

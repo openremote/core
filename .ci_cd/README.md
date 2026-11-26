@@ -11,7 +11,7 @@ docker image tag updates. The file layout is:
 
 ```json
 {
-  // Configure behaviour on push
+  // Configure behavior on push
   "push": {
     // Name of branch to react to (exact match)
     "develop": {
@@ -32,7 +32,7 @@ docker image tag updates. The file layout is:
       }
     }
   },
-  // Configure behaviour on release
+  // Configure behavior on release
   "release": {
     // Comma separated list of tags to push to openremote/manager docker hub image $version is replaced with release version
     // This can only be used on the OpenRemote Core repo (openremote/core)
@@ -81,24 +81,24 @@ The naming convention should be as follows:
 
 # `host_init` Directory
 
-Contains scripts/files required to initialise the host ready for running the stack (e.g. download map tiles etc.); if
+Contains scripts/files required to initialize the host ready for running the stack (e.g. download map tiles etc.); if
 the repo is a custom project then any files in the same path of the custom repo will be overlaid on top of the
-standard openremote repo files (thus allowing custom project override of any behaviour). The workflow looks for one of
+standard openremote repo files (thus allowing custom project override of any behavior). The workflow looks for one of
 the following bash scripts (in priority order):
 
-- `host_init/init_${ENVIRONMENT}.sh` - Bash script for environment specific host initialisation
+- `host_init/init_${ENVIRONMENT}.sh` - Bash script for environment specific host initialization
 - `host_init/init.sh` - Bash script that can be used by any environment as a fallback if no environment specific script
   exists
 
-If an initialisation script is found then the entire `host_init` directory will be copied to the host and the script
-will be executed; by copying the entire directory additional files can be included and called from the initialisation
+If an initialization script is found then the entire `host_init` directory will be copied to the host and the script
+will be executed; by copying the entire directory additional files can be included and called from the initialization
 script as required.
 
 # `aws` Directory
 
 Contains AWS scripts and resources for CI/CD within AWS. If the repo is a custom project then any files in the same path
 of the custom repo will be overlaid on top of the standard openremote repo files (thus allowing custom project override
-of any behaviour).
+of any behavior).
 
 # Variables
 

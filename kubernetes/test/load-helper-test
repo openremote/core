@@ -69,12 +69,17 @@ elif name == 'kubectl':
     elif 'token' in args:
         print('test-jwt')
 elif name == 'helm':
-    if args[0] == 'template':
+    major = os.getenv('HELPER_TEST_HELM_MAJOR', '4')
+    if args[0] == 'version':
+        print(f'v{major}.0.0')
+    elif args[0] == 'template':
         hostname = option('--set-string').split('=',1)[1]
         if os.getenv('BAD_RENDER'):
             hostname = 'https://' + hostname + '/auth'
         print('- name: KC_HOSTNAME\n  value: "' + hostname + '"')
     elif args[0] == 'list':
+        if major == '4' and '--all' in args:
+            print('Error: unknown flag: --all', file=sys.stderr); sys.exit(1)
         print('[{"name":"openremote-external-dns"}]' if os.getenv('HELPER_TEST_EXISTING_DNS') else '[]')
     elif args[:2] == ['get','values']:
         print(json.dumps({'txtOwnerId': 'preserve-me', 'domainFilters': ['example.com'], 'extraArgs': {
@@ -220,11 +225,16 @@ class LoadHelperTest(unittest.TestCase):
         self.assertFalse(self.calls_to('aws','deploy'))
 
     def test_deploy_only_uses_existing_dns_configuration(self):
-        self.invoke('deploy',HELPER_TEST_CLUSTER_EXISTS='1',HELPER_TEST_EXISTING_DNS='1')
-        self.assertFalse(self.calls_to('aws','deploy'))
-        self.assertFalse(self.calls_to('or-eks-cluster','apply'))
-        assume,=self.calls_to('aws','assume-role')
-        self.assertIn('existing-external-id',assume['args'])
+        for major in ('3', '4'):
+            with self.subTest(helm=major):
+                self.invoke('deploy', HELPER_TEST_CLUSTER_EXISTS='1', HELPER_TEST_EXISTING_DNS='1',
+                            HELPER_TEST_HELM_MAJOR=major)
+                release_list, = self.calls_to('helm', 'list')
+                self.assertEqual('--all' in release_list['args'], major == '3')
+                self.assertFalse(self.calls_to('aws','deploy'))
+                self.assertFalse(self.calls_to('or-eks-cluster','apply'))
+                assume, = self.calls_to('aws','assume-role')
+                self.assertIn('existing-external-id', assume['args'])
         self.invoke('deploy',expected=1)
         self.assertFalse(self.calls_to('or-eks-stack','apply'))
         self.invoke('deploy',expected=1,HELPER_TEST_CLUSTER_EXISTS='1',HELPER_TEST_EXISTING_DNS='1',DNS_DRY_RUN='1')

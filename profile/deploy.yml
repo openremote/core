@@ -8,7 +8,7 @@
 # including their default values. These can be overridden in many ways, shell environment variable,
 # env file, extending/merging this compose file, etc.
 #
-# Here's a list of commonly customised environment variables:
+# Here's a list of commonly customized environment variables:
 #
 # OR_ADMIN_PASSWORD
 # OR_HOSTNAME
@@ -208,7 +208,7 @@ services:
 
       # !! WARNING: This will wipe your database !!
       # Force a full clean and setup on startup irrespective of whether there is existing data
-      # Default behaviour is false unless OR_DEV_MODE = true or openremote database doesn't already exist
+      # Default behavior is false unless OR_DEV_MODE = true or openremote database doesn't already exist
       OR_SETUP_RUN_ON_RESTART: ${OR_SETUP_RUN_ON_RESTART:-false}
 
       # Manager web server interface binding; default: 0.0.0.0
@@ -278,7 +278,7 @@ services:
       OR_MAP_TILES_PATH: ${OR_MAP_TILES_PATH:-/deployment/map/mapdata.mbtiles}
 
       # Override the map settings such as center location and zoom when opening the
-      # manager's map, as well as other style details and colours.
+      # manager's map, as well as other style details and colors.
       OR_MAP_SETTINGS_PATH: ${OR_MAP_SETTINGS_PATH:-/deployment/map/mapsettings.json}
 
       # Override the maximum allowed custom map tiles database file size in bytes.
@@ -487,11 +487,14 @@ services:
       # This setting may still be overridden depending on your kernel settings so tune this and other
       # service DB values so the actual max connections are not exhausted
       POSTGRES_MAX_CONNECTIONS: ${POSTGRES_MAX_CONNECTIONS:-50}
+      # Terminates sessions left idle in a transaction for longer than this, as they prevent autovacuum removing dead
+      # rows and cause table bloat (set to 0 to disable)
+      POSTGRES_IDLE_IN_TRANSACTION_SESSION_TIMEOUT: ${POSTGRES_IDLE_IN_TRANSACTION_SESSION_TIMEOUT:-10min}
 
   # Query Exporter - Prometheus metrics from PostgreSQL queries
   # Documentation: https://github.com/albertodonato/query-exporter
   query-exporter:
-    image: adonato/query-exporter:latest
+    image: adonato/query-exporter:${QUERY_EXPORTER_VERSION:-latest}
     restart: always
     depends_on:
       postgresql:
@@ -525,7 +528,7 @@ services:
     #  - "8082:80" # Web server port
 
   sish:
-    image: antoniomika/sish:latest
+    image: antoniomika/sish:${SISH_VERSION:-latest}
     depends_on:
       - proxy
     healthcheck:

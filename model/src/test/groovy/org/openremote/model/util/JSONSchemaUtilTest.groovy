@@ -19,6 +19,7 @@
 package org.openremote.model.util
 
 import com.fasterxml.jackson.annotation.*
+import org.openremote.model.asset.agent.AgentLink
 import org.openremote.model.util.JSONSchemaUtil.*
 import org.openremote.model.value.ValueType
 import org.reflections.Reflections
@@ -146,6 +147,7 @@ class JSONSchemaUtilTest extends Specification {
     @JsonSchemaFormat("test")
     @JsonSchemaDefault("false")
     @JsonSchemaExamples(["test"])
+    @JsonSchemaTemplateParameter
     public Boolean all
   }
 
@@ -298,6 +300,15 @@ class JSONSchemaUtilTest extends Specification {
   def "schema resolves subtypes through reflections"() {
     expect:
     schemaMatchesSnapshot(ReflectedPolymorphicType)
+  }
+
+  def "schema marks the agent id of an agent link as a template parameter"() {
+    when:
+    def properties = ValueUtil.getSchema(AgentLink).at("/definitions/DefaultAgentLink/properties")
+
+    then:
+    properties.at("/id/templateParameter").asBoolean()
+    !properties.at("/type").has("templateParameter")
   }
 
   def "schemas do not use allOf"() {

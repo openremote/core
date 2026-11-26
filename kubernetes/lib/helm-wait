@@ -1,0 +1,12 @@
+# Use Helm 3-style polling for installs and uninstalls that need it.
+
+helm_wait_flag() {
+  local helm_version
+  helm_version="$(helm version --template '{{.Version}}')" || return
+
+  if [[ "$helm_version" = v4.* ]]; then
+    printf '%s\n' --wait=legacy
+  else
+    printf '%s\n' --wait
+  fi
+}

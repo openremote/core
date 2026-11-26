@@ -75,9 +75,9 @@ import org.openremote.model.util.ValueUtil;
  *       is returned with {@code tunnelingSupported:true|false}. Each tunnel start request contains
  *       the public SSH hostname and port to use (which don't actually change from one request to
  *       the next)
- *   <li>1.0.0 - Refactor to improve connection synchronisation and also to support active tunnel
- *       synchronisation. A {@link GatewayInitStartEvent} is sent with a list of active tunnels,
- *       gateway API version and tunnel public hostname and port; the client can then synchronise
+ *   <li>1.0.0 - Refactor to improve connection synchronization and also to support active tunnel
+ *       synchronization. A {@link GatewayInitStartEvent} is sent with a list of active tunnels,
+ *       gateway API version and tunnel public hostname and port; the client can then synchronize
  *       the SSH sessions (for reconnections) and should also send a {@link AssetsEvent} with all
  *       the edge gatewway assets (without attributes) and this replaces the initial {@link
  *       ReadAssetsEvent} that previous versions would send. {@link
@@ -146,7 +146,7 @@ public class GatewayClientConnector implements AutoCloseable {
       } catch (Exception e) {
         LOG.log(
             Level.WARNING,
-            "An exception occurred whilst trying to disconnect the gateway IO client",
+            "An exception occurred while trying to disconnect the gateway IO client",
             e);
       } finally {
         client = null;
@@ -251,7 +251,7 @@ public class GatewayClientConnector implements AutoCloseable {
 
     if (connectionStatus == ConnectionStatus.CONNECTED) {
       LOG.info(
-          "Gateway client initialisation complete API version is '"
+          "Gateway client initialization complete API version is '"
               + gatewayAPIVersion
               + "': "
               + connection);
@@ -313,7 +313,7 @@ public class GatewayClientConnector implements AutoCloseable {
       case GatewayInitDoneEvent initDoneEvent -> {
         initFuture.complete(null);
       }
-      // The central manager sends N number of these to synchronise gateway descendant assets on the
+      // The central manager sends N number of these to synchronize gateway descendant assets on the
       // central manager
       case ReadAssetsEvent readAssets -> {
         if (gatewayAPIVersion == null) {
@@ -335,14 +335,14 @@ public class GatewayClientConnector implements AutoCloseable {
         responseEvent.setMessageID(event.getMessageID());
         sendCentralManagerMessage(responseEvent);
       }
-      // This event is only sent once asset synchronisation has completed but before init done
+      // This event is only sent once asset synchronization has completed but before init done
       case GatewayCapabilitiesRequestEvent capabilitiesRequestEvent -> {
         if (gatewayAPIVersion == null) {
           // This is a legacy version of the openremote on the central instance so we won't get a
           // GatewayInitialisedEvent
           // so we mark this client as connected now
           LOG.info(
-              "Central manager running an older version so assuming connection is initialised");
+              "Central manager running an older version so assuming connection is initialized");
           initFuture.complete(null);
         }
 
@@ -431,7 +431,7 @@ public class GatewayClientConnector implements AutoCloseable {
   }
 
   /**
-   * Synchronise the current active tunnel sessions async with what the central instance thinks are
+   * Synchronize the current active tunnel sessions async with what the central instance thinks are
    * open.
    */
   protected void doTunnelSync(GatewayTunnelInfo[] activeTunnels) {
@@ -441,9 +441,9 @@ public class GatewayClientConnector implements AutoCloseable {
 
     Container.EXECUTOR.submit(
         () -> {
-          LOG.info("Synchronising gateway tunnel sessions with central instance: " + connection);
+          LOG.info("Synchronizing gateway tunnel sessions with central instance: " + connection);
 
-          // Synchronise the SSH sessions with what the central instance thinks are open
+          // Synchronize the SSH sessions with what the central instance thinks are open
           // Filter out any tunnels expiring in the next 5 seconds
           List<GatewayTunnelInfo> tunnels =
               Arrays.stream(activeTunnels)
@@ -705,7 +705,7 @@ public class GatewayClientConnector implements AutoCloseable {
     ScheduledFuture<?> task = tunnelAutoCloseTasks.remove(session);
     if (task != null) {
       task.cancel(false);
-      LOG.fine("Cancelled auto-close task for tunnel: " + session);
+      LOG.fine("Canceled auto-close task for tunnel: " + session);
     }
   }
 

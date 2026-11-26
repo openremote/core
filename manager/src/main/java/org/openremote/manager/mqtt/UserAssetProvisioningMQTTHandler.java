@@ -432,7 +432,7 @@ public class UserAssetProvisioningMQTTHandler extends MQTTHandler {
 
     // Requests and their responses are two halves of one exchange on a device wide topic pair, so
     // only the connection that owns the response topic may publish requests. Without this an
-    // unauthorised client could push errors into a legitimate device's handshake, or make the
+    // unauthorized client could push errors into a legitimate device's handshake, or make the
     // manager do certificate validation work on messages it will never answer to that client.
     if (!ownsResponseTopic(connection, topic)) {
       LOG.fine(
@@ -1028,7 +1028,7 @@ public class UserAssetProvisioningMQTTHandler extends MQTTHandler {
             .orElseThrow(
                 () ->
                     new RuntimeException(
-                        "Failed to de-serialise asset template into an asset instance: "
+                        "Failed to deserialize asset template into an asset instance: "
                             + provisioningConfig));
 
     // Set ID and realm

@@ -199,7 +199,8 @@ export class NotificationsPage implements BasePage {
 
   /** Open the details dialog for the (first) row containing the given text. */
   async openDetailsByText(text: string) {
-    await this.getRowByText(text).first().click();
+    // The row's center can fall on the target cell's link, so click the cell holding the text
+    await this.getRowByText(text).first().locator("td", { hasText: text }).first().click();
     await expect(this.getDetailsForm()).toBeVisible();
   }
 

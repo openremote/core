@@ -30,8 +30,10 @@ import java.util.PriorityQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import org.openremote.container.timer.TimerService;
 import org.openremote.manager.asset.AssetProcessingService;
+import org.openremote.manager.asset.AssetProcessingService.AttributeEventProcessorUnavailableException;
 import org.openremote.manager.asset.AssetStorageService;
 import org.openremote.manager.event.ClientEventService;
 import org.openremote.model.Container;
@@ -56,6 +58,8 @@ import org.openremote.model.query.filter.NameValuePredicate;
  */
 public class ApplyPredictedDataPointsService implements ContainerService {
 
+  private static final long PROCESSOR_RETRY_MILLIS = TimeUnit.SECONDS.toMillis(5);
+
   protected TimerService timerService;
   protected AssetStorageService assetStorageService;
   protected AssetPredictedDatapointService assetPredictedDatapointService;
@@ -68,6 +72,10 @@ public class ApplyPredictedDataPointsService implements ContainerService {
       new PriorityQueue<>(Comparator.comparingLong(e -> e.timestamp));
   protected final Map<AttributeRef, ScheduledEntry> scheduledEntries = new HashMap<>();
   protected ScheduledFuture<?> scheduledFuture;
+  private boolean stopped;
+  private final Consumer<AssetPredictedDatapointEvent> predictedDatapointsConsumer =
+      this::onPredictedDatapointsChanged;
+  private final Consumer<AttributeEvent> attributeEventConsumer = this::onAttributeEvent;
 
   @Override
   public int getPriority() {
@@ -86,17 +94,26 @@ public class ApplyPredictedDataPointsService implements ContainerService {
 
   @Override
   public void start(Container container) throws Exception {
+    synchronized (scheduleLock) {
+      stopped = false;
+    }
     clientEventService.addSubscription(
-        AssetPredictedDatapointEvent.class, null, this::onPredictedDatapointsChanged);
-    clientEventService.addSubscription(AttributeEvent.class, null, this::onAttributeEvent);
+        AssetPredictedDatapointEvent.class, null, predictedDatapointsConsumer);
+    clientEventService.addSubscription(AttributeEvent.class, null, attributeEventConsumer);
+  }
 
+  @Override
+  public void startProducers(Container container) {
     loadInitialAttributes();
     scheduleNext();
   }
 
   @Override
   public void stop(Container container) throws Exception {
+    clientEventService.removeSubscription(predictedDatapointsConsumer);
+    clientEventService.removeSubscription(attributeEventConsumer);
     synchronized (scheduleLock) {
+      stopped = true;
       if (scheduledFuture != null) {
         scheduledFuture.cancel(true);
         scheduledFuture = null;
@@ -153,7 +170,7 @@ public class ApplyPredictedDataPointsService implements ContainerService {
    * processing.
    */
   protected void scheduleNext() {
-    // Cancelling and scheduling must be atomic with reading the queue head, otherwise a concurrent
+    // Canceling and scheduling must be atomic with reading the queue head, otherwise a concurrent
     // caller can
     // cancel a live schedule and leave a queued entry without one
     synchronized (scheduleLock) {
@@ -214,7 +231,12 @@ public class ApplyPredictedDataPointsService implements ContainerService {
       return;
     }
 
-    rescheduleValidatedAttribute(ref, attribute);
+    try {
+      rescheduleValidatedAttribute(ref, attribute);
+    } catch (AttributeEventProcessorUnavailableException e) {
+      // Reread the attribute and its latest prediction when the retry becomes due.
+      upsertScheduledEntry(ref, timerService.getCurrentTimeMillis() + PROCESSOR_RETRY_MILLIS, null);
+    }
   }
 
   protected void rescheduleValidatedAttribute(AttributeRef ref, Attribute<?> attribute) {
@@ -281,6 +303,9 @@ public class ApplyPredictedDataPointsService implements ContainerService {
 
   protected void upsertScheduledEntry(AttributeRef ref, long timestamp, Object value) {
     synchronized (scheduleLock) {
+      if (stopped) {
+        return;
+      }
       ScheduledEntry existing = scheduledEntries.remove(ref);
       if (existing != null) {
         scheduleQueue.remove(existing);

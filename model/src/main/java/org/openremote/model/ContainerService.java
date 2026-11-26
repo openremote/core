@@ -26,18 +26,38 @@ import org.openremote.model.util.TsIgnore;
  * Container} using the auto service discovery mechanism. If the container is started with an
  * explicit list of services then the insertion order is used.
  *
- * <p>Service startup lifecycle:
+ * <p>The container runs each startup phase in registry order and completes it for all services
+ * before moving to the next.
  *
- * <ol>
- *   <li>{@link #init} in registry insertion order
- *   <li>{@link #start} in registry insertion order
- * </ol>
+ * <table>
+ *   <caption>Service startup phases</caption>
+ *   <thead>
+ *     <tr>
+ *       <th scope="col">Phase</th>
+ *       <th scope="col">Responsibility</th>
+ *     </tr>
+ *   </thead>
+ *   <tbody>
+ *     <tr>
+ *       <th scope="row">{@link #init}</th>
+ *       <td>Resolve dependencies and register routes, handlers, and subscriptions.</td>
+ *     </tr>
+ *     <tr>
+ *       <th scope="row">{@link #start}</th>
+ *       <td>Start internal services and event consumers, including the message broker.</td>
+ *     </tr>
+ *     <tr>
+ *       <th scope="row">{@link #startProducers}</th>
+ *       <td>Enable internal event producers and complete startup writes required before ingress.</td>
+ *     </tr>
+ *     <tr>
+ *       <th scope="row">{@link #startIngress}</th>
+ *       <td>Open public listeners and accept external traffic.</td>
+ *     </tr>
+ *   </tbody>
+ * </table>
  *
- * <p>Service shutdown lifecycle:
- *
- * <ol>
- *   <li>{@link #stop} in <b>reverse</b> registry order
- * </ol>
+ * <p>On shutdown, the container calls {@link #stop} in reverse registry order.
  */
 @TsIgnore
 public interface ContainerService {
@@ -48,8 +68,8 @@ public interface ContainerService {
   int LOW_PRIORITY = Integer.MAX_VALUE - 1000;
 
   /**
-   * Gets the priority of this service which is used to determine initialization order when services
-   * are auto discovered; services with a lower priority are initialized and started first.
+   * Gets the priority of this service, which determines the order within each startup phase when
+   * services are auto-discovered. Services with a lower priority run first.
    */
   default int getPriority() {
     return DEFAULT_PRIORITY;
@@ -63,11 +83,18 @@ public interface ContainerService {
   void init(Container container) throws Exception;
 
   /**
-   * After initialization, services are started in the order they have been added to the container
-   * (if container started with explicit list of services) otherwise they are started in order of
-   * {@link #getPriority}.
+   * Starts internal services and event consumers after every service has completed {@link #init}.
    */
   void start(Container container) throws Exception;
+
+  /**
+   * Starts internal event producers after every service has completed {@link #start}. Complete
+   * writes required for public traffic before returning from this hook.
+   */
+  default void startProducers(Container container) throws Exception {}
+
+  /** Opens public listeners after every service has completed {@link #startProducers}. */
+  default void startIngress(Container container) throws Exception {}
 
   /**
    * When the container is shutting down, it stops all services in the reverse order they were

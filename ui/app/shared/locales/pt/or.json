@@ -600,6 +600,9 @@
               },
               "writeValueFilters": {
                 "description": ""
+              },
+              "id": {
+                "label": ""
               }
             }
           }
@@ -625,6 +628,13 @@
                 "recurrence": {
                   "description": ""
                 }
+              }
+            }
+          },
+          "modbus": {
+            "ModbusAgentLink": {
+              "unitId": {
+                "label": ""
               }
             }
           }

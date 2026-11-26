@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi10/openjdk-21-runtime:1.24-20
+FROM registry.access.redhat.com/ubi10/openjdk-21-runtime:1.24-21
 
 # Add git commit label must be specified at build time using --build-arg GIT_COMMIT=dadadadadad
 ARG GIT_COMMIT=unknown
@@ -154,11 +154,14 @@ ENV OR_STORAGE_DIR=${OR_STORAGE_DIR}
 ARG OR_GATEWAY_TUNNEL_LOCALHOST_REWRITE=172.17.0.1
 ENV OR_GATEWAY_TUNNEL_LOCALHOST_REWRITE=${OR_GATEWAY_TUNNEL_LOCALHOST_REWRITE}
 
-ARG JAVA_OPTS="-XX:InitialRAMPercentage=75.0 -XX:MaxRAMPercentage=75.0 \
+ARG JAVA_OPTS="-XX:InitialRAMPercentage=50.0 -XX:MaxRAMPercentage=60.0 \
+    -Xss512k \
     -XX:NativeMemoryTracking=summary \
     -Xlog:all=warning:stdout:uptime,level,tags \
-    -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/storage/dump.hprof \
-    -XX:OnOutOfMemoryError=/heapdump-rename.sh"
+    -XX:+HeapDumpOnOutOfMemoryError \
+    -XX:HeapDumpPath=/storage/dump.hprof \
+    -XX:OnOutOfMemoryError=/heapdump-rename.sh \
+    -XX:+ExitOnOutOfMemoryError"
 ENV JAVA_OPTS=${JAVA_OPTS}
 
 ARG JAVA_OPTS_APPEND
@@ -188,6 +191,3 @@ RUN chmod +x /entrypoint.sh
 COPY heapdump-rename.sh /heapdump-rename.sh
 RUN chmod +x /heapdump-rename.sh
 ENTRYPOINT ["/entrypoint.sh"]
-
-# Upgrade OpenJDK to address CVE-2026-114938 until the base image includes the fix
-RUN microdnf upgrade -y java-21-openjdk-headless && microdnf clean all

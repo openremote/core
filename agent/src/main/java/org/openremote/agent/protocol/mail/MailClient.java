@@ -125,8 +125,8 @@ public class MailClient {
     //                    LOG.log(System.Logger.Level.TRACE, "Got " + messages.length + "
     // messages");
     //
-    //                    if (!initialised) {
-    //                        initialised = true;
+    //                    if (!initialized) {
+    //                        initialized = true;
     //                        // Filter out earlier messages on first pass
     //                        Arrays.stream(messages)
     //                            .filter(message -> {
@@ -318,7 +318,7 @@ public class MailClient {
                         } catch (MessagingException e) {
                           LOG.log(
                               System.Logger.Level.INFO,
-                              "An exception occurred whilst processing a message: "
+                              "An exception occurred while processing a message: "
                                   + messageToString(message),
                               e);
                         }
@@ -332,12 +332,12 @@ public class MailClient {
               }
             } catch (MessagingException e) {
               LOG.log(
-                  System.Logger.Level.WARNING, "An error occurred whilst trying to read mail", e);
+                  System.Logger.Level.WARNING, "An error occurred while trying to read mail", e);
             }
           });
       updateConnectionStatus(ConnectionStatus.WAITING);
     } catch (Exception e) {
-      LOG.log(System.Logger.Level.WARNING, "An error occurred whilst processing mail messages", e);
+      LOG.log(System.Logger.Level.WARNING, "An error occurred while processing mail messages", e);
       updateConnectionStatus(ConnectionStatus.ERROR);
     }
   }

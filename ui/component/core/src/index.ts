@@ -104,7 +104,7 @@ export const I18NEXT_TO_MOMENT_LOCALE: Record<string, string> = {
 };
 
 /**
- * Registers the formats the translations interpolate with on an initialised i18next instance.
+ * Registers the formats the translations interpolate with on an initialized i18next instance.
  * i18next lowercases a format name, so the Moment formats that only differ in case take an option.
  */
 export function addTranslationFormats(i18n: i18n): void {
@@ -135,7 +135,7 @@ export function normaliseConfig(config: ManagerConfig): ManagerConfig {
       (window.location.port ? ":" + window.location.port : "") +
       window.location.pathname.replace(/\/[^/]+\/?$/, "");
   } else {
-    // Normalise by stripping any trailing slashes
+    // Normalize by stripping any trailing slashes
     normalisedConfig.managerUrl = normalisedConfig.managerUrl.replace(/\/+$/, "");
   }
 
@@ -369,7 +369,7 @@ export class Manager implements EventProviderFactory {
 
   protected async doInit(config: ManagerConfig): Promise<boolean> {
     if (this._config) {
-      console.debug("Already initialised");
+      console.debug("Already initialized");
     }
 
     this._config = normaliseConfig(config);
@@ -423,7 +423,7 @@ export class Manager implements EventProviderFactory {
         this._config.keycloakUrl = this._config.managerUrl + "/auth";
       }
 
-      // Normalise by stripping any trailing slashes
+      // Normalize by stripping any trailing slashes
       this._config.keycloakUrl = this._config.keycloakUrl.replace(/\/+$/, "");
 
       success = await this.doAuthInit();
@@ -461,7 +461,7 @@ export class Manager implements EventProviderFactory {
       this._emitEvent(OREvent.READY);
     } else {
       (this._config as any) = undefined;
-      console.warn("Failed to initialise the manager");
+      console.warn("Failed to initialize the manager");
     }
 
     this.displayRealm = config.realm || "master";
@@ -872,7 +872,7 @@ export class Manager implements EventProviderFactory {
     const returnedFromLogin = hash.has("state") && hash.has("code");
 
     try {
-      // Initialise keycloak
+      // Initialize keycloak
       this._keycloak = new Keycloak({
         clientId: this._config.clientId!,
         realm: this._config.realm!,
@@ -924,7 +924,7 @@ export class Manager implements EventProviderFactory {
       return true;
     } catch (error) {
       this._authenticated = false;
-      console.error("Failed to initialise Keycloak: " + error);
+      console.error("Failed to initialize Keycloak: " + error);
       if (returnedFromLogin && this._keycloak && this._startNewLogin()) {
         return false;
       }

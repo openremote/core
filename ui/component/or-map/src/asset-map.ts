@@ -99,6 +99,8 @@ export class AssetMap extends BaseMap {
 
   protected _onData = (e: MapSourceDataEvent) => {
     if (this._map && e.isSourceLoaded && e.sourceId === "assets") {
+      // Tiles kept from other zoom levels are dropped a frame after the source loads, so refresh again when idle
+      this._map.on("idle", this._onMove);
       this._map.on("move", this._onMove);
       this._map.on("moveend", this._onMoveEnd);
       this._updateMarkers();
@@ -454,7 +456,7 @@ export class AssetMap extends BaseMap {
   }
 
   /**
-   * Registers the colour of an asset type the map has not seen before
+   * Registers the color of an asset type the map has not seen before
    * @returns Whether the type is new, meaning the cluster properties are out of date
    */
   private _addAssetType(type: string) {

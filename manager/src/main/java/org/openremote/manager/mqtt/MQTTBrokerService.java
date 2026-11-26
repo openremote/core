@@ -20,6 +20,7 @@ package org.openremote.manager.mqtt;
 
 import static java.lang.System.Logger.Level.*;
 import static java.util.stream.StreamSupport.stream;
+import static org.apache.activemq.artemis.core.remoting.impl.netty.TransportConstants.AUTO_START;
 import static org.openremote.container.persistence.PersistenceService.PERSISTENCE_TOPIC;
 import static org.openremote.container.security.IdentityProvider.getTokenPrincipal;
 import static org.openremote.model.syslog.SyslogCategory.API;
@@ -102,6 +103,7 @@ public class MQTTBrokerService extends RouteBuilder
   public static final int PRIORITY = MED_PRIORITY;
   public static final String MQTT_SERVER_LISTEN_HOST = "MQTT_SERVER_LISTEN_HOST";
   public static final String MQTT_SERVER_LISTEN_PORT = "MQTT_SERVER_LISTEN_PORT";
+  private static final String MQTT_TCP_ACCEPTOR = "tcp";
   // Allow 5 min durable session but this will not enable retained topics etc. as we delete queues
   // aggressively for now
   public static final int DEFAULT_SESSION_EXPIRY_MILLIS = 300000;
@@ -192,6 +194,7 @@ public class MQTTBrokerService extends RouteBuilder
             .setHost(host)
             .setPort(port)
             .setParameter("protocols", "MQTT")
+            .setParameter(AUTO_START, "false")
             .setParameter(
                 "allowLinkStealing",
                 "false") // Preventing this ensures previous connection/session is properly cleaned
@@ -200,7 +203,7 @@ public class MQTTBrokerService extends RouteBuilder
                 "defaultMqttSessionExpiryInterval", Integer.toString(DEFAULT_SESSION_EXPIRY_MILLIS))
             .build()
             .toString();
-    serverConfiguration.addAcceptorConfiguration("tcp", serverURI);
+    serverConfiguration.addAcceptorConfiguration(MQTT_TCP_ACCEPTOR, serverURI);
     serverConfiguration.registerBrokerPlugin(this);
     if (container.getMeterRegistry() != null) {
       serverConfiguration.setMetricsConfiguration(
@@ -260,7 +263,7 @@ public class MQTTBrokerService extends RouteBuilder
 
     // TODO: Make auto provisioning clients disconnect and reconnect with credentials or pass
     // through X.509 certificates for auth
-    // Cannot use authentication or authorisation cache as auto provisioning MQTT clients will
+    // Cannot use authentication or authorization cache as auto provisioning MQTT clients will
     // authenticate as anonymous and this is then baked into the created ServerSession and cannot be
     // modified
     // so all anonymous sessions will use the same username/password for key lookups in the caches -
@@ -284,7 +287,7 @@ public class MQTTBrokerService extends RouteBuilder
       } catch (Exception e) {
         LOG.log(
             WARNING,
-            "MQTT custom handler threw an exception whilst initialising: handler="
+            "MQTT custom handler threw an exception while initializing: handler="
                 + handler.getName(),
             e);
         throw e;
@@ -299,7 +302,7 @@ public class MQTTBrokerService extends RouteBuilder
       return;
     }
 
-    // Start the broker
+    // Start the broker and its in-process acceptor so handlers can create internal sessions.
     server = new EmbeddedActiveMQ();
     server.setConfiguration(serverConfiguration);
     securityManager = new ActiveMQORSecurityManager(this, executorService, identityService);
@@ -365,10 +368,32 @@ public class MQTTBrokerService extends RouteBuilder
       } catch (Exception e) {
         LOG.log(
             WARNING,
-            "MQTT custom handler threw an exception whilst starting: handler=" + handler.getName(),
+            "MQTT custom handler threw an exception while starting: handler=" + handler.getName(),
             e);
         throw e;
       }
+    }
+  }
+
+  @Override
+  public void startProducers(Container container) throws Exception {
+    if (active) {
+      for (MQTTHandler handler : customHandlers) {
+        try {
+          handler.startProducers(container);
+        } catch (Exception e) {
+          LOG.log(WARNING, "Failed to start producers for MQTT handler " + handler.getName(), e);
+          throw e;
+        }
+      }
+    }
+  }
+
+  @Override
+  public void startIngress(Container container) throws Exception {
+    if (active) {
+      server.getActiveMQServer().getRemotingService().getAcceptor(MQTT_TCP_ACCEPTOR).start();
+      LOG.log(INFO, "MQTT listener ready on " + host + ":" + port);
     }
   }
 
@@ -439,7 +464,7 @@ public class MQTTBrokerService extends RouteBuilder
               } catch (Exception e) {
                 LOG.log(
                     WARNING,
-                    "MQTT custom handler threw an exception whilst stopping: handler="
+                    "MQTT custom handler threw an exception while stopping: handler="
                         + handler.getName(),
                     e);
               }

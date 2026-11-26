@@ -35,6 +35,7 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.openremote.container.timer.TimerService;
 import org.openremote.manager.asset.AssetProcessingService;
+import org.openremote.manager.asset.AssetProcessingService.AttributeEventProcessorUnavailableException;
 import org.openremote.manager.asset.AssetStorageService;
 import org.openremote.manager.system.VersionInfo;
 import org.openremote.model.asset.*;
@@ -130,11 +131,17 @@ public class GatewayConnector {
       eventConsumerMap.put(AssetEvent.class, (e) -> onAssetEvent((AssetEvent) e));
       eventConsumerMap.put(AttributeEvent.class, (e) -> onAttributeEvent((AttributeEvent) e));
     }
+  }
+
+  AttributeEvent disconnectedStatusEvent() {
     LOG.finest(
-        "Setting connection status=" + ConnectionStatus.DISCONNECTED + ": " + getGatewayIdString());
-    publishAttributeEvent(
-        new AttributeEvent(
-            gatewayId, GatewayAsset.STATUS, ConnectionStatus.DISCONNECTED, timerService.getNow()));
+        () ->
+            "Setting connection status="
+                + ConnectionStatus.DISCONNECTED
+                + ": "
+                + getGatewayIdString());
+    return new AttributeEvent(
+        gatewayId, GatewayAsset.STATUS, ConnectionStatus.DISCONNECTED, timerService.getNow());
   }
 
   protected void sendMessageToGateway(Object message) {
@@ -152,7 +159,7 @@ public class GatewayConnector {
     }
   }
 
-  /** Connection for this gateway has started so initiate synchronisation of assets */
+  /** Connection for this gateway has started so initiate synchronization of assets */
   protected void connected(
       String sessionId, Consumer<Object> gatewayMessageConsumer, Runnable requestDisconnect) {
 
@@ -184,7 +191,7 @@ public class GatewayConnector {
     startSync();
   }
 
-  /** Connection to the edge gateway instance has been disconnected so stop any synchronisation */
+  /** Connection to the edge gateway instance has been disconnected so stop any synchronization */
   protected void disconnected(String sessionId) {
     synchronized (this.sessionId) {
       if (!sessionId.equals(this.sessionId.get())) {
@@ -213,11 +220,15 @@ public class GatewayConnector {
     }
 
     initialSyncInProgress = false;
-    LOG.finest(
-        "Setting connection status=" + ConnectionStatus.DISCONNECTED + ": " + getGatewayIdString());
-    publishAttributeEvent(
-        new AttributeEvent(
-            gatewayId, GatewayAsset.STATUS, ConnectionStatus.DISCONNECTED, timerService.getNow()));
+    try {
+      publishAttributeEvent(disconnectedStatusEvent());
+    } catch (AttributeEventProcessorUnavailableException e) {
+      LOG.fine(
+          () ->
+              "Skipping disconnected status for "
+                  + gatewayId
+                  + " while the attribute processor is unavailable");
+    }
   }
 
   protected void disconnect(GatewayDisconnectEvent.Reason reason) {
@@ -285,7 +296,7 @@ public class GatewayConnector {
                 }
               }
               // Let the gateway know init is complete
-              LOG.info("Gateway fully initialised: " + getGatewayIdString());
+              LOG.info("Gateway fully initialized: " + getGatewayIdString());
 
               sendMessageToGateway(new GatewayInitDoneEvent());
               tunnellingSupported = response != null && response.isTunnelingSupported();
@@ -480,20 +491,21 @@ public class GatewayConnector {
   /**
    * Filter live events by type and cached ownership before dispatch. Asset writes validate
    * persisted ancestry in the transaction that applies the change, including writes during sync.
+   * Every event type added to {@link #eventConsumerMap} must be handled here.
    */
   protected SharedEvent authoriseGatewayEvent(SharedEvent event) {
-    // Gateway capabilities response events are always authorised
+    // Gateway capabilities response events are always authorized
     if (event instanceof GatewayCapabilitiesResponseEvent) {
       return event;
     }
 
-    // Gateway tunnel start/stop response events are always authorised
+    // Gateway tunnel start/stop response events are always authorized
     if (event instanceof GatewayTunnelStartResponseEvent
         || event instanceof GatewayTunnelStopResponseEvent) {
       return event;
     }
 
-    // Only some attribute and asset events are authorised
+    // Only some attribute and asset events are authorized
     if (event instanceof AssetInfo assetInfo) {
 
       // Map the gateway Asset ID to the central instance
@@ -524,7 +536,7 @@ public class GatewayConnector {
     return null;
   }
 
-  /** Get list of gateway assets (get basic details and then batch load them to minimise load) */
+  /** Get list of gateway assets (get basic details and then batch load them to minimize load) */
   protected synchronized void startSync() {
     if (syncAborted()) {
       return;
@@ -607,7 +619,7 @@ public class GatewayConnector {
     expectedSyncResponseName = ASSET_READ_EVENT_NAME_BATCH + syncIndex;
 
     LOG.fine(
-        "Synchronising assets "
+        "Synchronizing assets "
             + (syncIndex + 1)
             + "-"
             + (syncIndex + requestAssetIds.length)

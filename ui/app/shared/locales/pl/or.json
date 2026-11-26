@@ -1505,6 +1505,9 @@
               },
               "writeValueFilters": {
                 "description": "Podobnie jak valueFilter, ale stosowany do wartości wychodzących - umożliwia odwrotne filtrowanie."
+              },
+              "id": {
+                "label": ""
               }
             }
           }
@@ -1530,6 +1533,13 @@
                 "recurrence": {
                   "description": "Harmonogram powtarzania jest zgodny z formatem RFC 5545 RRULE."
                 }
+              }
+            }
+          },
+          "modbus": {
+            "ModbusAgentLink": {
+              "unitId": {
+                "label": ""
               }
             }
           }

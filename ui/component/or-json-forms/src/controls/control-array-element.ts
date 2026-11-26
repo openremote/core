@@ -351,7 +351,7 @@ export class ControlArrayElement extends ControlBaseElement {
     const onParamChanged = (itemInfo: CombinatorInfo) => {
       selectedItemInfo = itemInfo;
       const descElem = dialog.shadowRoot!.getElementById("parameter-desc") as HTMLDivElement;
-      descElem.innerHTML = itemInfo.description || "";
+      descElem.textContent = itemInfo.description || "";
       (dialog.shadowRoot!.getElementById("add-btn") as OrVaadinButton).disabled = false;
     };
 
