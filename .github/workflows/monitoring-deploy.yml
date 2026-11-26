@@ -1,9 +1,13 @@
-# First rollout: staging plans only. No deployment operation is exposed.
-name: Plan staging monitoring
+# Staging only. Deploy requires an explicit manual workflow dispatch.
+name: Staging monitoring
 
 on:
   workflow_call:
     inputs:
+      operation:
+        description: plan (default), or deploy only from an explicit manual dispatch
+        type: string
+        default: plan
       core-revision:
         description: Reviewed full core commit SHA containing the monitoring bundle
         required: true
@@ -21,11 +25,11 @@ on:
         type: string
         default: .ci_cd/monitoring/staging.env
       create-state:
-        description: Plan a first installation with a new owned state volume
+        description: Allow new owned state for an explicitly reviewed first installation
         type: boolean
         default: false
       enable-traces:
-        description: Include the optional trace configuration in planning
+        description: Enable the optional trace configuration
         type: boolean
         default: false
 
@@ -36,15 +40,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  plan:
+  monitoring:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     environment: monitoring-staging
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write
     env:
+      OPERATION: ${{ inputs.operation }}
+      TRIGGER_EVENT: ${{ github.event_name }}
       CORE_REVISION: ${{ inputs.core-revision }}
       EXPECTED_ACCOUNT_ID: ${{ inputs.aws-account-id }}
       COMPOSE_PROJECT: ${{ inputs.compose-project }}
@@ -62,6 +68,11 @@ jobs:
           DOCUMENT_VERSION: ${{ vars.MONITORING_DEPLOY_DOCUMENT_VERSION }}
         run: |
           set -euo pipefail
+          case "$OPERATION" in
+            plan) ;;
+            deploy) test "$TRIGGER_EVENT" = workflow_dispatch || { echo 'Deploy requires manual dispatch'; exit 1; } ;;
+            *) echo 'Choose plan or deploy'; exit 1 ;;
+          esac
           [[ "$CORE_REVISION" =~ ^[0-9a-f]{40}$ ]] || exit 1
           [[ "$EXPECTED_ACCOUNT_ID" =~ ^[0-9]{12}$ ]] || exit 1
           test "$ROLE_ARN" = "arn:aws:iam::$EXPECTED_ACCOUNT_ID:role/monitoring-staging"
@@ -97,7 +108,7 @@ jobs:
           set -euo pipefail
           test "$(git -C project rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(git -C core rev-parse HEAD)" = "$CORE_REVISION"
-          work="$RUNNER_TEMP/monitoring-plan-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          work="$RUNNER_TEMP/monitoring-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           umask 077
           mkdir "$work"
           mkdir -p "$work/input/config"
@@ -129,12 +140,13 @@ jobs:
           aws-region: ${{ vars.MONITORING_AWS_REGION }}
           role-to-assume: ${{ vars.MONITORING_AWS_ROLE_ARN }}
           allowed-account-ids: ${{ inputs.aws-account-id }}
-          role-session-name: monitoring-plan-${{ github.run_id }}
-          role-duration-seconds: 900
+          role-session-name: monitoring-${{ github.run_id }}
+          role-duration-seconds: 1800
           unset-current-credentials: true
           retry-max-attempts: 3
 
-      - name: Upload exact bundle and request plan only
+      - name: Upload exact bundle and request the selected operation
+        timeout-minutes: 24
         shell: bash
         env:
           BUNDLE_PATH: ${{ steps.bundle.outputs.path }}
@@ -152,8 +164,8 @@ jobs:
           jq -e --arg account "$EXPECTED_ACCOUNT_ID" '.Account == $account and
             (.Arn | startswith("arn:aws:sts::" + $account + ":assumed-role/monitoring-staging/"))' \
             <<< "$identity" >/dev/null
-          release_id="plan-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          [[ "$release_id" =~ ^plan-[0-9]+-[0-9]+$ ]] || exit 1
+          release_id="$OPERATION-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          [[ "$release_id" =~ ^(plan|deploy)-[0-9]+-[0-9]+$ ]] || exit 1
           [[ "$BUNDLE_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 1
           bucket="openremote-monitoring-$EXPECTED_ACCOUNT_ID-$AWS_REGION"
           key="staging/releases/$release_id/bundle.tar.gz"
@@ -167,31 +179,45 @@ jobs:
           printf 'Bucket: %s\nKey: %s\nVersion: %s\nSHA256: %s\n' \
             "$bucket" "$key" "$version" "$BUNDLE_SHA256" | tee -a "$GITHUB_STEP_SUMMARY"
           parameters=$(jq -cn --arg release "$release_id" --arg version "$version" --arg sha "$BUNDLE_SHA256" \
-            --arg create "$CREATE_STATE" --arg traces "$ENABLE_TRACES" \
-            '{Action:["plan"],ReleaseId:[$release],VersionId:[$version],SHA256:[$sha],CreateState:[$create],EnableTraces:[$traces]}')
+            --arg create "$CREATE_STATE" --arg traces "$ENABLE_TRACES" --arg action "$OPERATION" \
+            '{Action:[$action],ReleaseId:[$release],VersionId:[$version],SHA256:[$sha],CreateState:[$create],EnableTraces:[$traces]}')
           command_id=$(AWS_MAX_ATTEMPTS=1 aws ssm send-command \
             --document-name "$DOCUMENT_NAME" --document-version "$DOCUMENT_VERSION" \
             --instance-ids "$INSTANCE_ID" --parameters "$parameters" --timeout-seconds 60 \
-            --comment "Monitoring plan only, GitHub run $GITHUB_RUN_ID" \
+            --comment "Monitoring $OPERATION, GitHub run $GITHUB_RUN_ID" \
             --query 'Command.CommandId' --output text \
             --cli-connect-timeout 5 --cli-read-timeout 20)
-          printf 'Command ID: %s; document version: %s; action: plan\n' \
-            "$command_id" "$DOCUMENT_VERSION" | tee -a "$GITHUB_STEP_SUMMARY"
-          if ! aws ssm wait command-executed \
-            --command-id "$command_id" --instance-id "$INSTANCE_ID" --plugin-name monitoringDeploy \
-            --cli-connect-timeout 5 --cli-read-timeout 20; then
-            echo 'Wait did not report success. Inspecting the result; no command will be resent.'
-          fi
-          if ! result=$(aws ssm get-command-invocation \
-            --command-id "$command_id" --instance-id "$INSTANCE_ID" --plugin-name monitoringDeploy \
-            --output json --cli-connect-timeout 5 --cli-read-timeout 20); then
-            echo 'Result unavailable. Inspect the printed command ID in SSM before retrying.'
-            exit 1
-          fi
+          printf 'Command ID: %s; document version: %s; action: %s\n' \
+            "$command_id" "$DOCUMENT_VERSION" "$OPERATION" | tee -a "$GITHUB_STEP_SUMMARY"
+          # Each waiter polls for about 100 seconds. Repeat only observation of the
+          # same command, allowing the document's 1200-second execution budget.
+          result=''
+          for attempt in {1..13}; do
+            if ! aws ssm wait command-executed \
+              --command-id "$command_id" --instance-id "$INSTANCE_ID" --plugin-name monitoringDeploy \
+              --cli-connect-timeout 5 --cli-read-timeout 20; then
+              echo "Wait cycle $attempt did not report success; inspecting the same command."
+            fi
+            if ! result=$(aws ssm get-command-invocation \
+              --command-id "$command_id" --instance-id "$INSTANCE_ID" --plugin-name monitoringDeploy \
+              --output json --cli-connect-timeout 5 --cli-read-timeout 20); then
+              echo 'Result unavailable. Inspect the printed command ID in SSM before retrying.'
+              exit 1
+            fi
+            status=$(jq -er '.Status' <<< "$result")
+            case "$status" in
+              Pending|InProgress|Delayed) ;;
+              *) break ;;
+            esac
+          done
           jq '{Status,ResponseCode,StandardOutputContent,StandardErrorContent}' <<< "$result"
           if ! jq -e '.Status == "Success" and .ResponseCode == 0 and
             (.StandardOutputContent | contains("PASS host action completed; temporary bundle removed"))' <<< "$result" >/dev/null; then
-            echo 'Plan blocked, failed or unfinished. Review the exact error; this is not deployment approval.' | tee -a "$GITHUB_STEP_SUMMARY"
+            echo 'Monitoring operation blocked, failed or unfinished. Inspect the command and host before retrying; no automatic rollback.' | tee -a "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-          echo 'Plan completed. No collector was deployed; central delivery was not checked.' | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$OPERATION" = plan ]; then
+            echo 'Plan completed. No collector was deployed; central delivery was not checked.' | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Deployment completed with local health checks. Verify fresh central telemetry before accepting it.' | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
