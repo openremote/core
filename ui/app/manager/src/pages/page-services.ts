@@ -271,18 +271,10 @@ export class PageServices extends Page<AppStateKeyed> {
         showSnackbar(undefined, i18next.t("service.globalServicesLoadError"));
       }
 
-      // Update the services state if we able to retrieve any
-      if (retrievedServices.length > 0) {
+      // Keep the current services only when both requests failed
+      if (realmServicesRequestHasSucceeded || globalServicesRequestHasSucceeded) {
         this.services = consolidateServices(retrievedServices);
-        this.requestUpdate();
-
-        // Re-select the service if serviceId is set and no service is selected
-        if (this.serviceId && !this.selectedService) {
-          const service = this.services.find((service) => service.serviceId === this.serviceId);
-          if (service) {
-            this.selectedService = service;
-          }
-        }
+        this._updateServiceSelection();
       }
     } catch (error) {
       console.error("Unexpected error loading services:", error);
@@ -312,7 +304,7 @@ export class PageServices extends Page<AppStateKeyed> {
     }
   }
 
-  protected realmSelector = (state: AppStateKeyed) => state.app.realm || manager.config.realm;
+  protected realmSelector = (state: AppStateKeyed) => state.app.realm || manager.displayRealm;
 
   protected _onServiceSelected(e: CustomEvent): void {
     const service = e.detail as ExternalService;
@@ -344,10 +336,7 @@ export class PageServices extends Page<AppStateKeyed> {
 
   protected _updateServiceSelection() {
     if (this.serviceId) {
-      const service = this.services.find((service) => service.serviceId === this.serviceId);
-      if (service) {
-        this.selectedService = service;
-      }
+      this.selectedService = this.services.find((service) => service.serviceId === this.serviceId) ?? null;
     } else {
       this.selectedService = null;
     }
