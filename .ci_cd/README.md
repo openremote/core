@@ -14,8 +14,9 @@ Monitoring uses SSM; the application deployment described below continues to use
 Keep customer environment files and workflow callers in the customer repository.
 Central Grafana/Loki/Prometheus/Tempo provisioning and Kubernetes collector configuration
 remain in the infrastructure repository. Collector regression tests stay beside the
-code they validate. A reusable monitoring workflow is the next integration step;
-these files alone do not enable monitoring in application deployments.
+code they validate. The [reusable staging plan workflow](monitoring/plan-workflow.md)
+checks a proposed installation through SSM; it does not deploy a collector or enable
+monitoring in application deployments.
 
 # `ci_cd.json` File
 

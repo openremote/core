@@ -8,7 +8,8 @@ Application logging to CloudWatch and existing application-metric scrapes contin
 The [host deployment script](deployment.md) adds mount/ownership checks, direct
 Secrets Manager retrieval, Compose deployment and explicit rollback. Local tests and
 the disposable staging Docker lifecycle check have passed. The [SSM deployment document](../aws/monitoring/deployment.md) packages this entry
-point for remote execution; reusable workflow integration remains pending. Review the staging cutover together before replacing a live collector.
+point for remote execution. The [reusable staging plan workflow](plan-workflow.md)
+checks a proposed installation; deployment workflow integration remains pending. Review the staging cutover together before replacing a live collector.
 
 ## Files and settings
 
