@@ -51,26 +51,6 @@ public class ApplicationVersionService implements ContainerService {
   public void stop(Container container) {}
 
   /**
-   * Returns the first recorded activation of a normalized version, ignoring any build suffixes. The
-   * timestamp is stored in {@code updated_on} and is never refreshed on reactivation.
-   */
-  public Optional<Instant> getFirstActivation(String applicationVersion) {
-    String version = VersionUtil.normalizeVersion(applicationVersion);
-    return persistenceService.doReturningTransaction(
-        em -> {
-          List<?> timestamps =
-              em.createNativeQuery(
-                      "SELECT updated_on FROM application_version WHERE version = :version",
-                      Instant.class)
-                  .setParameter("version", version)
-                  .getResultList();
-          return timestamps.isEmpty()
-              ? Optional.empty()
-              : Optional.of((Instant) timestamps.getFirst());
-        });
-  }
-
-  /**
    * Returns when this installation first ran the given version or a later version. This also
    * supports installations that skipped the requested release. Versions are compared numerically;
    * qualifiers and build metadata are ignored. Empty means no qualifying activation was recorded.
@@ -94,16 +74,19 @@ public class ApplicationVersionService implements ContainerService {
 
   protected void recordApplicationVersion(String applicationVersion) {
     String version = VersionUtil.normalizeVersion(applicationVersion);
+    // Use the same application clock as Hibernate's asset creation timestamps.
+    Instant activatedOn = Instant.now();
     // Atomic insert preserves the first timestamp across concurrent startups.
     persistenceService.doTransaction(
         em ->
             em.createNativeQuery(
                     """
-        INSERT INTO application_version (version, updated_on)
-        VALUES (:version, clock_timestamp())
-        ON CONFLICT (version) DO NOTHING
-        """)
+                    INSERT INTO application_version (version, updated_on)
+                    VALUES (:version, :activatedOn)
+                    ON CONFLICT (version) DO NOTHING
+                    """)
                 .setParameter("version", version)
+                .setParameter("activatedOn", activatedOn)
                 .executeUpdate());
   }
 }

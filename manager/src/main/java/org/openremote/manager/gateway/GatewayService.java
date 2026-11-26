@@ -27,6 +27,7 @@ import static org.openremote.model.util.MapAccess.getInteger;
 import static org.openremote.model.util.MapAccess.getString;
 
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
@@ -52,6 +53,7 @@ import org.openremote.manager.rules.RulesetStorageService;
 import org.openremote.manager.security.ManagerIdentityService;
 import org.openremote.manager.security.ManagerKeycloakIdentityProvider;
 import org.openremote.manager.system.ApplicationVersionService;
+import org.openremote.manager.system.VersionInfo;
 import org.openremote.manager.web.ManagerWebService;
 import org.openremote.model.Container;
 import org.openremote.model.ContainerService;
@@ -86,7 +88,7 @@ public class GatewayService extends RouteBuilder implements ContainerService {
 
   // Need a high priority so that event authorizer can get the events before other authorizers
   public static final int PRIORITY = HIGH_PRIORITY + 100;
-  public static final String ASSET_ID_MAPPING_V2_VERSION = "1.35.0";
+  public static final String ASSET_ID_MAPPING_V2_VERSION = "1.36.0";
   public static final String GATEWAY_CLIENT_ID_PREFIX = "gateway-";
   public static final String OR_GATEWAY_TUNNEL_SSH_KEY_FILE = "OR_GATEWAY_TUNNEL_SSH_KEY_FILE";
   private static final Logger LOG =
@@ -251,7 +253,13 @@ public class GatewayService extends RouteBuilder implements ContainerService {
     return applicationVersionService
         .getFirstActivationAtOrAfter(ASSET_ID_MAPPING_V2_VERSION)
         .orElseThrow(
-            () -> new IllegalStateException("No activation recorded for gateway mapping V2"));
+            () ->
+                new IllegalStateException(
+                    "No activation recorded for gateway mapping V2 (requires "
+                        + ASSET_ID_MAPPING_V2_VERSION
+                        + " or later, running "
+                        + VersionInfo.getManagerVersion()
+                        + "). For source builds, fetch the release tags and rebuild."));
   }
 
   @Override
@@ -447,10 +455,11 @@ public class GatewayService extends RouteBuilder implements ContainerService {
 
     // The authenticated connector's identity survives queuing until this transaction.
     if (event.getSource() != null
-        && event.getSource().startsWith(GatewayConnector.EVENT_SOURCE + ":")) {
-      String gatewayId = event.getSource().substring(GatewayConnector.EVENT_SOURCE.length() + 1);
-      Asset<?> asset =
-          em.find(Asset.class, event.getId(), jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+        && event.getSource().startsWith(GatewayConnector.REMOTE_EVENT_SOURCE_PREFIX)) {
+      String gatewayId =
+          event.getSource().substring(GatewayConnector.REMOTE_EVENT_SOURCE_PREFIX.length());
+      // Asset processing already acquired the write lock in this transaction.
+      Asset<?> asset = em.find(Asset.class, event.getId());
       assetStorageService.requireGatewayOwnership(em, asset, gatewayId, false);
       event.getMeta().remove(MetaItemType.AGENT_LINK);
       return false;
@@ -490,7 +499,7 @@ public class GatewayService extends RouteBuilder implements ContainerService {
                   + ")");
           // Push value into asset for service user method
           gatewayAsset.setDisabled(disabled);
-          createUpdateGatewayServiceUser(gatewayAsset);
+          createUpdateGatewayServiceUser(gatewayAsset, em);
           connector.setDisabled(disabled);
         }
       } else if (GatewayAsset.CLIENT_SECRET.getName().equals(event.getName())) {
@@ -578,8 +587,8 @@ public class GatewayService extends RouteBuilder implements ContainerService {
               + ", gatewayId="
               + gatewayId
               + ")");
-      Asset<?> persisted =
-          em.find(Asset.class, event.getId(), jakarta.persistence.LockModeType.PESSIMISTIC_READ);
+      Asset<?> persisted = em.find(Asset.class, event.getId());
+      em.refresh(persisted, LockModeType.PESSIMISTIC_READ);
       assetStorageService.requireGatewayOwnership(em, persisted, gatewayId, false);
       connector.sendMessageToGateway(
           new AttributeEvent(
@@ -1005,7 +1014,10 @@ public class GatewayService extends RouteBuilder implements ContainerService {
   }
 
   protected void createUpdateGatewayServiceUser(GatewayAsset gateway) {
+    createUpdateGatewayServiceUser(gateway, null);
+  }
 
+  private void createUpdateGatewayServiceUser(GatewayAsset gateway, EntityManager em) {
     LOG.info("Creating/updating gateway service user for gateway id: " + gateway.getId());
     String clientId = getGatewayClientId(gateway.getId());
     String secret = gateway.getClientSecret().orElseGet(() -> UUID.randomUUID().toString());
@@ -1045,9 +1057,19 @@ public class GatewayService extends RouteBuilder implements ContainerService {
 
       if (!clientId.equals(gateway.getClientId().orElse(null))
           || !secret.equals(gateway.getClientSecret().orElse(null))) {
-        gateway.setClientId(clientId);
-        gateway.setClientSecret(secret);
-        assetStorageService.merge(gateway);
+        if (em == null) {
+          gateway.setClientId(clientId);
+          gateway.setClientSecret(secret);
+          assetStorageService.merge(gateway);
+        } else {
+          // Attribute processing already holds the per-asset lock. Persist credential repairs in
+          // the same transaction so they cannot wait on that lock or overwrite the attribute write.
+          GatewayAsset persisted = em.find(GatewayAsset.class, gateway.getId());
+          em.refresh(persisted, LockModeType.PESSIMISTIC_WRITE);
+          persisted.setClientId(clientId);
+          persisted.setClientSecret(secret);
+          em.flush();
+        }
       }
 
       try {

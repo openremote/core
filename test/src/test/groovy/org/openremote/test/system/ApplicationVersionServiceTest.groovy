@@ -25,6 +25,7 @@ import org.openremote.model.util.VersionUtil
 import org.openremote.test.ManagerContainerTrait
 import spock.lang.Specification
 
+import java.time.Instant
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -56,13 +57,13 @@ class ApplicationVersionServiceTest extends Specification implements ManagerCont
     }
     versions.recordApplicationVersion("1.0.0")
     def first = rows()
-    def firstActivation = versions.getFirstActivation("1.0.0").orElseThrow()
+    def firstActivation = activation(persistence, "1.0.0").orElseThrow()
     versions.recordApplicationVersion("1.0.0")
 
     then:
     rows() == first
     first.keySet() == ["1.0.0"] as Set
-    versions.getFirstActivation("1.0.0").orElseThrow() == firstActivation
+    activation(persistence, "1.0.0").orElseThrow() == firstActivation
 
     when:
     versions.recordApplicationVersion("1.1.0")
@@ -79,7 +80,7 @@ class ApplicationVersionServiceTest extends Specification implements ManagerCont
     then: "rollback preserves the original activation"
     rows() == upgraded
     rows().size() == 2
-    versions.getFirstActivation("1.0.0").orElseThrow() == firstActivation
+    activation(persistence, "1.0.0").orElseThrow() == firstActivation
 
     when:
     ["1.2.0-SNAPSHOT", "1.2.0-SNAPSHOT", "1.2.0-M1", "1.2.0-RC1", "1.2.0-beta.2", "1.2.0+build.1"].each { version ->
@@ -113,7 +114,7 @@ class ApplicationVersionServiceTest extends Specification implements ManagerCont
     }
 
     expect:
-    versions.getFirstActivation("1.34.0").empty
+    activation(persistence, "1.34.0").empty
     versions.getFirstActivationAtOrAfter("1.34.0").empty
 
     when: "an earlier release does not satisfy a numerically higher release query"
@@ -124,7 +125,7 @@ class ApplicationVersionServiceTest extends Specification implements ManagerCont
 
     when: "this installation upgrades directly to a later development release"
     versions.recordApplicationVersion("1.40.0-SNAPSHOT")
-    def cutoff = versions.getFirstActivation("1.40.0").orElseThrow()
+    def cutoff = activation(persistence, "1.40.0").orElseThrow()
     versions.recordApplicationVersion("1.40.0-SNAPSHOT")
     versions.recordApplicationVersion("1.34.0-M1")
     versions.recordApplicationVersion("1.34.0")
@@ -132,10 +133,10 @@ class ApplicationVersionServiceTest extends Specification implements ManagerCont
 
     then: "the earliest qualifying activation remains fixed across restarts and rollbacks"
     versions.getFirstActivationAtOrAfter("1.34.0-RC1+build.2").orElseThrow() == cutoff
-    versions.getFirstActivation("1.40.0-beta.2").orElseThrow() == cutoff
-    versions.getFirstActivation("1.34.0").orElseThrow() > cutoff
+    activation(persistence, "1.40.0-beta.2").orElseThrow() == cutoff
+    activation(persistence, "1.34.0").orElseThrow() > cutoff
     versions.getFirstActivationAtOrAfter("2.0.0").empty
-    versions.getFirstActivation("1.9.0").present
+    activation(persistence, "1.9.0").present
 
     when: "another service lifecycle restart records the running version"
     versions.stop(container)
@@ -163,7 +164,7 @@ class ApplicationVersionServiceTest extends Specification implements ManagerCont
       executor.submit({
         ->
         versions.recordApplicationVersion(version)
-        versions.getFirstActivation("2.0.0").orElseThrow()
+        activation(persistence, "2.0.0").orElseThrow()
       } as Callable)
     }
     def activations = startups.collect { it.get(10, TimeUnit.SECONDS) }
@@ -176,6 +177,13 @@ class ApplicationVersionServiceTest extends Specification implements ManagerCont
     executor?.shutdownNow()
     executor?.awaitTermination(10, TimeUnit.SECONDS)
     restoreHistory(persistence, savedRows)
+  }
+
+  private Optional<Instant> activation(PersistenceService persistence, String version) {
+    persistence.doReturningTransaction { em ->
+      em.createNativeQuery("SELECT updated_on FROM application_version WHERE version = :version", Instant)
+              .setParameter("version", VersionUtil.normalizeVersion(version)).resultList.stream().findFirst()
+    }
   }
 
   private List snapshotHistory(PersistenceService persistence) {

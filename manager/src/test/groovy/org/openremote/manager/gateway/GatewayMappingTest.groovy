@@ -30,6 +30,7 @@ import org.openremote.model.asset.impl.ThingAsset
 import org.openremote.model.attribute.AttributeEvent
 import org.openremote.model.gateway.GatewayDisconnectEvent
 import org.openremote.model.util.UniqueIdentifierGenerator
+import org.openremote.model.util.ValueUtil
 import spock.lang.Specification
 
 import java.time.Instant
@@ -39,7 +40,7 @@ import java.util.concurrent.ScheduledFuture
 
 class GatewayMappingTest extends Specification {
   def setupSpec() {
-    org.openremote.model.util.ValueUtil.initialise(null)
+    ValueUtil.initialise(null)
   }
 
   static final String GATEWAY = "4H1sjYjbYMnvQRsJnkmcrs"
@@ -164,6 +165,28 @@ class GatewayMappingTest extends Specification {
     secondConnector?.disconnected("session")
   }
 
+  def "a legacy initial inventory without assets completes synchronization"() {
+    given:
+    def storage = Mock(AssetStorageService)
+    def gateway = new GatewayAsset("Test").setId(GATEWAY).setRealm("test")
+    def connector = connector(gateway, storage)
+    def inventory = ValueUtil.JSON.readValue(
+            '{"eventType":"assets","timestamp":0,"messageID":"INITIAL"}', AssetsEvent)
+
+    when:
+    connector.connected("legacy", {}, {})
+    connector.onGatewayEvent(inventory)
+
+    then:
+    1 * storage.findAll(_) >> []
+    0 * storage.deleteGatewayAssets(_, _)
+    connector.connected
+    !connector.initialSyncInProgress
+
+    cleanup:
+    connector?.disconnected("legacy")
+  }
+
   def "invalid inventory never triggers cleanup"() {
     given:
     def storage = Mock(AssetStorageService)
@@ -185,7 +208,6 @@ class GatewayMappingTest extends Specification {
 
     where:
     inventory << [
-      null,
       [new ThingAsset("Invalid").setId("bad")],
       [new ThingAsset("Duplicate").setId(EDGE), new ThingAsset("Duplicate").setId(EDGE)],
       [new ThingAsset("Cycle").setId(EDGE).setParentId(EDGE)],

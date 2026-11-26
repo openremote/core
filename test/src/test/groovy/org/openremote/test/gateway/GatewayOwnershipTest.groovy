@@ -37,6 +37,7 @@ import org.openremote.model.value.ValueType
 import org.openremote.setup.integration.ManagerTestSetup
 import org.openremote.test.ManagerContainerTrait
 import spock.lang.Specification
+import spock.lang.Timeout
 import spock.util.concurrent.PollingConditions
 
 import static org.openremote.manager.gateway.GatewayService.ASSET_ID_MAPPING_V2_VERSION
@@ -125,6 +126,91 @@ class GatewayOwnershipTest extends Specification implements ManagerContainerTrai
     child.id == GatewayConnector.mapAssetId(gateway.id, "b" * 22, false, 1)
     gateways.gatewayConnectorMap[gateway.id.toLowerCase(Locale.ROOT)].mapAssetId("b" * 22, false) == child.id
     !gateway.attributes.has("assetIdMappingVersion")
+  }
+
+  def "gateway deletions accept absent and pending targets while checking persisted ownership"() {
+    given:
+    def storage = container.getService(AssetStorageService)
+    def persistence = container.getService(PersistenceService)
+    def gateways = container.getService(GatewayService)
+    def realm = container.getService(SetupService).getTaskOfType(ManagerTestSetup).realmBuildingName
+    def owner = storage.merge(new GatewayAsset("Delete owner").setRealm(realm))
+    def other = storage.merge(new GatewayAsset("Other gateway").setRealm(realm))
+    def conditions = new PollingConditions(timeout: 15)
+    conditions.eventually {
+      assert gateways.isLocallyRegisteredGateway(owner.id)
+      assert gateways.isLocallyRegisteredGateway(other.id)
+    }
+    def parent = storage.merge(new ThingAsset("Parent").setId(UniqueIdentifierGenerator.generateId())
+            .setParentId(owner.id).setRealm(realm), true, owner, null)
+    def child = storage.merge(new ThingAsset("Child").setId(UniqueIdentifierGenerator.generateId())
+            .setParentId(parent.id).setRealm(realm), true, owner, null)
+    def setPending = { boolean pending ->
+      persistence.doTransaction { em ->
+        em.createNativeQuery("UPDATE asset SET delete_pending = :pending WHERE id = :id")
+                .setParameter("pending", pending).setParameter("id", child.id).executeUpdate()
+      }
+    }
+    setPending(true)
+
+    expect:
+    storage.deleteGatewayAssets([child.id], owner.id)
+    !storage.deleteGatewayAssets([child.id], other.id)
+
+    when:
+    setPending(false)
+
+    then:
+    !storage.deleteGatewayAssets([parent.id], owner.id)
+    storage.deleteGatewayAssets([parent.id, child.id], owner.id)
+    conditions.eventually {
+      assert persistence.doReturningTransaction { em ->
+        em.find(ThingAsset, child.id) == null && em.find(ThingAsset, parent.id) == null
+      }
+    }
+    storage.deleteGatewayAssets([parent.id, child.id], owner.id)
+
+    cleanup:
+    if (owner != null && gateways.isLocallyRegisteredGateway(owner.id)) {
+      gateways.deleteGatewayUntilFinished(owner.id).completion().join()
+    }
+    if (other != null && gateways.isLocallyRegisteredGateway(other.id)) {
+      gateways.deleteGatewayUntilFinished(other.id).completion().join()
+    }
+  }
+
+  @Timeout(30)
+  def "disabling a gateway repairs missing credentials within the attribute transaction"() {
+    given:
+    def storage = container.getService(AssetStorageService)
+    def persistence = container.getService(PersistenceService)
+    def gateways = container.getService(GatewayService)
+    def realm = container.getService(SetupService).getTaskOfType(ManagerTestSetup).realmBuildingName
+    def gateway = storage.merge(new GatewayAsset("Credential repair").setRealm(realm).setDisabled(false))
+    new PollingConditions(timeout: 15).eventually {
+      assert gateways.isLocallyRegisteredGateway(gateway.id)
+      assert (storage.find(gateway.id, true) as GatewayAsset).clientSecret.present
+    }
+    persistence.doTransaction { em ->
+      em.createNativeQuery("UPDATE asset SET attributes = attributes - :attribute WHERE id = :id")
+              .setParameter("attribute", GatewayAsset.CLIENT_SECRET.name)
+              .setParameter("id", gateway.id).executeUpdate()
+    }
+
+    when:
+    container.getService(AssetProcessingService).sendAttributeEventAndWait(
+            new AttributeEvent(gateway.id, GatewayAsset.DISABLED, true), null)
+
+    then:
+    with(storage.find(gateway.id, true) as GatewayAsset) {
+      disabled.orElse(false)
+      clientSecret.present
+    }
+
+    cleanup:
+    if (gateway != null && gateways.isLocallyRegisteredGateway(gateway.id)) {
+      gateways.deleteGatewayUntilFinished(gateway.id).completion().join()
+    }
   }
 
   def "gateway cannot overwrite, move, delete or write another owner's asset (V#otherVersion, #replacementType.simpleName)"() {

@@ -55,6 +55,7 @@ public class GatewayConnector {
   private static final Logger LOG =
       SyslogCategory.getLogger(GATEWAY, GatewayConnector.class.getName());
   public static final String EVENT_SOURCE = GatewayService.class.getSimpleName();
+  public static final String REMOTE_EVENT_SOURCE_PREFIX = EVENT_SOURCE + ":";
   public static int MAX_SYNC_RETRIES = 5;
   public static int SYNC_ASSET_BATCH_SIZE = 20;
   public static final String ASSET_READ_EVENT_NAME_INITIAL = "INITIAL";
@@ -658,16 +659,15 @@ public class GatewayConnector {
     boolean isInitialResponse = ASSET_READ_EVENT_NAME_INITIAL.equalsIgnoreCase(messageId);
 
     if (isInitialResponse) {
-      if (e.getAssets() == null) {
-        throw new IllegalStateException("Missing gateway sync inventory");
-      }
+      // Released edge versions omit the assets field for an empty initial inventory.
+      List<Asset<?>> inventory = e.getAssets() == null ? List.of() : e.getAssets();
 
       // Put assets in hierarchical order
       Map<String, String> gatewayAssetIdParentIdMap =
-          e.getAssets().stream()
+          inventory.stream()
               .collect(HashMap::new, (m, v) -> m.put(v.getId(), v.getParentId()), HashMap::putAll);
 
-      if (gatewayAssetIdParentIdMap.size() != e.getAssets().size()) {
+      if (gatewayAssetIdParentIdMap.size() != inventory.size()) {
         throw new IllegalStateException("Duplicate gateway asset IDs in sync inventory");
       }
       gatewayAssetIdParentIdMap.forEach(
@@ -696,9 +696,9 @@ public class GatewayConnector {
 
       // Validate every chain, including single-asset inventories where sorting needs no
       // comparisons.
-      e.getAssets().forEach(assetLevelExtractor::applyAsInt);
+      inventory.forEach(assetLevelExtractor::applyAsInt);
       syncAssetIds =
-          e.getAssets().stream()
+          inventory.stream()
               .sorted(Comparator.comparingInt(assetLevelExtractor))
               .map(Asset::getId)
               .collect(Collectors.toList());
@@ -877,7 +877,7 @@ public class GatewayConnector {
     assetProcessingService.sendAttributeEvent(
         new AttributeEvent(
             mapAssetId(e.getId(), false), e.getName(), e.getValue().orElse(null), e.getTimestamp()),
-        EVENT_SOURCE + ":" + gatewayId);
+        REMOTE_EVENT_SOURCE_PREFIX + gatewayId);
   }
 
   protected <T extends Asset<?>> T saveAssetLocally(T asset) {
@@ -893,7 +893,18 @@ public class GatewayConnector {
             + asset.getId()
             + ": "
             + getGatewayIdString());
-    return assetStorageService.merge(asset, true, gatewayAsset, null);
+    try {
+      return assetStorageService.merge(asset, true, gatewayAsset, null);
+    } catch (AssetStorageService.GatewayAssetOwnershipException e) {
+      if (assetIdMappingVersion == 1) {
+        LOG.warning(
+            "Legacy gateway asset IDs can collide. If this is a collision, re-register the affected"
+                + " gateway to use V2 IDs. Export any required central asset history before"
+                + " removing the old registration: "
+                + getGatewayIdString());
+      }
+      throw e;
+    }
   }
 
   protected boolean deleteAssetsLocally(List<String> assetIds) {
@@ -942,7 +953,7 @@ public class GatewayConnector {
   }
 
   private static void validateAssetId(String id) {
-    if (id == null || !id.matches(org.openremote.model.Constants.ASSET_ID_REGEXP)) {
+    if (id == null || !Asset.matchesAssetIdPattern(id)) {
       throw new IllegalArgumentException("Invalid gateway asset ID: " + id);
     }
   }

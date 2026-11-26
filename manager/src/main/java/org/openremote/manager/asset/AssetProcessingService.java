@@ -44,6 +44,7 @@ import org.openremote.manager.datapoint.AssetDatapointService;
 import org.openremote.manager.event.AttributeEventInterceptor;
 import org.openremote.manager.event.ClientEventService;
 import org.openremote.manager.event.EventSubscriptionAuthorizer;
+import org.openremote.manager.gateway.GatewayConnector;
 import org.openremote.manager.gateway.GatewayService;
 import org.openremote.manager.rules.RulesService;
 import org.openremote.manager.security.ManagerIdentityService;
@@ -471,11 +472,16 @@ public class AssetProcessingService extends RouteBuilder implements ContainerSer
           Event result =
               persistenceService.doReturningTransaction(
                   em -> {
-                    // Hold the database row lock through ownership checks and the attribute write
-                    // so a concurrent move or deletion cannot invalidate gateway authorization.
+                    // Hold the row lock for inbound gateway writes through the ancestry check
+                    // and update. Ordinary writes acquire a database lock when they update the row.
+                    String source = event.getSource();
+                    LockModeType lockMode =
+                        source != null
+                                && source.startsWith(GatewayConnector.REMOTE_EVENT_SOURCE_PREFIX)
+                            ? LockModeType.PESSIMISTIC_WRITE
+                            : LockModeType.NONE;
                     // TODO: Retrieve optimized DTO rather than whole asset
-                    Asset<?> asset =
-                        em.find(Asset.class, event.getId(), LockModeType.PESSIMISTIC_WRITE);
+                    Asset<?> asset = em.find(Asset.class, event.getId(), lockMode);
 
                     // Treat pending deletion as missing so queued events cannot modify the asset.
                     if (asset == null || asset.isDeletePending()) {
