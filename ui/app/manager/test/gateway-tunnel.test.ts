@@ -17,7 +17,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 import { expect } from "@openremote/test";
-import type { AssetQuery } from "@openremote/model";
+import { type AssetQuery, ClientRole } from "@openremote/model";
 import { getAssetAt } from "./fixtures/data/assets";
 import { gatewayAsset, gatewayTunnels, unavailableGatewayId } from "./fixtures/data/gateway-tunnels";
 import { adminStatePath, test } from "./fixtures/manager";
@@ -76,4 +76,37 @@ test("should link tunnels to their gateway assets by name", async ({ page, manag
   await link.click();
   await expect(page).toHaveURL(new RegExp(`#/assets/false/${gatewayAsset.id}$`));
   await expect(assetViewer.getHeaderLocator(gatewayAsset.name)).toBeVisible();
+});
+
+test.describe("Asset read access", () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  /**
+   * @given A user with read:tunnels and no asset read permission
+   * @when The Gateway tunnels page opens
+   * @then The gateway ID appears as plain text and no gateway asset lookup is made
+   */
+  test("should show plain gateway IDs for a user without asset read access", async ({ page, manager }) => {
+    await manager.provisionUserAndLogin("master", {
+      username: "e2e-tunnel-viewer",
+      roles: [ClientRole.READ_TUNNELS],
+    });
+    await page.route("**/api/master/gateway/tunnel/master", (route) => route.fulfill({ json: gatewayTunnels }));
+
+    const gatewayQueries: AssetQuery[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "POST" && new URL(request.url()).pathname === "/api/master/asset/query") {
+        const query: AssetQuery = request.postDataJSON();
+        if (query.ids?.includes(gatewayAsset.id)) gatewayQueries.push(query);
+      }
+    });
+    await page.goto(manager.getAppUrl("master") + "#/gateway-tunnel");
+
+    const table = page.locator("page-gateway-tunnel").getByRole("table");
+    const gatewayCells = table.getByRole("cell", { name: gatewayAsset.id, exact: true });
+    await expect(gatewayCells).toHaveCount(2);
+    // The page used to query assets without permission and still link each gateway ID after the 403.
+    expect(gatewayQueries).toHaveLength(0);
+    await expect(table.getByRole("link")).toHaveCount(0);
+  });
 });

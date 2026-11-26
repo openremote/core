@@ -25,7 +25,13 @@ import { Task } from "@lit/task";
 import type { Store } from "@reduxjs/toolkit";
 import { i18next } from "@openremote/or-translate";
 import { DefaultColor3, DefaultColor4, manager } from "@openremote/core";
-import { type Asset, type AssetQuery, type GatewayTunnelInfo, GatewayTunnelInfoType } from "@openremote/model";
+import {
+  type Asset,
+  type AssetQuery,
+  ClientRole,
+  type GatewayTunnelInfo,
+  GatewayTunnelInfoType,
+} from "@openremote/model";
 import type { SortableTableTemplate, TableColumn, TableRow } from "@openremote/or-mwc-components/or-mwc-table";
 import { getAssetsRoute } from "../routes";
 import { type OrVaadinDialog, showDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
@@ -201,11 +207,16 @@ export class PageGatewayTunnel extends Page<AppStateKeyed> {
     return html` <or-mwc-table .columns="${columns}" .rows="${rows}"> </or-mwc-table> `;
   }
 
+  protected get _canReadAssets(): boolean {
+    return manager.isSuperUser() || manager.hasRole(ClientRole.READ_ASSETS);
+  }
+
   protected _getTunnelGatewayTemplate(
     gatewayId: string | undefined,
     gatewayNames: ReadonlyMap<string, string>
   ): SortableTableTemplate | string {
     if (!gatewayId) return "";
+    if (!this._canReadAssets) return gatewayId;
 
     const name = gatewayNames.get(gatewayId) || gatewayId;
     return {
@@ -513,8 +524,10 @@ export class PageGatewayTunnel extends Page<AppStateKeyed> {
     realm: string,
     signal: AbortSignal
   ): Promise<Map<string, string>> {
-    const ids = [...new Set(tunnels.map((tunnel) => tunnel.gatewayId).filter((id): id is string => !!id))];
     const names = new Map<string, string>();
+    if (!this._canReadAssets) return names;
+
+    const ids = [...new Set(tunnels.map((tunnel) => tunnel.gatewayId).filter((id): id is string => !!id))];
     if (ids.length === 0) return names;
 
     try {
