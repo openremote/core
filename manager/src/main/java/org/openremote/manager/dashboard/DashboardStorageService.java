@@ -299,7 +299,7 @@ public class DashboardStorageService extends RouteBuilder implements ContainerSe
     if (dashboard == null) {
       throw new IllegalArgumentException("No dashboard is specified.");
     }
-    if (!TextUtil.isNullOrEmpty(dashboard.getId())) {
+    if (dashboard.getId() != null) {
       throw new IllegalArgumentException(
           "A new dashboard cannot contain an identifier; they are assigned by the server.");
     }
