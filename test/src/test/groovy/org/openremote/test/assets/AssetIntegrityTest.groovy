@@ -52,6 +52,28 @@ import static org.openremote.model.Constants.*
 
 class AssetIntegrityTest extends Specification implements ManagerContainerTrait {
 
+  def "creating assets from a reused template returns independent persisted instances"() {
+    given:
+    startContainer(defaultConfig(), defaultServices())
+    def storage = container.getService(AssetStorageService)
+    def template = new ThingAsset("First").setRealm(MASTER_REALM)
+
+    when:
+    def first = storage.merge(template)
+    def firstId = first.id
+    template.setId(null).setName("Second")
+    def second = storage.merge(template)
+
+    then:
+    !first.is(template)
+    !second.is(template)
+    first.id == firstId
+    first.id != second.id
+    first.name == "First"
+    storage.find(first.id, true).name == "First"
+    storage.find(second.id, true).name == "Second"
+  }
+
   def "Test asset changes as superuser"() {
     given: "the server container is started"
     def container = startContainer(defaultConfig(), defaultServices())

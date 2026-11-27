@@ -32,6 +32,7 @@ import static org.openremote.model.value.MetaItemType.ACCESS_PUBLIC_READ;
 import static org.openremote.model.value.MetaItemType.ACCESS_RESTRICTED_READ;
 
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import jakarta.persistence.TypedQuery;
@@ -700,19 +701,23 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
   }
 
   /**
-   * Merge the requested {@link Asset} checking that it meets all constraint requirements before
-   * doing so; the timestamp of each {@link Attribute} will also be updated to the current system
-   * time if it has changed to assist with {@link Attribute} equality (see {@link
-   * Attribute#equals}).
+   * Creates or updates an asset. Missing attribute timestamps are filled in, and changed attributes
+   * on existing assets receive a newer timestamp when necessary. Gateway writes verify persisted
+   * ownership of an existing asset and its requested parent within the write transaction. Callers
+   * are responsible for enforcing realm authorization.
    *
-   * @param overrideVersion If <code>true</code>, the merge will override the data in the database,
-   *     independent of version.
-   * @param requestingGatewayAsset If set this is the {@link GatewayAsset} merging the asset so skip
-   *     standard checks
-   * @param userName the user which this asset needs to be assigned to.
-   * @return The current stored asset state.
-   * @throws IllegalArgumentException if the realm or parent is illegal, or other asset constraint
-   *     is violated.
+   * @param <T> the asset type
+   * @param asset the asset to create or update, with central IDs for gateway writes
+   * @param overrideVersion whether to use the current stored version instead of the supplied
+   *     version
+   * @param requestingGatewayAsset the authenticated gateway asset for a gateway write, or {@code
+   *     null} for an ordinary write
+   * @param userName the username to link to the asset in its realm, or {@code null} or empty to
+   *     skip linking
+   * @return the stored asset
+   * @throws IllegalStateException if the realm, parent, asset state, or gateway ownership is
+   *     invalid
+   * @throws ConstraintViolationException if the asset fails standard constraint validation
    */
   @SuppressWarnings("unchecked")
   public <T extends Asset<?>> T merge(
@@ -731,8 +736,8 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
     // Ensure delete pending flag is not set for merges
     asset.setDeletePending(false);
 
-    // We skip all standard checks as asset is coming from a gateway and would be validated from
-    // there
+    // Descendant types can differ between the edge and central managers. Validate gateway
+    // ownership inside the write transaction.
     if (requestingGatewayAsset != null) {
       if (asset.getId() == null || asset.getParentId() == null || asset.getRealm() == null) {
         String msg =
@@ -785,7 +790,38 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
                   T existingAsset =
                       TextUtil.isNullOrEmpty(asset.getId())
                           ? null
-                          : (T) em.find(Asset.class, asset.getId());
+                          : (T) em.find(Asset.class, asset.getId(), LockModeType.PESSIMISTIC_WRITE);
+
+                  boolean parentChanged =
+                      asset.getParentId() != null
+                          && (existingAsset == null
+                              || !asset.getParentId().equals(existingAsset.getParentId()));
+                  Asset<?> gatewayParent = null;
+                  if (requestingGatewayAsset != null) {
+                    String gatewayId = requestingGatewayAsset.getId();
+                    if (existingAsset != null) {
+                      requireGatewayOwnership(em, existingAsset, gatewayId, false);
+                    }
+                    gatewayParent =
+                        em.find(Asset.class, asset.getParentId(), LockModeType.PESSIMISTIC_READ);
+                    if (gatewayParent == null) {
+                      throw new IllegalStateException(
+                          "Gateway asset parent not found: gatewayId="
+                              + gatewayId
+                              + ", assetId="
+                              + asset.getId()
+                              + ", parentId="
+                              + asset.getParentId());
+                    }
+                    // The existing asset's ancestry check already locks and validates an
+                    // unchanged parent.
+                    if (parentChanged) {
+                      requireGatewayOwnership(em, gatewayParent, gatewayId, true);
+                    }
+                    if (!gatewayParent.getRealm().equals(asset.getRealm())) {
+                      throw new IllegalStateException("Gateway asset realm mismatch");
+                    }
+                  }
 
                   if (existingAsset != null) {
 
@@ -859,12 +895,9 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
                   }
 
                   // Validate parent only if asset is new or parent has changed
-                  if ((existingAsset == null && asset.getParentId() != null)
-                      || (existingAsset != null
-                          && asset.getParentId() != null
-                          && !asset.getParentId().equals(existingAsset.getParentId()))) {
-
-                    Asset<?> parent = find(em, asset.getParentId(), true);
+                  if (parentChanged) {
+                    Asset<?> parent =
+                        gatewayParent != null ? gatewayParent : find(em, asset.getParentId(), true);
 
                     // The parent must exist
                     if (parent == null || parent.isDeletePending()) {
@@ -999,6 +1032,11 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
                     existingAsset.setParentId(asset.getParentId());
                     existingAsset.setAccessPublicRead(asset.isAccessPublicRead());
                     updatedAsset = em.merge(existingAsset);
+                  } else if (existingAsset == null && requestingGatewayAsset != null) {
+                    // INSERT must fail on a concurrent ID collision, never merge the new owner's
+                    // row.
+                    em.persist(asset);
+                    updatedAsset = asset;
                   } else {
                     updatedAsset = em.merge(asset);
                   }
@@ -1145,11 +1183,44 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
   }
 
   /**
-   * Marks assets as pending deletion and queues them for actual deletion.
+   * Requests deletion of assets owned by an authenticated gateway. Missing assets and owned assets
+   * already pending deletion are accepted. Callers are responsible for enforcing realm
+   * authorization.
    *
-   * @return DeleteResult indicating whether the deletion was accepted or rejected
+   * @param assetIds the central IDs of the assets to delete
+   * @param gatewayId the central asset ID of the authenticated gateway
+   * @return whether the whole request was accepted, independently of background deletion completion
+   * @throws NullPointerException if the gateway ID, asset list, or any asset ID is null
+   */
+  public boolean deleteGatewayAssets(List<String> assetIds, String gatewayId) {
+    Objects.requireNonNull(gatewayId);
+    List<String> ids = assetIds.stream().distinct().sorted().toList();
+    return markAssetsForDeletionAndQueue(ids, ids, gatewayId).accepted();
+  }
+
+  /**
+   * Marks an ordinary deletion batch as pending and queues it for background deletion.
+   *
+   * @param ids the distinct target IDs in asset-lock acquisition order
+   * @param assetIds the original IDs for diagnostics
+   * @return the acceptance and completion status of the batch
    */
   protected DeleteResult markAssetsForDeletionAndQueue(List<String> ids, List<String> assetIds) {
+    return markAssetsForDeletionAndQueue(ids, assetIds, null);
+  }
+
+  /**
+   * Marks the batch as pending in one transaction and queues accepted targets for background
+   * deletion. Gateway requests check ownership and accept missing or already-pending targets.
+   *
+   * @param ids the distinct target IDs in asset-lock acquisition order
+   * @param assetIds the original IDs for diagnostics
+   * @param gatewayId the authenticated gateway's central asset ID, or {@code null} for an ordinary
+   *     deletion
+   * @return the acceptance and completion status of the batch
+   */
+  protected DeleteResult markAssetsForDeletionAndQueue(
+      List<String> ids, List<String> assetIds, String gatewayId) {
     if (ids.isEmpty()) {
       return DeleteResult.accepted(CompletableFuture.completedFuture(true));
     }
@@ -1161,28 +1232,59 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
       List<Asset<?>> assets = new ArrayList<>();
       persistenceService.doTransaction(
           em -> {
-            assets.addAll(
-                em
-                    .createQuery(
-                        "select a from Asset a where not exists(select child.id from Asset child where child.parentId = a.id and child.deletePending is false and not child.id in :ids) and a.id in :ids",
-                        Asset.class)
+            // Acquire target write locks from descendants to ancestors, matching the direction
+            // of ancestry checks. Lock every target before taking any ancestor read locks so a
+            // target that is also an ancestor never needs a read-to-write lock upgrade.
+            List<String> lockOrder =
+                em.unwrap(Session.class)
+                    .createNativeQuery(
+                        """
+                        SELECT id FROM asset WHERE id IN (:ids)
+                        ORDER BY nlevel(path) DESC NULLS LAST, id
+                        """,
+                        String.class)
                     .setParameter("ids", ids)
-                    .getResultList()
-                    .stream()
-                    .map(asset -> (Asset<?>) asset)
-                    .sorted(
-                        Comparator.comparingInt(
-                                (Asset<?> asset) ->
-                                    asset.getPath() != null ? asset.getPath().length : 0)
-                            .reversed()
-                            .thenComparing(Asset::getCreatedOn))
-                    .toList());
-
-            if (ids.size() != assets.size()) {
-              throw new IllegalArgumentException(
-                  "Cannot delete one or more requested assets as they either have children or don't exist");
+                    .getResultList();
+            for (String id : lockOrder) {
+              Asset<?> asset = em.find(Asset.class, id, LockModeType.PESSIMISTIC_WRITE);
+              if (asset != null) {
+                assets.add(asset);
+              }
             }
 
+            if (gatewayId == null && ids.size() != assets.size()) {
+              throw new IllegalArgumentException("One or more requested assets do not exist");
+            }
+
+            if (gatewayId != null) {
+              for (Asset<?> asset : assets) {
+                requireGatewayOwnership(em, asset, gatewayId, false, true);
+              }
+              assets.removeIf(Asset::isDeletePending);
+            }
+
+            if (!assets.isEmpty()
+                && !em.createQuery(
+                        """
+                        select child.id from Asset child
+                        where child.parentId in :parents and child.deletePending is false
+                          and child.id not in :ids
+                        """,
+                        String.class)
+                    .setParameter("parents", assets.stream().map(Asset::getId).toList())
+                    .setParameter("ids", ids)
+                    .setMaxResults(1)
+                    .getResultList()
+                    .isEmpty()) {
+              throw new IllegalArgumentException(
+                  "One or more requested assets still have children");
+            }
+
+            assets.sort(
+                Comparator.comparingInt(
+                        (Asset<?> asset) -> asset.getPath() != null ? asset.getPath().length : 0)
+                    .reversed()
+                    .thenComparing(Asset::getCreatedOn));
             assets.forEach(asset -> asset.setDeletePending(true));
           });
 
@@ -1961,6 +2063,79 @@ public class AssetStorageService extends RouteBuilder implements ContainerServic
 
           createUserAssetLinks(em, newLinks);
         });
+  }
+
+  /** Indicates that an asset's persisted owner differs from the requesting gateway. */
+  public static class GatewayAssetOwnershipException extends IllegalStateException {
+    /**
+     * Creates an exception describing the ownership conflict.
+     *
+     * @param message the conflict details
+     */
+    private GatewayAssetOwnershipException(String message) {
+      super(message);
+    }
+  }
+
+  /**
+   * Checks that the outermost gateway in the asset's persisted ancestry is the expected owner. The
+   * caller must hold a lock on the subject row. This method read-locks the ancestors in the same
+   * transaction.
+   *
+   * @param em the entity manager for the active transaction that locked the subject
+   * @param asset the locked asset to check
+   * @param gatewayId the expected owner's central asset ID
+   * @param allowGateway whether the subject may be the expected gateway itself
+   * @throws IllegalStateException if the subject or its ancestry is invalid or pending deletion
+   * @throws GatewayAssetOwnershipException if the expected gateway is not the persisted owner
+   */
+  public void requireGatewayOwnership(
+      EntityManager em, Asset<?> asset, String gatewayId, boolean allowGateway) {
+    requireGatewayOwnership(em, asset, gatewayId, allowGateway, false);
+  }
+
+  /**
+   * Checks persisted gateway ownership, optionally accepting pending deletions during cleanup.
+   *
+   * @param em the entity manager for the active transaction that locked the subject
+   * @param asset the locked asset to check
+   * @param gatewayId the expected owner's central asset ID
+   * @param allowGateway whether the subject may be the expected gateway itself
+   * @param allowDeletePending whether the subject and its ancestors may be pending deletion
+   * @throws IllegalStateException if the subject or its ancestry is invalid or disallowed
+   * @throws GatewayAssetOwnershipException if the expected gateway is not the persisted owner
+   */
+  private void requireGatewayOwnership(
+      EntityManager em,
+      Asset<?> asset,
+      String gatewayId,
+      boolean allowGateway,
+      boolean allowDeletePending) {
+    String subject =
+        "gatewayId=" + gatewayId + ", assetId=" + (asset == null ? null : asset.getId());
+    if (asset == null || (!allowGateway && gatewayId.equals(asset.getId()))) {
+      throw new IllegalStateException("Gateway asset ownership conflict: " + subject);
+    }
+    Set<String> visited = new HashSet<>();
+    String owner = null;
+    Asset<?> current = asset;
+    while (current != null) {
+      if (!visited.add(current.getId()) || (!allowDeletePending && current.isDeletePending())) {
+        throw new IllegalStateException("Invalid gateway asset ancestry: " + subject);
+      }
+      if (current instanceof GatewayAsset) {
+        owner = current.getId();
+      }
+      String parentId = current.getParentId();
+      current =
+          parentId == null ? null : em.find(Asset.class, parentId, LockModeType.PESSIMISTIC_READ);
+      if (parentId != null && current == null) {
+        throw new IllegalStateException("Missing gateway asset ancestor: " + subject);
+      }
+    }
+    if (!gatewayId.equals(owner)) {
+      throw new GatewayAssetOwnershipException("Gateway asset ownership conflict: " + subject);
+    }
   }
 
   public <R> R withAssetLock(String assetId, Supplier<R> action) {

@@ -21,14 +21,15 @@ package org.openremote.manager.gateway;
 import static org.apache.camel.builder.PredicateBuilder.or;
 import static org.openremote.container.persistence.PersistenceService.PERSISTENCE_TOPIC;
 import static org.openremote.container.persistence.PersistenceService.isPersistenceEventForEntityType;
-import static org.openremote.manager.gateway.GatewayConnector.mapAssetId;
 import static org.openremote.model.Constants.*;
 import static org.openremote.model.syslog.SyslogCategory.GATEWAY;
 import static org.openremote.model.util.MapAccess.getInteger;
 import static org.openremote.model.util.MapAccess.getString;
 
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -51,6 +52,8 @@ import org.openremote.manager.rules.RulesService;
 import org.openremote.manager.rules.RulesetStorageService;
 import org.openremote.manager.security.ManagerIdentityService;
 import org.openremote.manager.security.ManagerKeycloakIdentityProvider;
+import org.openremote.manager.system.ApplicationVersionService;
+import org.openremote.manager.system.VersionInfo;
 import org.openremote.manager.web.ManagerWebService;
 import org.openremote.model.Container;
 import org.openremote.model.ContainerService;
@@ -85,6 +88,7 @@ public class GatewayService extends RouteBuilder implements ContainerService {
 
   // Need a high priority so that event authorizer can get the events before other authorizers
   public static final int PRIORITY = HIGH_PRIORITY + 100;
+  public static final String ASSET_ID_MAPPING_V2_VERSION = "1.36.0";
   public static final String GATEWAY_CLIENT_ID_PREFIX = "gateway-";
   public static final String OR_GATEWAY_TUNNEL_SSH_KEY_FILE = "OR_GATEWAY_TUNNEL_SSH_KEY_FILE";
   private static final Logger LOG =
@@ -106,6 +110,7 @@ public class GatewayService extends RouteBuilder implements ContainerService {
   protected ExecutorService executorService;
   protected ScheduledExecutorService scheduledExecutorService;
   protected TimerService timerService;
+  protected ApplicationVersionService applicationVersionService;
   protected String tunnelSSHHostname;
   protected String tunnelHostname;
   protected int tunnelSSHPort;
@@ -186,9 +191,16 @@ public class GatewayService extends RouteBuilder implements ContainerService {
     return PRIORITY;
   }
 
+  /**
+   * Resolves gateway dependencies and installs event handling during container initialization.
+   *
+   * @param container the manager container that provides services, executors, and configuration
+   * @throws Exception if gateway initialization fails
+   */
   @Override
   public void init(Container container) throws Exception {
     assetStorageService = container.getService(AssetStorageService.class);
+    applicationVersionService = container.getService(ApplicationVersionService.class);
     assetProcessingService = container.getService(AssetProcessingService.class);
     identityService = container.getService(ManagerIdentityService.class);
     clientEventService = container.getService(ClientEventService.class);
@@ -243,6 +255,25 @@ public class GatewayService extends RouteBuilder implements ContainerService {
         getInteger(container.getConfig(), OR_GATEWAY_TUNNEL_AUTO_CLOSE_MINUTES, 0);
   }
 
+  /**
+   * Looks up the first activation that enables V2 gateway asset ID mapping on this installation.
+   *
+   * @return the earliest recorded activation of the minimum V2 release or a later version
+   * @throws IllegalStateException if no qualifying activation is recorded
+   */
+  protected Instant getGatewayMappingV2ActivatedOn() {
+    return applicationVersionService
+        .getFirstActivationAtOrAfter(ASSET_ID_MAPPING_V2_VERSION)
+        .orElseThrow(
+            () ->
+                new IllegalStateException(
+                    "No activation recorded for gateway mapping V2 (requires "
+                        + ASSET_ID_MAPPING_V2_VERSION
+                        + " or later, running "
+                        + VersionInfo.getManagerVersion()
+                        + "). For source builds, fetch the release tags and rebuild."));
+  }
+
   @Override
   public void start(Container container) throws Exception {
 
@@ -292,6 +323,13 @@ public class GatewayService extends RouteBuilder implements ContainerService {
     }
   }
 
+  /**
+   * Registers a connector for the gateway and publishes its initial status if producers are already
+   * running.
+   *
+   * @param gateway the persisted gateway registration
+   * @throws IllegalStateException if no V2 mapping cutoff is recorded
+   */
   private synchronized void registerGateway(GatewayAsset gateway) {
     GatewayConnector connector =
         new GatewayConnector(
@@ -301,7 +339,8 @@ public class GatewayService extends RouteBuilder implements ContainerService {
             scheduledExecutorService,
             this,
             timerService,
-            gateway);
+            gateway,
+            getGatewayMappingV2ActivatedOn());
     gatewayConnectorMap.put(gateway.getId().toLowerCase(Locale.ROOT), connector);
     if (producersStarted) {
       connector.publishAttributeEvent(connector.disconnectedStatusEvent());
@@ -430,10 +469,35 @@ public class GatewayService extends RouteBuilder implements ContainerService {
     }
   }
 
+  /**
+   * Validates inbound gateway ownership, handles local gateway settings, and forwards outbound
+   * writes to the owning gateway when applicable.
+   *
+   * @param em the entity manager for the attribute processing transaction, which already holds the
+   *     asset write lock for an inbound gateway update
+   * @param event the enriched attribute event, including the authenticated gateway source for
+   *     inbound updates
+   * @return {@code true} if the event was forwarded and consumed, or {@code false} to continue
+   *     local processing
+   * @throws AssetProcessingException if a gateway update cannot be handled or forwarded
+   * @throws IllegalStateException if persisted gateway ownership cannot be verified
+   */
   public boolean onAttributeEventIntercepted(EntityManager em, AttributeEvent event)
       throws AssetProcessingException {
 
-    // If the event came from a gateway then we don't want to process it here
+    // The authenticated connector's identity survives queuing until this transaction.
+    if (event.getSource() != null
+        && event.getSource().startsWith(GatewayConnector.REMOTE_EVENT_SOURCE_PREFIX)) {
+      String gatewayId =
+          event.getSource().substring(GatewayConnector.REMOTE_EVENT_SOURCE_PREFIX.length());
+      // Asset processing already acquired the write lock in this transaction.
+      Asset<?> asset = em.find(Asset.class, event.getId());
+      assetStorageService.requireGatewayOwnership(em, asset, gatewayId, false);
+      event.getMeta().remove(MetaItemType.AGENT_LINK);
+      return false;
+    }
+
+    // Internal status updates for the registration itself.
     if (getClass().getSimpleName().equals(event.getSource())) {
       // Clear out agentlink meta so agent interceptor doesn't try intercepting the event
       event.getMeta().remove(MetaItemType.AGENT_LINK);
@@ -467,7 +531,7 @@ public class GatewayService extends RouteBuilder implements ContainerService {
                   + ")");
           // Push value into asset for service user method
           gatewayAsset.setDisabled(disabled);
-          createUpdateGatewayServiceUser(gatewayAsset);
+          createUpdateGatewayServiceUser(gatewayAsset, em);
           connector.setDisabled(disabled);
         }
       } else if (GatewayAsset.CLIENT_SECRET.getName().equals(event.getName())) {
@@ -555,13 +619,19 @@ public class GatewayService extends RouteBuilder implements ContainerService {
               + ", gatewayId="
               + gatewayId
               + ")");
+      Asset<?> persisted = em.find(Asset.class, event.getId());
+      em.refresh(persisted, LockModeType.PESSIMISTIC_READ);
+      assetStorageService.requireGatewayOwnership(em, persisted, gatewayId, false);
       connector.sendMessageToGateway(
           new AttributeEvent(
-                  mapAssetId(gatewayId, event.getId(), true),
+                  connector.mapAssetId(event.getId(), true),
                   event.getName(),
                   event.getValue().orElse(null),
                   event.getTimestamp())
-              .setParentId(mapAssetId(gatewayId, event.getParentId(), true))
+              .setParentId(
+                  gatewayId.equals(persisted.getParentId())
+                      ? null
+                      : connector.mapAssetId(persisted.getParentId(), true))
               .setRealm(event.getRealm()));
 
       // Consume this event as it is for a gateway descendant and we've sent it to that gateway for
@@ -773,7 +843,16 @@ public class GatewayService extends RouteBuilder implements ContainerService {
     return gatewayConnectorMap.containsKey(assetId.toLowerCase(Locale.ROOT));
   }
 
-  /** Check if the specified asset ID or parent ID is a known gateway or descendant of a gateway. */
+  /**
+   * Looks up cached gateway ownership. A cached owner for the asset takes precedence over the
+   * parent hint, which allows lookups for new assets. Persistence operations validate ancestry
+   * separately.
+   *
+   * @param assetId the central asset ID to look up, or {@code null} to use only the parent hint
+   * @param parentId the central parent ID to check if the asset has no cached owner, or {@code
+   *     null} if there is no parent hint
+   * @return the cached gateway ID, or {@code null} if neither lookup identifies a gateway
+   */
   public String getLocallyRegisteredGatewayId(String assetId, String parentId) {
     // ConcurrentHashMap rejects null keys so preserve HashMap behavior of mapping to null
     String gatewayId = assetId != null ? assetIdGatewayIdMap.get(assetId) : null;
@@ -972,8 +1051,25 @@ public class GatewayService extends RouteBuilder implements ContainerService {
     return clientId;
   }
 
+  /**
+   * Creates or updates the gateway service account and stores any repaired credentials through
+   * asset storage.
+   *
+   * @param gateway the gateway registration and its current credentials and disabled state
+   */
   protected void createUpdateGatewayServiceUser(GatewayAsset gateway) {
+    createUpdateGatewayServiceUser(gateway, null);
+  }
 
+  /**
+   * Creates or updates the gateway service account. When called during attribute processing,
+   * persists credential repairs in the existing transaction to avoid reacquiring the asset lock.
+   *
+   * @param gateway the gateway registration with the desired disabled state and current credentials
+   * @param em the entity manager for the active attribute transaction holding the per-asset lock,
+   *     or {@code null} to persist repairs through asset storage
+   */
+  private void createUpdateGatewayServiceUser(GatewayAsset gateway, EntityManager em) {
     LOG.info("Creating/updating gateway service user for gateway id: " + gateway.getId());
     String clientId = getGatewayClientId(gateway.getId());
     String secret = gateway.getClientSecret().orElseGet(() -> UUID.randomUUID().toString());
@@ -1013,9 +1109,19 @@ public class GatewayService extends RouteBuilder implements ContainerService {
 
       if (!clientId.equals(gateway.getClientId().orElse(null))
           || !secret.equals(gateway.getClientSecret().orElse(null))) {
-        gateway.setClientId(clientId);
-        gateway.setClientSecret(secret);
-        assetStorageService.merge(gateway);
+        if (em == null) {
+          gateway.setClientId(clientId);
+          gateway.setClientSecret(secret);
+          assetStorageService.merge(gateway);
+        } else {
+          // Attribute processing already holds the per-asset lock. Persist credential repairs in
+          // the same transaction so they cannot wait on that lock or overwrite the attribute write.
+          GatewayAsset persisted = em.find(GatewayAsset.class, gateway.getId());
+          em.refresh(persisted, LockModeType.PESSIMISTIC_WRITE);
+          persisted.setClientId(clientId);
+          persisted.setClientSecret(secret);
+          em.flush();
+        }
       }
 
       try {

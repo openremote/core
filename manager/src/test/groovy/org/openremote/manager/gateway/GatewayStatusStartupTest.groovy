@@ -44,6 +44,7 @@ class GatewayStatusStartupTest extends Specification {
     service.timerService = Stub(TimerService) { getNow() >> Instant.EPOCH }
     service.assetProcessingService = processor
     service.createUpdateGatewayServiceUser(_) >> {}
+    service.getGatewayMappingV2ActivatedOn() >> Instant.EPOCH
     def creation = Stub(PersistenceEvent) { getCause() >> PersistenceEvent.Cause.CREATE }
 
     when:
@@ -78,7 +79,7 @@ class GatewayStatusStartupTest extends Specification {
     def disconnected = []
     ["first", "second"].each { id ->
       def connector = new GatewayConnector(null, service.assetProcessingService, null, null,
-              service, service.timerService, gateway(id))
+              service, service.timerService, gateway(id), Instant.EPOCH)
       connector.@sessionId.set(id)
       connector.requestDisconnect = { disconnected.add(id) } as Runnable
       service.gatewayConnectorMap.put(id, connector)
@@ -95,6 +96,7 @@ class GatewayStatusStartupTest extends Specification {
   private GatewayAsset gateway(String gatewayId) {
     Stub(GatewayAsset) {
       getId() >> gatewayId
+      getCreatedOn() >> Instant.EPOCH
       getRealm() >> "realm"
       getPath() >> ([gatewayId] as String[])
       getClientId() >> Optional.of("gateway-" + gatewayId)

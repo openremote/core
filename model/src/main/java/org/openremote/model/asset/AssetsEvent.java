@@ -19,6 +19,7 @@
 package org.openremote.model.asset;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -27,13 +28,26 @@ import org.openremote.model.event.shared.SharedEvent;
 /** This event is used in response to a {@link ReadAssetsEvent}. */
 public class AssetsEvent extends SharedEvent {
 
+  // Preserve an explicit empty list on the wire while accepting older responses that omitted it.
+  @JsonInclude(JsonInclude.Include.NON_ABSENT)
   protected List<Asset<?>> assets;
 
+  /**
+   * Creates an asset response. An explicit empty list is preserved when serialized.
+   *
+   * @param assets the returned assets, an empty list when none match, or {@code null} if the list
+   *     was omitted by the sender
+   */
   @JsonCreator
   public AssetsEvent(@JsonProperty("assets") List<Asset<?>> assets) {
     this.assets = assets;
   }
 
+  /**
+   * Gets the assets returned in the response.
+   *
+   * @return the returned assets, or {@code null} if the list was omitted
+   */
   public List<Asset<?>> getAssets() {
     return assets;
   }

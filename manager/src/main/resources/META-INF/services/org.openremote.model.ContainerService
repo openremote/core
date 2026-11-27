@@ -1,6 +1,7 @@
 org.openremote.manager.rules.geofence.ORConsoleGeofenceAssetAdapter
 org.openremote.container.timer.TimerService
 org.openremote.manager.persistence.ManagerPersistenceService
+org.openremote.manager.system.ApplicationVersionService
 org.openremote.manager.security.ManagerIdentityService
 org.openremote.manager.setup.SetupService
 org.openremote.manager.event.ClientEventService

@@ -24,6 +24,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
+import jakarta.persistence.LockModeType;
 import jakarta.validation.ConstraintViolation;
 import java.time.Instant;
 import java.util.*;
@@ -43,6 +44,7 @@ import org.openremote.manager.datapoint.AssetDatapointService;
 import org.openremote.manager.event.AttributeEventInterceptor;
 import org.openremote.manager.event.ClientEventService;
 import org.openremote.manager.event.EventSubscriptionAuthorizer;
+import org.openremote.manager.gateway.GatewayConnector;
 import org.openremote.manager.gateway.GatewayService;
 import org.openremote.manager.rules.RulesService;
 import org.openremote.manager.security.ManagerIdentityService;
@@ -452,9 +454,14 @@ public class AssetProcessingService extends RouteBuilder implements ContainerSer
   }
 
   /**
-   * The {@link AttributeEvent} is passed to each registered {@link AttributeEventInterceptor} and
-   * if no interceptor handles the event then the {@link Attribute} value is updated in the DB with
-   * the new event value and timestamp.
+   * Processes an attribute event under the per-asset lock. Inbound gateway events also hold a
+   * database write lock through ownership validation and the update. Interceptors may consume the
+   * event before it reaches storage.
+   *
+   * @param event the incoming attribute event, including its source
+   * @return {@code true} if an update or outdated event was published, or {@code false} if an
+   *     interceptor consumed the event
+   * @throws AssetProcessingException if the asset or attribute is unavailable or processing fails
    */
   protected boolean processAttributeEvent(AttributeEvent event) throws AssetProcessingException {
 
@@ -470,10 +477,19 @@ public class AssetProcessingService extends RouteBuilder implements ContainerSer
           Event result =
               persistenceService.doReturningTransaction(
                   em -> {
+                    // Hold the row lock for inbound gateway writes through the ancestry check
+                    // and update. Ordinary writes acquire a database lock when they update the row.
+                    String source = event.getSource();
+                    LockModeType lockMode =
+                        source != null
+                                && source.startsWith(GatewayConnector.REMOTE_EVENT_SOURCE_PREFIX)
+                            ? LockModeType.PESSIMISTIC_WRITE
+                            : LockModeType.NONE;
                     // TODO: Retrieve optimized DTO rather than whole asset
-                    Asset<?> asset = assetStorageService.find(em, event.getId(), true);
+                    Asset<?> asset = em.find(Asset.class, event.getId(), lockMode);
 
-                    if (asset == null) {
+                    // Treat pending deletion as missing so queued events cannot modify the asset.
+                    if (asset == null || asset.isDeletePending()) {
                       throw new AssetProcessingException(ASSET_NOT_FOUND, event.getId());
                     }
 

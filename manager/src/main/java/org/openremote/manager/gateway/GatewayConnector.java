@@ -20,6 +20,7 @@ package org.openremote.manager.gateway;
 
 import static org.openremote.model.syslog.SyslogCategory.GATEWAY;
 
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
@@ -32,7 +33,6 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
-import org.openremote.container.Container;
 import org.openremote.container.timer.TimerService;
 import org.openremote.manager.asset.AssetProcessingService;
 import org.openremote.manager.asset.AssetProcessingService.AttributeEventProcessorUnavailableException;
@@ -55,6 +55,7 @@ public class GatewayConnector {
   private static final Logger LOG =
       SyslogCategory.getLogger(GATEWAY, GatewayConnector.class.getName());
   public static final String EVENT_SOURCE = GatewayService.class.getSimpleName();
+  public static final String REMOTE_EVENT_SOURCE_PREFIX = EVENT_SOURCE + ":";
   public static int MAX_SYNC_RETRIES = 5;
   public static int SYNC_ASSET_BATCH_SIZE = 20;
   public static final String ASSET_READ_EVENT_NAME_INITIAL = "INITIAL";
@@ -64,6 +65,7 @@ public class GatewayConnector {
       ASSET_ID_MAPPERS = new ConcurrentHashMap<>();
   protected final String realm;
   protected final String gatewayId;
+  protected final int assetIdMappingVersion;
   protected final AssetStorageService assetStorageService;
   protected final ExecutorService executorService;
   protected final ScheduledExecutorService scheduledExecutorService;
@@ -102,6 +104,20 @@ public class GatewayConnector {
             .toList());
   }
 
+  /**
+   * Creates a connector and selects its asset ID mapping from the gateway registration timestamp.
+   *
+   * @param assetStorageService the service that stores synchronized assets on the central manager
+   * @param assetProcessingService the service that processes attribute updates on the central
+   *     manager
+   * @param executorService the executor for asynchronous gateway work
+   * @param scheduledExecutorService the scheduler for synchronization requests and timeouts
+   * @param gatewayService the central gateway service that owns this connector
+   * @param timerService the clock for connection status events
+   * @param gateway the persisted gateway registration, including its creation timestamp
+   * @param mappingV2ActivatedOn the first recorded activation of V2 mapping on this installation
+   * @throws NullPointerException if the gateway, its creation timestamp, or the cutoff is null
+   */
   protected GatewayConnector(
       AssetStorageService assetStorageService,
       AssetProcessingService assetProcessingService,
@@ -109,7 +125,8 @@ public class GatewayConnector {
       ScheduledExecutorService scheduledExecutorService,
       GatewayService gatewayService,
       TimerService timerService,
-      GatewayAsset gateway) {
+      GatewayAsset gateway,
+      Instant mappingV2ActivatedOn) {
 
     this.assetStorageService = assetStorageService;
     this.assetProcessingService = assetProcessingService;
@@ -120,6 +137,8 @@ public class GatewayConnector {
     this.disabled = gateway.getDisabled().orElse(false);
     this.realm = gateway.getRealm();
     this.gatewayId = gateway.getId();
+    this.assetIdMappingVersion =
+        getAssetIdMappingVersion(gateway.getCreatedOn(), mappingV2ActivatedOn);
     this.gatewayAsset = gateway;
 
     // Setup static inbound event handling
@@ -187,7 +206,12 @@ public class GatewayConnector {
     startSync();
   }
 
-  /** Connection to the edge gateway instance has been disconnected so stop any synchronization */
+  /**
+   * Ends the active session, cancels pending synchronization work, and publishes the disconnected
+   * status when attribute processing is available. Obsolete session notifications are ignored.
+   *
+   * @param sessionId the identifier of the disconnected session
+   */
   protected void disconnected(String sessionId) {
     synchronized (this.sessionId) {
       if (!sessionId.equals(this.sessionId.get())) {
@@ -205,6 +229,10 @@ public class GatewayConnector {
     if (syncProcessorFuture != null) {
       LOG.finest("Aborting active sync process: " + getGatewayIdString());
       syncProcessorFuture.cancel(true);
+    }
+    if (obsoleteReadFuture != null) {
+      obsoleteReadFuture.cancel(true);
+      obsoleteReadFuture = null;
     }
     if (capabilitiesFuture != null) {
       LOG.finest("Aborting capabilities request: " + getGatewayIdString());
@@ -481,9 +509,13 @@ public class GatewayConnector {
   }
 
   /**
-   * Explicitly check event type and authorize accordingly don't blindly accept events from gateway
-   * clients as they may be malicious - every event type added to {@link #eventConsumerMap} should
-   * be handled
+   * Filters live events by type and cached ownership before dispatch. Asset writes validate
+   * persisted ancestry in the transaction that applies the change, including during
+   * synchronization. Every event type added to {@link #eventConsumerMap} must be handled here.
+   *
+   * @param event the event received from the connected gateway
+   * @return the original event if accepted for dispatch, or {@code null} if rejected
+   * @throws IllegalArgumentException if an asset or parent ID is invalid for mapping
    */
   protected SharedEvent authoriseGatewayEvent(SharedEvent event) {
     // Gateway capabilities response events are always authorized
@@ -501,12 +533,12 @@ public class GatewayConnector {
     if (event instanceof AssetInfo assetInfo) {
 
       // Map the gateway Asset ID to the central instance
-      String assetId = mapAssetId(gatewayId, assetInfo.getId(), false);
+      String assetId = mapAssetId(assetInfo.getId(), false);
       // Only use the gateway ID as the parent asset ID if the event is an asset event
       String parentAssetId =
           assetInfo.getParentId() == null
               ? event instanceof AssetEvent ? gatewayId : null
-              : mapAssetId(gatewayId, assetInfo.getParentId(), false);
+              : mapAssetId(assetInfo.getParentId(), false);
 
       // Events for the gateway asset are not allowed over the connector
       if (Objects.equals(assetId, gatewayId)) {
@@ -528,7 +560,10 @@ public class GatewayConnector {
     return null;
   }
 
-  /** Get list of gateway assets (get basic details and then batch load them to minimize load) */
+  /**
+   * Starts an inventory request, schedules a fallback for older gateways, and waits for the initial
+   * inventory before requesting full assets in batches.
+   */
   protected synchronized void startSync() {
     if (syncAborted()) {
       return;
@@ -545,7 +580,7 @@ public class GatewayConnector {
     // TODO: Remove this once enough time has passed since this commit
     // We delay so the init start has a chance to be responded to
     obsoleteReadFuture =
-        Container.SCHEDULED_EXECUTOR.schedule(
+        scheduledExecutorService.schedule(
             () -> {
               // Send old read assets event for older gateway versions
               ReadAssetsEvent event =
@@ -627,6 +662,15 @@ public class GatewayConnector {
             this::requestAssets, RESPONSE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
   }
 
+  /**
+   * Processes the expected initial inventory or asset batch. An omitted initial inventory is
+   * treated as empty for compatibility with older gateways. A batch with mismatched IDs is retried.
+   *
+   * @param e the response containing the synchronization message ID and available assets
+   * @throws IllegalStateException if the initial inventory is inconsistent or a persistence
+   *     operation rejects an asset
+   * @throws IllegalArgumentException if an inventory asset ID is invalid
+   */
   protected synchronized void onSyncAssetsResponse(AssetsEvent e) {
     if (!isConnected()) {
       return;
@@ -650,41 +694,55 @@ public class GatewayConnector {
     boolean isInitialResponse = ASSET_READ_EVENT_NAME_INITIAL.equalsIgnoreCase(messageId);
 
     if (isInitialResponse) {
+      // Released edge versions omit the assets field for an empty initial inventory.
+      List<Asset<?>> inventory = e.getAssets() == null ? List.of() : e.getAssets();
 
       // Put assets in hierarchical order
       Map<String, String> gatewayAssetIdParentIdMap =
-          e.getAssets() == null
-              ? Collections.emptyMap()
-              : e.getAssets().stream()
-                  .collect(
-                      HashMap::new, (m, v) -> m.put(v.getId(), v.getParentId()), HashMap::putAll);
+          inventory.stream()
+              .collect(HashMap::new, (m, v) -> m.put(v.getId(), v.getParentId()), HashMap::putAll);
+
+      if (gatewayAssetIdParentIdMap.size() != inventory.size()) {
+        throw new IllegalStateException("Duplicate gateway asset IDs in sync inventory");
+      }
+      gatewayAssetIdParentIdMap.forEach(
+          (id, parent) -> {
+            validateAssetId(id);
+            if (parent != null && !gatewayAssetIdParentIdMap.containsKey(parent)) {
+              throw new IllegalStateException("Missing parent in gateway sync inventory");
+            }
+          });
 
       ToIntFunction<Asset<?>> assetLevelExtractor =
           asset -> {
             int level = 0;
             String parentId = asset.getParentId();
+            Set<String> visited = new HashSet<>();
+            visited.add(asset.getId());
             while (parentId != null) {
+              if (!visited.add(parentId)) {
+                throw new IllegalStateException("Cycle in gateway sync inventory");
+              }
               level++;
               parentId = gatewayAssetIdParentIdMap.get(parentId);
             }
             return level;
           };
 
+      // Validate every chain, including single-asset inventories where sorting needs no
+      // comparisons.
+      inventory.forEach(assetLevelExtractor::applyAsInt);
       syncAssetIds =
-          e.getAssets() == null
-              ? Collections.emptyList()
-              : e.getAssets().stream()
-                  .sorted(Comparator.comparingInt(assetLevelExtractor))
-                  .map(Asset::getId)
-                  .collect(Collectors.toList());
+          inventory.stream()
+              .sorted(Comparator.comparingInt(assetLevelExtractor))
+              .map(Asset::getId)
+              .collect(Collectors.toList());
 
       if (syncAssetIds.isEmpty()) {
-        deleteObsoleteLocalAssets();
-        onInitialSyncComplete();
-        return;
+        completeSync();
+      } else {
+        requestAssets();
       }
-
-      requestAssets();
 
     } else {
 
@@ -719,7 +777,8 @@ public class GatewayConnector {
             return remove;
           });
 
-      if (returnedAssets.size() != requestedAssetIds.size()
+      if (returnedAssets.stream().map(Asset::getId).distinct().count() != returnedAssets.size()
+          || returnedAssets.size() != requestedAssetIds.size()
           || !returnedAssets.stream()
               .allMatch(asset -> requestedAssetIds.contains(asset.getId()))) {
         LOG.warning(
@@ -762,57 +821,57 @@ public class GatewayConnector {
       // Request next batch or move on
       syncIndex += requestedAssetIds.size();
       if (syncIndex >= syncAssetIds.size()) {
-        LOG.finest("Asset sync completed: " + getGatewayIdString());
-
-        Set<String> refreshAssets = new HashSet<>();
-
-        cachedAssetEvents.forEach(
-            assetEvent -> {
-              if (assetEvent.getCause() == AssetEvent.Cause.DELETE) {
-                syncAssetIds.remove(assetEvent.getId());
-              } else if (assetEvent.getCause() == AssetEvent.Cause.CREATE) {
-                syncAssetIds.add(assetEvent.getId());
-                try {
-                  saveAssetLocally(assetEvent.getAsset());
-                } catch (Exception ex) {
-                  LOG.log(
-                      Level.WARNING,
-                      "Failed to add new gateway asset (Asset="
-                          + assetEvent.getAsset()
-                          + "): "
-                          + getGatewayIdString(),
-                      ex);
-                }
-              } else {
-                refreshAssets.add(assetEvent.getId());
-              }
-            });
-
-        deleteObsoleteLocalAssets();
-        onInitialSyncComplete();
-
-        // Refresh attributes that have changed
-        cachedAttributeEvents.forEach(
-            attributeEvent -> {
-              String assetId = attributeEvent.getId();
-              if (!refreshAssets.contains(assetId)) {
-                LOG.info(
-                    "1 or more asset attribute values have changed so requesting the asset again (Asset<?> ID="
-                        + assetId
-                        + ": "
-                        + getGatewayIdString());
-                refreshAssets.add(assetId);
-              }
-            });
-
-        // Refresh assets that have changed
-        refreshAssets.forEach(id -> sendMessageToGateway(new ReadAssetEvent(id)));
+        completeSync();
       } else {
         requestAssets();
       }
     }
   }
 
+  /**
+   * Reconciles cached asset changes, queues obsolete assets for deletion, and requests fresh copies
+   * of assets changed during synchronization.
+   *
+   * @throws IllegalStateException if a cached asset cannot be saved or cleanup is rejected
+   */
+  private void completeSync() {
+    Set<String> refreshAssets = new HashSet<>();
+
+    cachedAssetEvents.forEach(
+        assetEvent -> {
+          if (assetEvent.getCause() == AssetEvent.Cause.DELETE) {
+            syncAssetIds.remove(assetEvent.getId());
+          } else if (assetEvent.getCause() == AssetEvent.Cause.CREATE) {
+            syncAssetIds.add(assetEvent.getId());
+            saveAssetLocally(assetEvent.getAsset());
+          } else {
+            refreshAssets.add(assetEvent.getId());
+          }
+        });
+
+    // Capture attribute changes before completing the sync clears the event buffers.
+    cachedAttributeEvents.forEach(
+        attributeEvent -> {
+          String assetId = attributeEvent.getId();
+          if (refreshAssets.add(assetId)) {
+            LOG.info(
+                "1 or more asset attribute values have changed so requesting the asset again (Asset<?> ID="
+                    + assetId
+                    + ": "
+                    + getGatewayIdString());
+          }
+        });
+
+    deleteObsoleteLocalAssets();
+    onInitialSyncComplete();
+    refreshAssets.forEach(id -> sendMessageToGateway(new ReadAssetEvent(id)));
+  }
+
+  /**
+   * Queues deletion of gateway descendants absent from the reconciled edge inventory.
+   *
+   * @throws IllegalStateException if the deletion request is rejected
+   */
   protected void deleteObsoleteLocalAssets() {
 
     // Find obsolete local assets
@@ -827,15 +886,13 @@ public class GatewayConnector {
     List<String> obsoleteLocalAssetIds =
         localAssets.stream()
             .map(Asset::getId)
-            .filter(id -> !syncAssetIds.contains(mapAssetId(gatewayId, id, true)))
+            .filter(id -> !syncAssetIds.contains(mapAssetId(id, true)))
             .toList();
 
     if (!obsoleteLocalAssetIds.isEmpty()) {
       boolean deleted = deleteAssetsLocally(obsoleteLocalAssetIds);
       if (!deleted) {
-        LOG.warning(
-            "Failed to delete obsolete local assets; assets are not correctly synced: "
-                + getGatewayIdString());
+        throw new IllegalStateException("Failed to delete obsolete gateway assets: " + gatewayId);
       }
     }
   }
@@ -848,33 +905,57 @@ public class GatewayConnector {
     getCapabilities();
   }
 
+  /**
+   * Applies a gateway asset event using the connector's ID mapping and persisted ownership checks.
+   *
+   * @param e the gateway event with asset IDs in the edge namespace
+   * @throws IllegalStateException if the asset write or deletion is rejected
+   * @throws IllegalArgumentException if an asset ID is invalid for mapping
+   */
   @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter")
   protected synchronized void onAssetEvent(AssetEvent e) {
 
     switch (e.getCause()) {
       case CREATE, READ, UPDATE -> saveAssetLocally(e.getAsset());
-      case DELETE ->
-          deleteAssetsLocally(Collections.singletonList(mapAssetId(gatewayId, e.getId(), false)));
+      case DELETE -> {
+        if (!deleteAssetsLocally(Collections.singletonList(mapAssetId(e.getId(), false)))) {
+          throw new IllegalStateException("Gateway asset deletion rejected");
+        }
+      }
     }
   }
 
+  /**
+   * Queues an edge attribute update with the authenticated gateway's identity for transactional
+   * ownership validation.
+   *
+   * @param e the attribute update with its edge asset ID
+   * @throws IllegalArgumentException if the asset ID is invalid for mapping
+   * @throws AttributeEventProcessorUnavailableException if attribute processing is unavailable
+   */
   protected void onAttributeEvent(AttributeEvent e) {
     // Just push the event through the processing chain
-    publishAttributeEvent(
+    assetProcessingService.sendAttributeEvent(
         new AttributeEvent(
-            mapAssetId(gatewayId, e.getId(), false),
-            e.getName(),
-            e.getValue().orElse(null),
-            e.getTimestamp()));
+            mapAssetId(e.getId(), false), e.getName(), e.getValue().orElse(null), e.getTimestamp()),
+        REMOTE_EVENT_SOURCE_PREFIX + gatewayId);
   }
 
+  /**
+   * Saves a gateway asset on the central manager. Mutates the supplied asset's ID, parent ID, and
+   * realm to their central values before persistence.
+   *
+   * @param <T> the asset type
+   * @param asset the gateway asset with edge-local IDs
+   * @return the stored central asset
+   * @throws IllegalArgumentException if an asset ID is invalid for mapping
+   * @throws IllegalStateException if asset storage rejects the write
+   */
   protected <T extends Asset<?>> T saveAssetLocally(T asset) {
     String assetId = asset.getId();
-    asset.setId(mapAssetId(gatewayId, assetId, false));
+    asset.setId(mapAssetId(assetId, false));
     asset.setParentId(
-        asset.getParentId() != null
-            ? mapAssetId(gatewayId, asset.getParentId(), false)
-            : gatewayId);
+        asset.getParentId() != null ? mapAssetId(asset.getParentId(), false) : gatewayId);
     asset.setRealm(realm);
     LOG.finest(
         "Creating/updating asset: Asset ID="
@@ -883,16 +964,33 @@ public class GatewayConnector {
             + asset.getId()
             + ": "
             + getGatewayIdString());
-    return assetStorageService.merge(asset, true, gatewayAsset, null);
+    try {
+      return assetStorageService.merge(asset, true, gatewayAsset, null);
+    } catch (AssetStorageService.GatewayAssetOwnershipException e) {
+      if (assetIdMappingVersion == 1) {
+        LOG.warning(
+            "Legacy gateway asset IDs can collide. If this is a collision, re-register the affected"
+                + " gateway to use V2 IDs. Export any required central asset history before"
+                + " removing the old registration: "
+                + getGatewayIdString());
+      }
+      throw e;
+    }
   }
 
+  /**
+   * Requests deletion of assets owned by this gateway.
+   *
+   * @param assetIds the already-mapped central IDs of the assets to delete
+   * @return whether the deletion request was accepted
+   */
   protected boolean deleteAssetsLocally(List<String> assetIds) {
     LOG.finest(
         "Removing gateway asset: Asset IDs="
             + Arrays.toString(assetIds.toArray())
             + ": "
             + getGatewayIdString());
-    return assetStorageService.delete(assetIds, true);
+    return assetStorageService.deleteGatewayAssets(assetIds, gatewayId);
   }
 
   public GatewayAsset getGatewayAsset() {
@@ -909,11 +1007,79 @@ public class GatewayConnector {
   }
 
   /**
-   * An easily reversible mathematical way of ensuring gateway asset IDs are unique by incrementing
-   * the first two characters by adding the first two characters of the gateway ID for inbound IDs
-   * and the reverse for outbound.
+   * Selects the mapping version for a persisted gateway registration.
+   *
+   * @param createdOn the stored gateway registration timestamp
+   * @param mappingV2ActivatedOn the first recorded activation of V2 mapping on this installation
+   * @return {@code 1} for registrations before the cutoff or {@code 2} at or after the cutoff
+   * @throws NullPointerException if either timestamp is null
    */
-  public static String mapAssetId(String gatewayId, String assetId, boolean outbound) {
+  public static int getAssetIdMappingVersion(Instant createdOn, Instant mappingV2ActivatedOn) {
+    Objects.requireNonNull(createdOn, "Gateway creation timestamp is required");
+    Objects.requireNonNull(mappingV2ActivatedOn, "Gateway mapping cutoff is required");
+    return createdOn.isBefore(mappingV2ActivatedOn) ? 1 : 2;
+  }
+
+  /**
+   * Maps an asset ID using this connector's mapping version.
+   *
+   * @param assetId the central asset ID for outbound mapping or the edge asset ID for inbound
+   *     mapping
+   * @param outbound {@code true} to map from central to edge or {@code false} to map from edge to
+   *     central
+   * @return the asset ID in the destination namespace
+   * @throws IllegalArgumentException if the asset ID or gateway ID is null or invalid
+   */
+  public String mapAssetId(String assetId, boolean outbound) {
+    return mapAssetId(gatewayId, assetId, outbound, assetIdMappingVersion);
+  }
+
+  /**
+   * Maps one asset ID between an edge gateway and the central manager using an explicit version.
+   *
+   * @param gatewayId the central gateway registration ID
+   * @param assetId the central asset ID for outbound mapping or the edge asset ID for inbound
+   *     mapping
+   * @param outbound {@code true} to map from central to edge or {@code false} to map from edge to
+   *     central
+   * @param version the mapping version, either {@code 1} or {@code 2}
+   * @return the asset ID in the destination namespace
+   * @throws IllegalArgumentException if either ID is null or is not a 22-character alphanumeric
+   *     identifier, or if the version is unsupported
+   */
+  public static String mapAssetId(String gatewayId, String assetId, boolean outbound, int version) {
+    validateAssetId(gatewayId);
+    validateAssetId(assetId);
+    return switch (version) {
+      case 1 -> mapAssetIdV1(gatewayId, assetId, outbound);
+      case 2 -> mapAssetIdV2(gatewayId, assetId, outbound);
+      default ->
+          throw new IllegalArgumentException("Unsupported gateway mapping version: " + version);
+    };
+  }
+
+  /**
+   * Checks that an ID can be mapped between gateway and central namespaces.
+   *
+   * @param id the gateway or asset ID to validate
+   * @throws IllegalArgumentException if the ID is null or is not a 22-character alphanumeric
+   *     identifier
+   */
+  private static void validateAssetId(String id) {
+    if (id == null || !Asset.matchesAssetIdPattern(id)) {
+      throw new IllegalArgumentException("Invalid gateway asset ID: " + id);
+    }
+  }
+
+  /**
+   * Applies the legacy mapping to the first two characters of an asset ID.
+   *
+   * @param gatewayId the validated central gateway registration ID
+   * @param assetId the validated source asset ID
+   * @param outbound whether to map from central to edge rather than from edge to central
+   * @return the asset ID in the destination namespace
+   */
+  private static String mapAssetIdV1(String gatewayId, String assetId, boolean outbound) {
     Pair<Function<String, String>, Function<String, String>> gatewayIdMappers =
         ASSET_ID_MAPPERS.computeIfAbsent(
             gatewayId,
@@ -945,5 +1111,25 @@ public class GatewayConnector {
             });
 
     return outbound ? gatewayIdMappers.value.apply(assetId) : gatewayIdMappers.key.apply(assetId);
+  }
+
+  /**
+   * Applies position-by-position Base62 addition for inbound mapping and subtraction for outbound
+   * mapping, using all characters in the gateway ID.
+   *
+   * @param gatewayId the validated central gateway registration ID
+   * @param assetId the validated source asset ID
+   * @param outbound whether to map from central to edge rather than from edge to central
+   * @return the asset ID in the destination namespace
+   */
+  private static String mapAssetIdV2(String gatewayId, String assetId, boolean outbound) {
+    StringBuilder mapped = new StringBuilder(22);
+    for (int i = 0; i < 22; i++) {
+      int gatewayIndex = ALPHA_NUMERIC_CHARACTERS.indexOf((int) gatewayId.charAt(i));
+      int assetIndex = ALPHA_NUMERIC_CHARACTERS.indexOf((int) assetId.charAt(i));
+      int index = Math.floorMod(assetIndex + (outbound ? -gatewayIndex : gatewayIndex), 62);
+      mapped.append((char) ALPHA_NUMERIC_CHARACTERS.get(index).intValue());
+    }
+    return mapped.toString();
   }
 }
