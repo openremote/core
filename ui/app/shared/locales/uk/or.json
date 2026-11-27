@@ -447,7 +447,7 @@
     "copyAddress": "Копіювати адресу",
     "copySuccess": "Адресу тунелю скопійовано в буфер обміну",
     "id": "ID",
-    "gatewayId": "ID шлюзу",
+    "gatewayAsset": "Шлюз",
     "type": "Тип",
     "target": "Ціль",
     "targetPort": "Порт призначення",

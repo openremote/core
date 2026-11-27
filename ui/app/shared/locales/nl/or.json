@@ -444,7 +444,7 @@
     "copyAddress": "Kopieer adres",
     "copySuccess": "Adres gekopieerd naar je klembord",
     "id": "ID",
-    "gatewayId": "Gateway ID",
+    "gatewayAsset": "Gateway",
     "type": "Type",
     "target": "Target",
     "targetPort": "Target poort",

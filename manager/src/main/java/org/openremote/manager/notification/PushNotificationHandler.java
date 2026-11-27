@@ -73,7 +73,6 @@ public class PushNotificationHandler extends RouteBuilder implements Notificatio
   protected boolean valid;
   protected boolean devMode;
   protected Map<String, String> consoleFCMTokenMap = new ConcurrentHashMap<>();
-  protected Set<String> fcmTokenBlacklist = Collections.synchronizedSet(new HashSet<>());
 
   @Override
   public int getPriority() {
@@ -345,24 +344,7 @@ public class PushNotificationHandler extends RouteBuilder implements Notificatio
             if (!consoleAssetIds.isEmpty()) {
               // Special handling if target type is user (don't need to find all linked users)
               if (targetType == Notification.TargetType.USER) {
-                if (Arrays.stream(
-                        managerIdentityService
-                            .getIdentityProvider()
-                            .queryUsers(
-                                // Exclude service accounts, system accounts and accounts with
-                                // disabled push notifications
-                                new UserQuery()
-                                    .ids(targetId)
-                                    .serviceUsers(false)
-                                    .attributes(
-                                        new UserQuery.AttributeValuePredicate(
-                                            true,
-                                            new StringPredicate(User.SYSTEM_ACCOUNT_ATTRIBUTE)),
-                                        new UserQuery.AttributeValuePredicate(
-                                            true,
-                                            new StringPredicate(
-                                                PUSH_NOTIFICATIONS_DISABLED_ATTRIBUTE),
-                                            new StringPredicate("true")))))
+                if (Arrays.stream(queryRegularUsers(new UserQuery().ids(targetId), false))
                     .allMatch(User::isSystemAccount)) {
                   consoleAssetIds = Collections.emptyList();
                 }
@@ -377,28 +359,9 @@ public class PushNotificationHandler extends RouteBuilder implements Notificatio
                               // linked to this console
                               // TODO: This should be handled by the console provider on the console
                               // itself
-                              long count =
-                                  Arrays.stream(
-                                          managerIdentityService
-                                              .getIdentityProvider()
-                                              .queryUsers(
-                                                  // Exclude service accounts, system accounts and
-                                                  // accounts with disabled email notifications
-                                                  new UserQuery()
-                                                      .assets(consoleId)
-                                                      .serviceUsers(false)
-                                                      .attributes(
-                                                          new UserQuery.AttributeValuePredicate(
-                                                              true,
-                                                              new StringPredicate(
-                                                                  User.SYSTEM_ACCOUNT_ATTRIBUTE)),
-                                                          new UserQuery.AttributeValuePredicate(
-                                                              false,
-                                                              new StringPredicate(
-                                                                  PUSH_NOTIFICATIONS_DISABLED_ATTRIBUTE),
-                                                              new StringPredicate("true")))))
-                                      .count();
-                              return count == 0;
+                              User[] pushDisabledUsers =
+                                  queryRegularUsers(new UserQuery().assets(consoleId), true);
+                              return pushDisabledUsers.length == 0;
                             })
                         .collect(Collectors.toList());
               }
@@ -650,6 +613,22 @@ public class PushNotificationHandler extends RouteBuilder implements Notificatio
     return builder.build();
   }
 
+  /** Queries users other than service and system accounts by whether push notifications are off. */
+  protected User[] queryRegularUsers(UserQuery query, boolean pushNotificationsDisabled) {
+    return managerIdentityService
+        .getIdentityProvider()
+        .queryUsers(
+            query
+                .serviceUsers(false)
+                .attributes(
+                    new UserQuery.AttributeValuePredicate(
+                        true, new StringPredicate(User.SYSTEM_ACCOUNT_ATTRIBUTE)),
+                    new UserQuery.AttributeValuePredicate(
+                        !pushNotificationsDisabled,
+                        new StringPredicate(PUSH_NOTIFICATIONS_DISABLED_ATTRIBUTE),
+                        new StringPredicate("true"))));
+  }
+
   protected static boolean isLinkedToFcmProvider(ConsoleAsset asset) {
     return asset
         .getConsoleProviders()
@@ -677,10 +656,7 @@ public class PushNotificationHandler extends RouteBuilder implements Notificatio
 
   protected void processConsoleAssetChange(
       ConsoleAsset asset, PersistenceEvent<ConsoleAsset> persistenceEvent) {
-    String fcmToken = consoleFCMTokenMap.remove(asset.getId());
-    if (!TextUtil.isNullOrEmpty(fcmToken)) {
-      fcmTokenBlacklist.remove(fcmToken);
-    }
+    consoleFCMTokenMap.remove(asset.getId());
 
     switch (persistenceEvent.getCause()) {
       case CREATE, UPDATE ->
