@@ -451,12 +451,12 @@ class DashboardTest extends Specification implements ManagerContainerTrait {
 
     /* ------------------------- */
 
-    // Test to verify a dashboard with the same unique ID cannot be created.
+    // Test to verify a dashboard cannot be created with a supplied identifier.
 
-    when: "a dashboard is created with an id that already exists"
-    alternativeUserDashboardResource.create(null, new Dashboard(MASTER_REALM, "Duplicate dashboard", screenPresets, alternativeUser.id).setId(versioned.id).setVersion(versioned.version))
+    when: "a dashboard is created with a supplied identifier"
+    alternativeUserDashboardResource.create(null, new Dashboard(MASTER_REALM, "Dashboard with ID", screenPresets, alternativeUser.id).setId(versioned.id))
 
-    then: "the duplicate create is rejected with 400 bad request"
+    then: "the create is rejected with 400 bad request"
     WebApplicationException duplicateEx = thrown()
     duplicateEx.response.withCloseable { r ->
       assert r.status == 400

@@ -303,19 +303,7 @@ public class DashboardStorageService extends RouteBuilder implements ContainerSe
       throw new IllegalArgumentException(
           "A new dashboard cannot contain an identifier; they are assigned by the server.");
     }
-    return persistenceService.doReturningTransaction(
-        em -> {
-          if (dashboard.getId() != null && !dashboard.getId().isEmpty()) {
-            Dashboard d =
-                em.find(
-                    Dashboard.class,
-                    dashboard.getId()); // checking whether dashboard is already in database
-            if (d != null) {
-              throw new IllegalArgumentException("This dashboard has already been created.");
-            }
-          }
-          return em.merge(dashboard);
-        });
+    return persistenceService.doReturningTransaction(em -> em.merge(dashboard));
   }
 
   /**
