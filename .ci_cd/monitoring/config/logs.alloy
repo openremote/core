@@ -1,0 +1,137 @@
+// Collect selected containers from a customer Docker Compose deployment.
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+local.file "loki_password" {
+  filename  = "/run/secrets/loki_password"
+  is_secret = true
+}
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "selected_containers" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    regex         = sys.env("SOURCE_COMPOSE_PROJECT")
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex         = sys.env("SOURCE_COMPOSE_SERVICES_REGEX")
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "compose_project"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    replacement   = "$1"
+    target_label  = "container"
+  }
+}
+
+loki.source.docker "selected_containers" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.selected_containers.output
+  forward_to = [loki.process.structured_metadata.receiver]
+
+  labels = {
+    customer       = sys.env("ALLOY_CUSTOMER"),
+    environment    = sys.env("ALLOY_ENVIRONMENT"),
+    host           = sys.env("ALLOY_HOST"),
+    aws_account_id = sys.env("ALLOY_AWS_ACCOUNT_ID"),
+  }
+}
+
+// Container names and hostnames identify a particular runtime instance rather
+// than a stable log stream. Keep them available for investigation as structured
+// metadata instead of indexing every distinct value.
+loki.process "structured_metadata" {
+  // OpenRemote Manager uses java.util.logging-style levels. Collapse exception
+  // continuations into the preceding event and expose a normalized level as
+  // structured metadata so Loki can populate detected_level without creating
+  // additional indexed streams.
+  stage.match {
+    selector = `{service="manager"}`
+
+    stage.multiline {
+      firstline     = "^([0-9]{4}-[0-9]{2}-[0-9]{2}T[^ ]+Z[ ]+)?(SEVERE|WARNING|INFO|CONFIG|FINEST|FINER|FINE)[ ]+"
+      max_wait_time = "3s"
+      max_lines     = 256
+    }
+
+    stage.regex {
+      expression = "^(?P<entry_timestamp>[0-9]{4}-[0-9]{2}-[0-9]{2}T[^ ]+Z[ ]+)?(?P<java_level>SEVERE|WARNING|INFO|CONFIG|FINEST|FINER|FINE)[ ]+"
+    }
+
+    stage.template {
+      source   = "level"
+      template = `{{ if .java_level }}{{ if eq .java_level "SEVERE" }}error{{ else if eq .java_level "WARNING" }}warn{{ else if or (eq .java_level "INFO") (eq .java_level "CONFIG") }}info{{ else }}debug{{ end }}{{ end }}`
+    }
+
+    stage.structured_metadata {
+      values = {
+        level = "",
+      }
+    }
+  }
+
+  // PostgreSQL's LOG and NOTICE levels are not part of Loki's canonical level
+  // set. Extract the severity from the standard PostgreSQL stderr prefix and
+  // normalize it without adding an indexed label. The expression also accepts
+  // an optional RFC3339 transport timestamp from the container log source.
+  stage.match {
+    selector = `{service="postgresql"}`
+
+    stage.regex {
+      expression = "^(?P<entry_timestamp>[0-9]{4}-[0-9]{2}-[0-9]{2}T[^ ]+Z[ ]+)?[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]+ [^ ]+ \\[[0-9]+\\] (?P<postgres_level>DEBUG[1-5]|INFO|NOTICE|WARNING|ERROR|LOG|FATAL|PANIC):[ ]+"
+    }
+
+    stage.template {
+      source   = "level"
+      template = `{{ if .postgres_level }}{{ if eq .postgres_level "WARNING" }}warn{{ else if eq .postgres_level "ERROR" }}error{{ else if eq .postgres_level "FATAL" }}fatal{{ else if eq .postgres_level "PANIC" }}critical{{ else if or (eq .postgres_level "DEBUG1") (eq .postgres_level "DEBUG2") (eq .postgres_level "DEBUG3") (eq .postgres_level "DEBUG4") (eq .postgres_level "DEBUG5") }}debug{{ else }}info{{ end }}{{ end }}`
+    }
+
+    stage.structured_metadata {
+      values = {
+        level = "",
+      }
+    }
+  }
+
+  stage.structured_metadata {
+    values = {
+      container = "",
+      host      = "",
+    }
+  }
+
+  forward_to = [loki.write.central.receiver]
+}
+
+loki.write "central" {
+  endpoint {
+    url = sys.env("LOKI_URL")
+
+    basic_auth {
+      username = sys.env("LOKI_USERNAME")
+      password = local.file.loki_password.content
+    }
+  }
+}

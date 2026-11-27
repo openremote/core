@@ -1,0 +1,100 @@
+# Standalone Linux collector: Docker logs and embedded host metrics.
+# Add compose.traces.yaml to receive and forward application traces.
+name: ${MONITORING_COMPOSE_PROJECT:?Set the independent monitoring project}
+
+services:
+  alloy:
+    image: grafana/alloy:v1.18.0
+    restart: unless-stopped
+    network_mode: host
+    pid: host
+    uts: host
+    user: "0:0"
+    # Alloy v1.18.0 owns /var/lib/alloy and data as 473:473, mode 0770.
+    # With all capabilities dropped, root needs this group to traverse/write.
+    group_add:
+      - "473"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges=true
+      # Read the host mounts on SELinux-enabled Amazon Linux without relabeling them.
+      - label=disable
+    mem_limit: 512m
+    cpus: 0.50
+    stop_grace_period: 30s
+    command:
+      - run
+      - --server.http.listen-addr=127.0.0.1:${ALLOY_HTTP_PORT:?Set an unused loopback management port}
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config
+    environment:
+      GOMEMLIMIT: 384MiB
+      ALLOY_CUSTOMER: ${ALLOY_CUSTOMER:?Set ALLOY_CUSTOMER}
+      ALLOY_ENVIRONMENT: ${ALLOY_ENVIRONMENT:?Set ALLOY_ENVIRONMENT}
+      ALLOY_HOST: ${ALLOY_HOST:?Set ALLOY_HOST}
+      HOST_METRICS_INSTANCE: ${HOST_METRICS_INSTANCE:?Set HOST_METRICS_INSTANCE}
+      # Explicit identities: canonical jobs require coordinated scrape cutover.
+      HOST_METRICS_JOB: ${HOST_METRICS_JOB:?Set HOST_METRICS_JOB}
+      ALLOY_METRICS_JOB: ${ALLOY_METRICS_JOB:?Set ALLOY_METRICS_JOB}
+      METRICS_URL: ${METRICS_URL:?Set METRICS_URL}
+      METRICS_USERNAME: ${METRICS_USERNAME:?Set METRICS_USERNAME}
+      SOURCE_COMPOSE_PROJECT: ${SOURCE_COMPOSE_PROJECT:?Set SOURCE_COMPOSE_PROJECT}
+      SOURCE_COMPOSE_SERVICES_REGEX: ${SOURCE_COMPOSE_SERVICES_REGEX:?Set SOURCE_COMPOSE_SERVICES_REGEX}
+      ALLOY_AWS_ACCOUNT_ID: ${ALLOY_AWS_ACCOUNT_ID:?Set ALLOY_AWS_ACCOUNT_ID}
+      LOKI_URL: ${LOKI_URL:?Set LOKI_URL}
+      LOKI_USERNAME: ${LOKI_USERNAME:?Set LOKI_USERNAME}
+    volumes:
+      - type: bind
+        source: ./config/host-metrics.alloy
+        target: /etc/alloy/config/host-metrics.alloy
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/logs.alloy
+        target: /etc/alloy/config/logs.alloy
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /
+        target: /host/root
+        read_only: true
+        bind:
+          propagation: rslave
+      - type: bind
+        source: /proc
+        target: /host/proc
+        read_only: true
+      - type: bind
+        source: /sys
+        target: /host/sys
+        read_only: true
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        read_only: true
+        bind:
+          create_host_path: false
+      - alloy-data:/var/lib/alloy/data
+    secrets:
+      - metrics_password
+      - loki_password
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "2"
+
+volumes:
+  alloy-data:
+    external: true
+    name: ${ALLOY_DATA_VOLUME:?Set the stable existing monitoring state volume}
+
+secrets:
+  metrics_password:
+    file: ${METRICS_PASSWORD_FILE:?Set the absolute metrics password file path}
+  loki_password:
+    file: ${LOKI_PASSWORD_FILE:?Set the absolute Loki password file path}

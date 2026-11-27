@@ -1,0 +1,51 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: GitHub OIDC identity for monitoring; no deployment permissions yet
+
+Parameters:
+  RoleName:
+    Type: String
+    Description: Dedicated monitoring role name, distinct from application deployment roles
+    AllowedPattern: "[A-Za-z0-9+=,.@_-]+"
+    MaxLength: 64
+
+  GitHubSubject:
+    Type: String
+    Description: Exact verified GitHub OIDC subject (repository plus environment or branch); no wildcards
+    AllowedPattern: "repo:[A-Za-z0-9._%/@:+-]+"
+    MaxLength: 512
+
+# Prerequisite: CfCT has provisioned the GitHub provider in this account.
+Resources:
+  MonitoringRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      Description: Dedicated GitHub monitoring workflow identity
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Ref GitHubSubject
+      # Authentication-only slice: GetCallerIdentity requires no permissions.
+      # Add reviewed SSM/artifact permissions separately; never copy the app role.
+      Tags:
+        - Key: Component
+          Value: monitoring
+
+Outputs:
+  MonitoringRoleArn:
+    Description: Role for the monitoring authentication check
+    Value: !GetAtt MonitoringRole.Arn
+  GitHubProviderArn:
+    Description: Required existing account-wide provider, managed separately through CfCT
+    Value: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+  TrustedGitHubSubject:
+    Description: Exact subject expected from the GitHub job
+    Value: !Ref GitHubSubject

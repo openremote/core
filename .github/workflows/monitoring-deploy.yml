@@ -1,0 +1,223 @@
+# Staging only. Deploy requires an explicit manual workflow dispatch.
+name: Staging monitoring
+
+on:
+  workflow_call:
+    inputs:
+      operation:
+        description: plan (default), or deploy only from an explicit manual dispatch
+        type: string
+        default: plan
+      core-revision:
+        description: Reviewed full core commit SHA containing the monitoring bundle
+        required: true
+        type: string
+      aws-account-id:
+        description: Expected customer AWS account, checked before S3 or SSM access
+        required: true
+        type: string
+      compose-project:
+        description: Independent monitoring Compose project configured in the SSM stack
+        required: true
+        type: string
+      configuration-file:
+        description: Non-secret environment file relative to the caller repository
+        type: string
+        default: .ci_cd/monitoring/staging.env
+      create-state:
+        description: Allow new owned state for an explicitly reviewed first installation
+        type: boolean
+        default: false
+      enable-traces:
+        description: Enable the optional trace configuration
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.repository }}-monitoring-staging
+  cancel-in-progress: false
+
+jobs:
+  monitoring:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    environment: monitoring-staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      OPERATION: ${{ inputs.operation }}
+      TRIGGER_EVENT: ${{ github.event_name }}
+      CORE_REVISION: ${{ inputs.core-revision }}
+      EXPECTED_ACCOUNT_ID: ${{ inputs.aws-account-id }}
+      COMPOSE_PROJECT: ${{ inputs.compose-project }}
+      CONFIGURATION_FILE: ${{ inputs.configuration-file }}
+      CREATE_STATE: ${{ inputs.create-state }}
+      ENABLE_TRACES: ${{ inputs.enable-traces }}
+    steps:
+      - name: Validate staging settings
+        shell: bash
+        env:
+          ROLE_ARN: ${{ vars.MONITORING_AWS_ROLE_ARN }}
+          AWS_REGION: ${{ vars.MONITORING_AWS_REGION }}
+          INSTANCE_ID: ${{ vars.MONITORING_EC2_INSTANCE_ID }}
+          DOCUMENT_NAME: ${{ vars.MONITORING_DEPLOY_DOCUMENT_NAME }}
+          DOCUMENT_VERSION: ${{ vars.MONITORING_DEPLOY_DOCUMENT_VERSION }}
+        run: |
+          set -euo pipefail
+          case "$OPERATION" in
+            plan) ;;
+            deploy) test "$TRIGGER_EVENT" = workflow_dispatch || { echo 'Deploy requires manual dispatch'; exit 1; } ;;
+            *) echo 'Choose plan or deploy'; exit 1 ;;
+          esac
+          [[ "$CORE_REVISION" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$EXPECTED_ACCOUNT_ID" =~ ^[0-9]{12}$ ]] || exit 1
+          test "$ROLE_ARN" = "arn:aws:iam::$EXPECTED_ACCOUNT_ID:role/monitoring-staging"
+          [[ "$AWS_REGION" =~ ^[a-z]{2}-[a-z]+-[0-9]+$ ]] || exit 1
+          [[ "$INSTANCE_ID" =~ ^i-[0-9a-f]{17}$ ]] || exit 1
+          test "$DOCUMENT_NAME" = openremote-monitoring-staging-deploy
+          [[ "$DOCUMENT_VERSION" =~ ^[1-9][0-9]*$ ]] || exit 1
+          [[ "$COMPOSE_PROJECT" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || exit 1
+          [[ "$CONFIGURATION_FILE" =~ ^[A-Za-z0-9_./-]+$ ]] || exit 1
+          case "/$CONFIGURATION_FILE/" in *'/../'*|*'//'* ) exit 1 ;; esac
+          [[ "$CREATE_STATE" =~ ^(true|false)$ ]] || exit 1
+          [[ "$ENABLE_TRACES" =~ ^(true|false)$ ]] || exit 1
+
+      - name: Check out selected customer configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: project
+          persist-credentials: false
+
+      - name: Check out pinned core code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: openremote/core
+          ref: ${{ env.CORE_REVISION }}
+          path: core
+          persist-credentials: false
+
+      - name: Build the reviewed non-secret bundle
+        id: bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C project rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C core rev-parse HEAD)" = "$CORE_REVISION"
+          work="$RUNNER_TEMP/monitoring-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          umask 077
+          mkdir "$work"
+          mkdir -p "$work/input/config"
+          source=core/.ci_cd/monitoring
+          for name in deploy.py compose.yaml compose.traces.yaml; do
+            cp "$source/$name" "$work/input/$name"
+          done
+          for name in logs.alloy host-metrics.alloy traces.alloy; do
+            cp "$source/config/$name" "$work/input/config/$name"
+          done
+          cp "project/$CONFIGURATION_FILE" "$work/input/customer.env"
+          # Render only: no image pull, secret retrieval, volume or container creation.
+          compose=(docker compose --env-file "$work/input/customer.env" -f "$work/input/compose.yaml")
+          if [ "$ENABLE_TRACES" = true ]; then
+            compose+=(-f "$work/input/compose.traces.yaml")
+          fi
+          "${compose[@]}" -p "$COMPOSE_PROJECT" config --quiet
+          tar -czf "$work/bundle.tar.gz" -C "$work/input" \
+            deploy.py compose.yaml compose.traces.yaml customer.env \
+            config/logs.alloy config/host-metrics.alloy config/traces.alloy
+          checksum=$(sha256sum "$work/bundle.tar.gz" | cut -d ' ' -f 1)
+          printf 'path=%s\nsha256=%s\n' "$work/bundle.tar.gz" "$checksum" >> "$GITHUB_OUTPUT"
+          printf 'Customer revision: %s\nCore revision: %s\nSHA256: %s\n' \
+            "$GITHUB_SHA" "$CORE_REVISION" "$checksum" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Authenticate with GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          aws-region: ${{ vars.MONITORING_AWS_REGION }}
+          role-to-assume: ${{ vars.MONITORING_AWS_ROLE_ARN }}
+          allowed-account-ids: ${{ inputs.aws-account-id }}
+          role-session-name: monitoring-${{ github.run_id }}
+          role-duration-seconds: 1800
+          unset-current-credentials: true
+          retry-max-attempts: 3
+
+      - name: Upload exact bundle and request the selected operation
+        timeout-minutes: 24
+        shell: bash
+        env:
+          BUNDLE_PATH: ${{ steps.bundle.outputs.path }}
+          BUNDLE_SHA256: ${{ steps.bundle.outputs.sha256 }}
+          AWS_REGION: ${{ vars.MONITORING_AWS_REGION }}
+          INSTANCE_ID: ${{ vars.MONITORING_EC2_INSTANCE_ID }}
+          DOCUMENT_NAME: ${{ vars.MONITORING_DEPLOY_DOCUMENT_NAME }}
+          DOCUMENT_VERSION: ${{ vars.MONITORING_DEPLOY_DOCUMENT_VERSION }}
+          AWS_MAX_ATTEMPTS: "2"
+          AWS_RETRY_MODE: standard
+          AWS_PAGER: ""
+        run: |
+          set -euo pipefail
+          identity=$(aws sts get-caller-identity --output json)
+          jq -e --arg account "$EXPECTED_ACCOUNT_ID" '.Account == $account and
+            (.Arn | startswith("arn:aws:sts::" + $account + ":assumed-role/monitoring-staging/"))' \
+            <<< "$identity" >/dev/null
+          release_id="$OPERATION-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          [[ "$release_id" =~ ^(plan|deploy)-[0-9]+-[0-9]+$ ]] || exit 1
+          [[ "$BUNDLE_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          bucket="openremote-monitoring-$EXPECTED_ACCOUNT_ID-$AWS_REGION"
+          key="staging/releases/$release_id/bundle.tar.gz"
+          upload=$(aws s3api put-object --bucket "$bucket" --key "$key" \
+            --expected-bucket-owner "$EXPECTED_ACCOUNT_ID" --body "$BUNDLE_PATH" \
+            --server-side-encryption AES256 --if-none-match '*' --region "$AWS_REGION" \
+            --output json --cli-connect-timeout 5 --cli-read-timeout 30)
+          version=$(jq -er '.VersionId | select(type == "string" and length > 0 and . != "null")' <<< "$upload")
+          [[ "$version" =~ ^[A-Za-z0-9._~+/=-]+$ ]] || exit 1
+          test "${#version}" -le 1024
+          printf 'Bucket: %s\nKey: %s\nVersion: %s\nSHA256: %s\n' \
+            "$bucket" "$key" "$version" "$BUNDLE_SHA256" | tee -a "$GITHUB_STEP_SUMMARY"
+          parameters=$(jq -cn --arg release "$release_id" --arg version "$version" --arg sha "$BUNDLE_SHA256" \
+            --arg create "$CREATE_STATE" --arg traces "$ENABLE_TRACES" --arg action "$OPERATION" \
+            '{Action:[$action],ReleaseId:[$release],VersionId:[$version],SHA256:[$sha],CreateState:[$create],EnableTraces:[$traces]}')
+          command_id=$(AWS_MAX_ATTEMPTS=1 aws ssm send-command \
+            --document-name "$DOCUMENT_NAME" --document-version "$DOCUMENT_VERSION" \
+            --instance-ids "$INSTANCE_ID" --parameters "$parameters" --timeout-seconds 60 \
+            --comment "Monitoring $OPERATION, GitHub run $GITHUB_RUN_ID" \
+            --query 'Command.CommandId' --output text \
+            --cli-connect-timeout 5 --cli-read-timeout 20)
+          printf 'Command ID: %s; document version: %s; action: %s\n' \
+            "$command_id" "$DOCUMENT_VERSION" "$OPERATION" | tee -a "$GITHUB_STEP_SUMMARY"
+          # Each waiter polls for about 100 seconds. Repeat only observation of the
+          # same command, allowing the document's 1200-second execution budget.
+          result=''
+          for attempt in {1..13}; do
+            if ! aws ssm wait command-executed \
+              --command-id "$command_id" --instance-id "$INSTANCE_ID" --plugin-name monitoringDeploy \
+              --cli-connect-timeout 5 --cli-read-timeout 20; then
+              echo "Wait cycle $attempt did not report success; inspecting the same command."
+            fi
+            if ! result=$(aws ssm get-command-invocation \
+              --command-id "$command_id" --instance-id "$INSTANCE_ID" --plugin-name monitoringDeploy \
+              --output json --cli-connect-timeout 5 --cli-read-timeout 20); then
+              echo 'Result unavailable. Inspect the printed command ID in SSM before retrying.'
+              exit 1
+            fi
+            status=$(jq -er '.Status' <<< "$result")
+            case "$status" in
+              Pending|InProgress|Delayed) ;;
+              *) break ;;
+            esac
+          done
+          jq '{Status,ResponseCode,StandardOutputContent,StandardErrorContent}' <<< "$result"
+          if ! jq -e '.Status == "Success" and .ResponseCode == 0 and
+            (.StandardOutputContent | contains("PASS host action completed; temporary bundle removed"))' <<< "$result" >/dev/null; then
+            echo 'Monitoring operation blocked, failed or unfinished. Inspect the command and host before retrying; no automatic rollback.' | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          if [ "$OPERATION" = plan ]; then
+            echo 'Plan completed. No collector was deployed; central delivery was not checked.' | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Deployment completed with local health checks. Verify fresh central telemetry before accepting it.' | tee -a "$GITHUB_STEP_SUMMARY"
+          fi

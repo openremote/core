@@ -1,0 +1,63 @@
+# Copy to .github/workflows/monitoring-identity-check.yml in the customer repo.
+# Authentication-only: no checkout, SSM invocation or application deployment.
+# Create monitoring-staging with exact allowed branches before running this job.
+# Remove the temporary push trigger after this workflow reaches main.
+name: Check monitoring AWS identity
+
+on:
+  push:
+    branches:
+      - feature/custom-monitoring-deploy
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  identity:
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/custom-monitoring-deploy'
+    environment: monitoring-staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      id-token: write
+    steps:
+      - name: Validate role settings
+        id: settings
+        shell: bash
+        env:
+          ROLE_ARN: ${{ vars.MONITORING_AWS_ROLE_ARN }}
+          AWS_REGION: ${{ vars.MONITORING_AWS_REGION }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$ROLE_ARN" =~ ^arn:aws:iam::([0-9]{12}):role/([A-Za-z0-9+=,.@_-]+)$ ]]; then
+            echo "Set MONITORING_AWS_ROLE_ARN to the CloudFormation output for the dedicated role."
+            exit 1
+          fi
+          printf 'account_id=%s\nrole_name=%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
+          test -n "$AWS_REGION" || { echo "Set MONITORING_AWS_REGION."; exit 1; }
+
+      - name: Authenticate with GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          aws-region: ${{ vars.MONITORING_AWS_REGION }}
+          role-to-assume: ${{ vars.MONITORING_AWS_ROLE_ARN }}
+          allowed-account-ids: ${{ steps.settings.outputs.account_id }}
+          role-session-name: monitoring-oidc-${{ github.run_id }}
+          role-duration-seconds: 900
+          unset-current-credentials: true
+          retry-max-attempts: 3
+
+      - name: Verify assumed identity
+        shell: bash
+        env:
+          EXPECTED_ACCOUNT: ${{ steps.settings.outputs.account_id }}
+          EXPECTED_ROLE: ${{ steps.settings.outputs.role_name }}
+        run: |
+          set -euo pipefail
+          identity=$(aws sts get-caller-identity --output json)
+          jq -e --arg account "$EXPECTED_ACCOUNT" --arg role "$EXPECTED_ROLE" '
+            .Account == $account and
+            (.Arn | startswith("arn:aws:sts::" + $account + ":assumed-role/" + $role + "/"))
+          ' <<< "$identity" >/dev/null
+          jq '{Account, Arn}' <<< "$identity"
+          echo 'Monitoring OIDC identity verified; no deployment was performed.'

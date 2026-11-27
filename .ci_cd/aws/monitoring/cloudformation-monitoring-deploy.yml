@@ -1,0 +1,257 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Explicit monitoring plan/deploy from a reviewed versioned bundle
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    AllowedPattern: "[a-z0-9]+(-[a-z0-9]+)*"
+    MaxLength: 32
+  MonitoringRoleName:
+    Type: String
+    Description: Existing dedicated monitoring GitHub role
+    AllowedPattern: "[A-Za-z0-9+=,.@_-]+"
+    MaxLength: 64
+  EC2RoleName:
+    Type: String
+    Description: Expected instance role verified on the host
+    AllowedPattern: "[A-Za-z0-9+=,.@_-]+"
+    MaxLength: 64
+  InstanceId:
+    Type: AWS::EC2::Instance::Id
+  ProjectName:
+    Type: String
+    Description: Independent monitoring Compose project; never the application project
+    AllowedPattern: "[a-z0-9][a-z0-9_-]{1,62}"
+  ExpectedDataVolumeUUID:
+    Type: String
+    Description: Independently verified retained XFS filesystem UUID
+    AllowedPattern: "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+  MonitoringSecretArn:
+    Type: String
+    Description: Full existing Secrets Manager ARN; passwords are never parameters
+    AllowedPattern: "arn:aws:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+"
+    MaxLength: 512
+
+Resources:
+  MonitoringDeploy:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: !Sub "openremote-monitoring-${EnvironmentName}-deploy"
+      DocumentType: Command
+      DocumentFormat: YAML
+      TargetType: /AWS::EC2::Instance
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: "2.2"
+        description: Verify and unpack a reviewed bundle, then run the requested host action
+        parameters:
+          Action:
+            type: String
+            interpolationType: ENV_VAR
+            allowedValues: [plan, deploy]
+            default: plan
+          ReleaseId:
+            type: String
+            interpolationType: ENV_VAR
+            allowedPattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$"
+          VersionId:
+            type: String
+            interpolationType: ENV_VAR
+            minChars: 1
+            maxChars: 1024
+            allowedPattern: "^[A-Za-z0-9._~+/=-]+$"
+          SHA256:
+            type: String
+            interpolationType: ENV_VAR
+            allowedPattern: "^[0-9a-f]{64}$"
+          CreateState:
+            type: String
+            interpolationType: ENV_VAR
+            allowedValues: ["false", "true"]
+            default: "false"
+          EnableTraces:
+            type: String
+            interpolationType: ENV_VAR
+            allowedValues: ["false", "true"]
+            default: "false"
+        mainSteps:
+          - name: monitoringDeploy
+            action: aws:runShellScript
+            precondition:
+              StringEquals: [platformType, Linux]
+            inputs:
+              timeoutSeconds: "1200"
+              runCommand:
+                - !Sub |
+                  set -eu
+                  umask 077
+                  python3 -E -s -B - <<'PYTHON'
+                  import hashlib
+                  import json
+                  import os
+                  from pathlib import Path
+                  import re
+                  import subprocess
+                  import sys
+                  import tarfile
+                  import tempfile
+
+                  ACCOUNT = "${AWS::AccountId}"
+                  REGION = "${AWS::Region}"
+                  CALLER = "arn:${AWS::Partition}:sts::${AWS::AccountId}:assumed-role/${EC2RoleName}/${InstanceId}"
+                  BUCKET = "openremote-monitoring-${AWS::AccountId}-${AWS::Region}"
+                  PREFIX = "${EnvironmentName}/releases/"
+                  PROJECT = "${ProjectName}"
+                  DATA_UUID = "${ExpectedDataVolumeUUID}"
+                  SECRET = "${MonitoringSecretArn}"
+                  ENV = dict(PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", HOME="/root",
+                             AWS_CONFIG_FILE="/dev/null", AWS_SHARED_CREDENTIALS_FILE="/dev/null",
+                             AWS_EC2_METADATA_DISABLED="false", AWS_PAGER="", AWS_MAX_ATTEMPTS="2",
+                             AWS_RETRY_MODE="standard")
+                  REQUIRED = {"deploy.py", "compose.yaml", "compose.traces.yaml", "customer.env",
+                              "config/logs.alloy", "config/host-metrics.alloy", "config/traces.alloy"}
+                  OPTIONAL = {"image.override.yaml"}
+                  MAX_DOWNLOAD = 8 * 1024 * 1024
+                  MAX_FILE = 1024 * 1024
+                  MAX_EXPANDED = 4 * 1024 * 1024
+
+
+                  class Error(Exception):
+                      pass
+
+
+                  def require(condition, message):
+                      if not condition:
+                          raise Error(message)
+
+
+                  def parameter(name, pattern, maximum=1024):
+                      value = os.environ.get("SSM_" + name, "")
+                      require(0 < len(value) <= maximum and re.fullmatch(pattern, value), "Invalid or missing " + name)
+                      return value
+
+
+                  def aws(arguments):
+                      command = ["aws", "--region", REGION, "--output", "json", "--cli-connect-timeout", "5",
+                                 "--cli-read-timeout", "30"] + arguments
+                      result = subprocess.run(command, env=ENV, capture_output=True, text=True, timeout=90)
+                      # Do not print raw AWS errors/responses or any downloaded file contents.
+                      require(result.returncode == 0, "AWS " + " ".join(arguments[:2]) + " failed")
+                      return json.loads(result.stdout)
+
+
+                  def unpack(archive, destination):
+                      seen, size = set(), 0
+                      with tarfile.open(archive, "r|gz") as bundle:
+                          for index, member in enumerate(bundle):
+                              require(index < 16, "Too many archive entries")
+                              require(member.name not in seen, "Duplicate archive entry")
+                              seen.add(member.name)
+                              if member.isdir():
+                                  require(member.name == "config", "Unexpected archive directory")
+                                  continue
+                              require(member.name in REQUIRED | OPTIONAL and member.isfile() and not member.issparse(),
+                                      "Unexpected archive path or type")
+                              require(0 <= member.size <= MAX_FILE, "Archive file exceeds size limit")
+                              size += member.size
+                              require(size <= MAX_EXPANDED, "Expanded archive exceeds size limit")
+                              target = destination / member.name
+                              target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                              with bundle.extractfile(member) as source, target.open("xb") as output:
+                                  content = source.read(MAX_FILE + 1)
+                                  require(len(content) == member.size, "Archive file size mismatch")
+                                  output.write(content)
+                              target.chmod(0o600)
+                      require(REQUIRED <= seen, "Bundle is missing required deployment files")
+
+
+                  def main():
+                      require(sys.platform == "linux" and os.geteuid() == 0, "Run through SSM as root on Linux")
+                      os.umask(0o077)
+                      action = parameter("Action", "plan|deploy")
+                      release = parameter("ReleaseId", "[A-Za-z0-9][A-Za-z0-9_-]{0,99}", 100)
+                      version = parameter("VersionId", "[A-Za-z0-9._~+/=-]+")
+                      require(version != "null", "An explicit non-null S3 version is required")
+                      checksum = parameter("SHA256", "[0-9a-f]{64}", 64)
+                      create = parameter("CreateState", "true|false", 5)
+                      traces = parameter("EnableTraces", "true|false", 5)
+                      require(aws(["sts", "get-caller-identity"]).get("Arn") == CALLER, "Unexpected EC2 caller identity")
+                      require(SECRET.startswith("arn:${AWS::Partition}:secretsmanager:" + REGION + ":" + ACCOUNT + ":secret:"),
+                              "Secret must belong to this account and region")
+                      key = PREFIX + release + "/bundle.tar.gz"
+                      print("PASS expected EC2 instance role", flush=True)
+                      with tempfile.TemporaryDirectory(prefix="openremote-monitoring-bundle-") as temporary:
+                          work = Path(temporary)
+                          archive = work / "bundle.tar.gz"
+                          response = aws(["s3api", "get-object", "--expected-bucket-owner", ACCOUNT,
+                                          "--bucket", BUCKET, "--key", key, "--version-id", version,
+                                          "--range", "bytes=0-" + str(MAX_DOWNLOAD), str(archive)])
+                          require(response.get("VersionId") == version, "Unexpected S3 object version")
+                          require(0 < archive.stat().st_size <= MAX_DOWNLOAD, "Downloaded bundle exceeds size limit or is empty")
+                          require(hashlib.sha256(archive.read_bytes()).hexdigest() == checksum, "Artifact checksum mismatch")
+                          source = work / "source"
+                          source.mkdir(mode=0o700)
+                          unpack(archive, source)
+                          print("PASS exact artifact version, checksum and file layout", flush=True)
+                          print(json.dumps(dict(action=action, project=PROJECT, bucket=BUCKET, key=key,
+                                                version_id=version, sha256=checksum)), flush=True)
+                          command = [sys.executable, "-E", "-s", "-B", str(source / "deploy.py"), action,
+                                     "--project", PROJECT, "--root", "/opt/openremote/monitoring",
+                                     "--source", str(source), "--env-file", str(source / "customer.env"),
+                                     "--data-uuid", DATA_UUID]
+                          if action == "deploy":
+                              command += ["--secret-arn", SECRET]
+                          if create == "true":
+                              command.append("--create-state")
+                          if traces == "true":
+                              command.append("--traces")
+                          # Reviewed code only: output from deploy.py is intentionally safe to send to SSM.
+                          result = subprocess.run(command, env=ENV, timeout=900)
+                          require(result.returncode == 0, "Host action failed; inspect output and actual status before retrying; no automatic rollback")
+                      print("PASS host action completed; temporary bundle removed", flush=True)
+
+
+                  if __name__ == "__main__":
+                      try:
+                          main()
+                      except subprocess.TimeoutExpired:
+                          print("FAIL command timed out; inspect actual host status before retrying; no automatic rollback", file=sys.stderr)
+                          sys.exit(1)
+                      except (Error, OSError, EOFError, ValueError, KeyError, tarfile.TarError):
+                          error = sys.exc_info()[1]
+                          print("FAIL " + (str(error) if isinstance(error, Error) else "Invalid artifact or host response; content withheld"), file=sys.stderr)
+                          sys.exit(1)
+                  PYTHON
+      Tags:
+        - Key: Component
+          Value: monitoring
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  MonitoringDeployAccess:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref MonitoringRoleName
+      PolicyName: !Sub "openremote-monitoring-${AWS::Region}-${EnvironmentName}-deploy"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: ssm:SendCommand
+            Resource:
+              - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${MonitoringDeploy}"
+              - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${InstanceId}"
+          - Effect: Allow
+            Action: ssm:GetCommandInvocation
+            Resource: "*"
+            Condition:
+              StringEquals:
+                aws:RequestedRegion: !Ref AWS::Region
+
+Outputs:
+  DeployDocumentName:
+    Value: !Ref MonitoringDeploy
+  DeployInstanceId:
+    Value: !Ref InstanceId
+  DeployProjectName:
+    Value: !Ref ProjectName

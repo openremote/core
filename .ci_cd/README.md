@@ -3,6 +3,21 @@
 The files in this directory are used by the [CI/CD workflows](../.github/workflows) of this repo and custom
 projects/forks, which deploy to a Linux host via SSH (see [deployment.yml](../.github/workflows/deployment.yml)).
 
+# Standalone EC2 monitoring
+
+The [Alloy collector](monitoring/README.md) and its
+[host deployment script](monitoring/deployment.md) have an independent lifecycle
+from application deployment. The [monitoring AWS templates](aws/monitoring/README.md)
+provision its dedicated OIDC role, artifacts, secrets and SSM command documents.
+Monitoring uses SSM; the application deployment described below continues to use SSH.
+
+Keep customer environment files and workflow callers in the customer repository.
+Central Grafana/Loki/Prometheus/Tempo provisioning and Kubernetes collector configuration
+remain in the infrastructure repository. Collector regression tests stay beside the
+code they validate. The [reusable staging monitoring workflow](monitoring/workflow.md)
+plans or explicitly deploys the collector through SSM. It remains separate from
+application deployments.
+
 # `ci_cd.json` File
 
 Configuration file for distribution (pushing openremote/manager docker images) and deploying for this specific

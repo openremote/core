@@ -1,0 +1,67 @@
+// Optional OTLP receivers on explicitly selected host addresses.
+// Use loopback for host-local clients or a private address for Docker clients.
+otelcol.receiver.otlp "applications" {
+  grpc {
+    endpoint = sys.env("OTLP_GRPC_LISTEN_ADDRESS")
+  }
+
+  http {
+    endpoint = sys.env("OTLP_HTTP_LISTEN_ADDRESS")
+  }
+
+  output {
+    traces = [otelcol.processor.memory_limiter.traces.input]
+  }
+}
+
+// Bound collector heap growth during a trace burst. If the soft limit is
+// exceeded the receiver applies backpressure so instrumented clients can retry.
+otelcol.processor.memory_limiter "traces" {
+  check_interval = "1s"
+  limit          = "384MiB"
+  spike_limit    = "80MiB"
+
+  output {
+    traces = [otelcol.processor.resourcedetection.deployment.input]
+  }
+}
+
+// Add the customer and deployment dimensions from OTEL_RESOURCE_ATTRIBUTES.
+// Override incoming values for these keys so every service in this deployment
+// is consistently isolated in Grafana; application-specific attributes such
+// as service.name remain untouched.
+otelcol.processor.resourcedetection "deployment" {
+  detectors = ["env"]
+  override  = true
+
+  output {
+    traces = [otelcol.processor.batch.traces.input]
+  }
+}
+
+otelcol.processor.batch "traces" {
+  timeout             = "2s"
+  send_batch_size     = 1000
+  send_batch_max_size = 2000
+
+  output {
+    traces = [otelcol.exporter.otlphttp.central_tempo.input]
+  }
+}
+
+// Loki and Tempo deliberately share one customer credential. The Basic Auth
+// username is also the Tempo tenant ID added by the central gateway.
+otelcol.auth.basic "central_tempo" {
+  // Alloy v1.18 fails to build the nested client_auth form even when both
+  // credential sources are populated. Use the supported top-level form.
+  username = sys.env("LOKI_USERNAME")
+  password = local.file.loki_password.content
+}
+
+otelcol.exporter.otlphttp "central_tempo" {
+  client {
+    // The exporter appends the OTLP/HTTP /v1/traces path.
+    endpoint = sys.env("TEMPO_OTLP_ENDPOINT")
+    auth     = otelcol.auth.basic.central_tempo.handler
+  }
+}
