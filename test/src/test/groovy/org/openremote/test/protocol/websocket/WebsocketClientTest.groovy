@@ -101,7 +101,7 @@ class WebsocketClientTest extends Specification implements ManagerContainerTrait
     def client = new WebsocketIOClient<String>(
             new URIBuilder("ws://127.0.0.1:$serverPort/websocket/events?Realm=building").build(),
             null,
-            new OAuthPasswordGrant("http://127.0.0.1:8081/auth/realms/building/protocol/openid-connect/token",
+            new OAuthPasswordGrant(getTokenUri("building"),
             KEYCLOAK_CLIENT_ID,
             null,
             null,
@@ -119,7 +119,7 @@ class WebsocketClientTest extends Specification implements ManagerContainerTrait
     def client2 = new WebsocketIOClient<String>(
             new URIBuilder("ws://127.0.0.1:$serverPort/websocket/events?Realm=building").build(),
             null,
-            new OAuthPasswordGrant("http://127.0.0.1:8081/auth/realms/building/protocol/openid-connect/token",
+            new OAuthPasswordGrant(getTokenUri("building"),
             KEYCLOAK_CLIENT_ID,
             null,
             null,
@@ -450,7 +450,7 @@ class WebsocketClientTest extends Specification implements ManagerContainerTrait
     def client = new WebsocketIOClient<String>(
             new URIBuilder("ws://127.0.0.1:$serverPort/websocket/events?Realm=master").build(),
             null,
-            new OAuthPasswordGrant("http://127.0.0.1:8081/auth/realms/master/protocol/openid-connect/token",
+            new OAuthPasswordGrant(getTokenUri("master"),
             KEYCLOAK_CLIENT_ID,
             null,
             null,

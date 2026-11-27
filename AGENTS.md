@@ -43,7 +43,7 @@ Start the container in `setupSpec`, not in each feature method, and remove any t
 
 ### Running tests
 
-When running integration tests, part of the stack (PostgreSQL and Keycloak) must be running. Start it with `docker compose -f profile/dev-testing.yml -p openremote up -d --no-build`.
+Integration and UI app tests need the test stack (PostgreSQL and Keycloak). Start it with `docker compose -f profile/test.yml up -d --no-build`. It runs on its own ports next to the `profile/dev-testing.yml` stack used for development, so the tests never clean the development data.
 
 Spock snapshots are stored under `model/src/test/resources/snapshots`. Rewrite them with `./gradlew :model:test -PupdateSnapshots` and review the resulting diff, since a mismatch is only reported as a test failure otherwise.
 

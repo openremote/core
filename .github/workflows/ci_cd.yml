@@ -653,7 +653,7 @@ jobs:
         if: ${{ steps.test-backend-command.outputs.value != '' || steps.test-ui-apps-command.outputs.value != '' }}
         run: |
           # Only need keycloak and postgres services for backend and end-to-end testing
-          docker compose -f profile/dev-testing.yml pull
+          docker compose -f profile/test.yml pull
 
       # Use docker layer caching to speed up image building
       - uses: jpribyl/action-docker-layer-caching@c632825d12ec837065f49726ea27ddd40bcc7894 # v0.1.1
@@ -723,7 +723,7 @@ jobs:
         id: run-backend-tests
         if: ${{ steps.test-backend-command.outputs.value != '' }}
         run: |
-          composeProfile='profile/dev-testing.yml'
+          composeProfile='profile/test.yml'
 
           # Define cleanup command
           echo "cleanup=docker compose -f $composeProfile down -v" >> $GITHUB_OUTPUT
@@ -810,7 +810,7 @@ jobs:
         # Skip UI app tests for custom projects until we want to use them there
         if: steps.test-ui-apps-command.outputs.value != '' && steps.is_core_repo.outputs.value == 'true'
         run: |
-          composeProfile='profile/dev-testing.yml'
+          composeProfile='profile/test.yml'
 
           # Define cleanup command
           echo "cleanup=docker compose -f $composeProfile down -v" >> $GITHUB_OUTPUT

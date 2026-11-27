@@ -48,7 +48,7 @@ jobs:
         timeout-minutes: 20
         run: |
           # Start the stack
-          docker compose -f profile/dev-testing.yml up -d --no-build
+          docker compose -f profile/test.yml up -d --no-build
 
           # Run the tests
           ./gradlew -p ui/app npmTest -Pargs="--shard=${{ matrix.shardIndex }}/${{ matrix.shardCount }}"

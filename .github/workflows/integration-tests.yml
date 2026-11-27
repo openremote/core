@@ -23,14 +23,14 @@ jobs:
           java-version: "21"
           cache: "gradle"
       - name: Pull Docker images
-        run: docker compose -f profile/dev-testing.yml pull # Only Keycloak and PostgreSQL for running integration tests
+        run: docker compose -f profile/test.yml pull # Only Keycloak and PostgreSQL for running integration tests
       - name: Run integration tests
         timeout-minutes: 40
         run: |
           # Run Integration Tests
 
           # Start the stack
-          docker compose -f profile/dev-testing.yml up -d --no-build
+          docker compose -f profile/test.yml up -d --no-build
 
           # Run the tests
           ./gradlew :test:test

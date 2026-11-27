@@ -35,7 +35,7 @@ import org.openremote.manager.security.ManagerKeycloakIdentityProvider;
 import org.openremote.model.Constants;
 import org.openremote.model.auth.OAuthGrant;
 import org.openremote.model.auth.OAuthPasswordGrant;
-import org.openremote.model.util.TextUtil;
+import org.openremote.model.util.Config;
 import org.openremote.model.util.ValueUtil;
 
 /**
@@ -59,9 +59,8 @@ public abstract class AbstractKeycloakMigration extends BaseJavaMigration {
 
   protected boolean isKeycloakDeployment() {
     String identityProvider =
-        System.getenv()
-            .getOrDefault(
-                IdentityService.OR_IDENTITY_PROVIDER, IdentityService.OR_IDENTITY_PROVIDER_DEFAULT);
+        Config.getString(
+            IdentityService.OR_IDENTITY_PROVIDER, IdentityService.OR_IDENTITY_PROVIDER_DEFAULT);
     return IdentityService.OR_IDENTITY_PROVIDER_DEFAULT.equals(identityProvider);
   }
 
@@ -115,14 +114,12 @@ public abstract class AbstractKeycloakMigration extends BaseJavaMigration {
 
   private OAuthPasswordGrant loadStoredCredentials() {
     String storageDir =
-        System.getenv()
-            .getOrDefault(
-                PersistenceService.OR_STORAGE_DIR, PersistenceService.OR_STORAGE_DIR_DEFAULT);
+        Config.getString(
+            PersistenceService.OR_STORAGE_DIR, PersistenceService.OR_STORAGE_DIR_DEFAULT);
     String grantFile =
-        System.getenv()
-            .getOrDefault(
-                ManagerKeycloakIdentityProvider.OR_KEYCLOAK_GRANT_FILE,
-                ManagerKeycloakIdentityProvider.OR_KEYCLOAK_GRANT_FILE_DEFAULT);
+        Config.getString(
+            ManagerKeycloakIdentityProvider.OR_KEYCLOAK_GRANT_FILE,
+            ManagerKeycloakIdentityProvider.OR_KEYCLOAK_GRANT_FILE_DEFAULT);
 
     if (grantFile == null || grantFile.isBlank()) {
       return null;
@@ -150,10 +147,8 @@ public abstract class AbstractKeycloakMigration extends BaseJavaMigration {
   }
 
   private OAuthPasswordGrant loadAdminFallbackCredentials() {
-    // Blank values are treated as absent, matching Config.init which filters them from the runtime
-    // config
-    String adminPassword = System.getenv(IdentityProvider.OR_ADMIN_PASSWORD);
-    if (TextUtil.isNullOrEmpty(adminPassword)) {
+    String adminPassword = Config.getString(IdentityProvider.OR_ADMIN_PASSWORD, null);
+    if (adminPassword == null) {
       adminPassword = IdentityProvider.OR_ADMIN_PASSWORD_DEFAULT;
       LOG.warning(
           "Stored keycloak credentials not available and "
@@ -179,22 +174,18 @@ public abstract class AbstractKeycloakMigration extends BaseJavaMigration {
         UriBuilder.fromPath("/")
             .scheme("http")
             .host(
-                System.getenv()
-                    .getOrDefault(
-                        KeycloakIdentityProvider.OR_KEYCLOAK_HOST,
-                        KeycloakIdentityProvider.OR_KEYCLOAK_HOST_DEFAULT))
+                Config.getString(
+                    KeycloakIdentityProvider.OR_KEYCLOAK_HOST,
+                    KeycloakIdentityProvider.OR_KEYCLOAK_HOST_DEFAULT))
             .port(
-                Integer.parseInt(
-                    System.getenv()
-                        .getOrDefault(
-                            KeycloakIdentityProvider.OR_KEYCLOAK_PORT,
-                            String.valueOf(KeycloakIdentityProvider.OR_KEYCLOAK_PORT_DEFAULT))));
+                Config.getInt(
+                    KeycloakIdentityProvider.OR_KEYCLOAK_PORT,
+                    KeycloakIdentityProvider.OR_KEYCLOAK_PORT_DEFAULT));
 
     String path =
-        System.getenv()
-            .getOrDefault(
-                KeycloakIdentityProvider.OR_KEYCLOAK_PATH,
-                KeycloakIdentityProvider.OR_KEYCLOAK_PATH_DEFAULT);
+        Config.getString(
+            KeycloakIdentityProvider.OR_KEYCLOAK_PATH,
+            KeycloakIdentityProvider.OR_KEYCLOAK_PATH_DEFAULT);
     if (path != null && !path.isBlank()) {
       uriBuilder.path(path);
     }

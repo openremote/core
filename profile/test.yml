@@ -1,0 +1,36 @@
+# OpenRemote v3
+#
+# Profile for running the integration and UI app tests. It runs as its own project on its own ports, so the tests
+# never touch the data of the dev-testing.yml stack. The database lives in memory and is gone when the stack stops.
+#
+# Please see profile/deploy.yml for configuration details for each service.
+#
+name: openremote-test
+
+services:
+  keycloak:
+    extends:
+      file: deploy.yml
+      service: keycloak
+    ports:
+      - "18081:8080"
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    environment:
+      # The UI app tests start their manager at this URL
+      OR_MANAGER_URL: ${OR_MANAGER_URL:-http://127.0.0.1:18080}
+
+  postgresql:
+    extends:
+      file: deploy.yml
+      service: postgresql
+    # The in-memory data directory counts towards this limit
+    deploy:
+      resources:
+        limits:
+          memory: ${OR_DB_RAM:-1G}
+    tmpfs:
+      - /var/lib/postgresql/data:uid=70,gid=70
+    ports:
+      - "15432:5432"
