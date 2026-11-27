@@ -18,11 +18,14 @@
  */
 package org.openremote.model.gateway;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import java.util.Objects;
 import java.util.Optional;
 import org.openremote.model.attribute.Attribute;
 import org.openremote.model.query.AssetQuery;
 import org.openremote.model.util.TextUtil;
 import org.openremote.model.util.TimeUtil;
+import org.openremote.model.util.ValueUtil;
 
 /**
  * A filter for limiting when {@link org.openremote.model.attribute.AttributeEvent}s are sent to the
@@ -120,6 +123,28 @@ public class GatewayAttributeFilter {
         && (valueChange == null || !valueChange)
         && delta == null
         && TextUtil.isNullOrEmpty(duration);
+  }
+
+  @Override
+  public boolean equals(Object other) {
+    if (this == other) return true;
+    if (other == null || getClass() != other.getClass()) return false;
+    GatewayAttributeFilter that = (GatewayAttributeFilter) other;
+    return Objects.equals(duration, that.duration)
+        && Objects.equals(delta, that.delta)
+        && Objects.equals(valueChange, that.valueChange)
+        && Objects.equals(skipAlways, that.skipAlways)
+        && (matcher == that.matcher || matcherDefinition().equals(that.matcherDefinition()));
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(duration, delta, valueChange, skipAlways, matcherDefinition());
+  }
+
+  private JsonNode matcherDefinition() {
+    // AssetQuery and its nested predicates are stored as JSON.
+    return ValueUtil.JSON.valueToTree(matcher);
   }
 
   @Override
