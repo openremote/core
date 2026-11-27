@@ -164,7 +164,7 @@ public class UserAssetProvisioningMQTTHandler extends MQTTHandler {
 
   protected static final Logger LOG =
       SyslogCategory.getLogger(API, UserAssetProvisioningMQTTHandler.class);
-  public static final String PROVISIONING_TOKEN = "provisioning";
+  public static final String PROVISIONING_TOKEN = "provisioningv2";
   public static final String REQUEST_TOKEN = "request";
   public static final String RESPONSE_TOKEN = "response";
   public static final String UNIQUE_ID_PLACEHOLDER = "%UNIQUE_ID%";
