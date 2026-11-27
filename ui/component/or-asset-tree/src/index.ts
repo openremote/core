@@ -1944,6 +1944,12 @@ export class OrAssetTree extends subscribe(manager)(OrElement) {
         assetQuery: query,
       });
       eventPromise.then((ev) => {
+        if (query.realm?.name !== manager.displayRealm) {
+          // The display realm changed during the load, so load the new realm instead
+          this._loading = false;
+          this._loadAssets().catch((ex) => console.warn("Failed to reload assets after a realm change", ex));
+          return;
+        }
         const newAssets = (ev as AssetTreeEvent).assetTree?.assets ?? [];
         const hasMore = (ev as AssetTreeEvent).assetTree?.hasMore ?? false;
         if (!parentId) {
@@ -2151,7 +2157,8 @@ export class OrAssetTree extends subscribe(manager)(OrElement) {
     }
 
     console.debug(`Asset tree nodes built. Now selecting ${this.selectedIds?.length} nodes...`);
-    if (this.selectedIds && this.selectedIds.length > 0) {
+    // Selected nodes belong to the previous build, so derive them again
+    if (this.selectedIds?.length || this._selectedNodes.length) {
       this._updateSelectedNodes();
     }
 

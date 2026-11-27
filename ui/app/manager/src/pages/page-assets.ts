@@ -16,8 +16,8 @@
  *
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
-import { css, html, type TemplateResult, unsafeCSS } from "lit";
-import { customElement, property, query } from "lit/decorators.js";
+import { css, html, type PropertyValues, type TemplateResult, unsafeCSS } from "lit";
+import { customElement, property, query, state } from "lit/decorators.js";
 import "@openremote/or-asset-viewer";
 import {
   type OrAssetViewer,
@@ -45,7 +45,7 @@ import {
 } from "@openremote/or-asset-tree";
 import manager, { DefaultBoxShadow, Util } from "@openremote/core";
 import { type AppStateKeyed, Page, type PageProvider, router } from "@openremote/or-app";
-import { createSlice, type Store, createSelector } from "@reduxjs/toolkit";
+import { createSlice, type Store } from "@reduxjs/toolkit";
 import { type OrVaadinDialog, showDialog } from "@openremote/or-vaadin-components/or-vaadin-dialog";
 import { type Asset, AssetEventCause, WellknownAssets } from "@openremote/model";
 import "@openremote/or-json-forms";
@@ -169,6 +169,9 @@ export class PageAssets extends Page<AssetsStateKeyed> {
   @property() // selected asset ids
   protected _assetIds?: string[];
 
+  @state()
+  protected _realm?: string;
+
   @query("#tree")
   protected _tree!: OrAssetTree;
 
@@ -181,20 +184,6 @@ export class PageAssets extends Page<AssetsStateKeyed> {
   get name(): string {
     return "assets";
   }
-
-  protected getRealmState = createSelector([this._realmSelector], async (realm: string) => {
-    // Prevent execution on initial load
-    if (this.isUpdatePending) {
-      return;
-    }
-    if (this._viewer) {
-      this._viewer.assetId = undefined;
-    }
-    if (this._tree) {
-      this._tree.refresh();
-    }
-    this._updateRoute(true);
-  });
 
   constructor(store: Store<AssetsStateKeyed>) {
     super(store);
@@ -255,10 +244,24 @@ export class PageAssets extends Page<AssetsStateKeyed> {
     `;
   }
 
+  protected willUpdate(changedProps: PropertyValues) {
+    super.willUpdate(changedProps);
+    if (changedProps.has("_realm") && changedProps.get("_realm") !== undefined) {
+      this._onRealmChanged();
+    }
+  }
+
+  protected _onRealmChanged() {
+    this._assetIds = undefined;
+    this._tree?.applyFilter(new OrAssetTreeFilter(), true);
+    this._tree?.refresh();
+    this._updateRoute(false);
+  }
+
   // State is only utilized for initial loading, and for changes within the store.
   // On the assets page, we shouldn't change editMode nor assetIds if the URL/state hasn't changed.
   stateChanged(state: AssetsStateKeyed) {
-    this.getRealmState(state); // Order is important here!
+    this._realm = this._realmSelector(state);
     this._editMode = !!(state.app.params && state.app.params.editMode === "true");
     if (state.app.params?.ids) {
       const newIds = state.app.params.ids.split(",");

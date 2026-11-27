@@ -25,7 +25,6 @@ import type { Store } from "@reduxjs/toolkit";
 import { Page, type PageProvider } from "@openremote/or-app";
 import type { AppStateKeyed } from "@openremote/or-app";
 import manager from "@openremote/core";
-import { createSelector } from "reselect";
 
 export interface PageRulesConfig {
   rules: RulesConfig;
@@ -100,11 +99,7 @@ export class PageRules extends Page<AppStateKeyed> {
 
   protected _realmSelector = (state: AppStateKeyed) => state.app.realm || manager.displayRealm;
 
-  protected getRealmState = createSelector([this._realmSelector], async (realm) => {
-    if (this._orRules) {
-      this._orRules.refresh();
-    }
-  });
+  protected _realm?: string;
 
   get name(): string {
     return "rules";
@@ -124,6 +119,10 @@ export class PageRules extends Page<AppStateKeyed> {
   }
 
   public stateChanged(state: AppStateKeyed) {
-    this.getRealmState(state);
+    const realm = this._realmSelector(state);
+    if (realm !== this._realm) {
+      this._realm = realm;
+      this._orRules?.refresh();
+    }
   }
 }

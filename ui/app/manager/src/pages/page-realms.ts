@@ -17,7 +17,6 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 import { css, html, type PropertyValues, type TemplateResult, unsafeCSS } from "lit";
-import { createSelector } from "reselect";
 import { createRef, type Ref, ref } from "lit/directives/ref.js";
 import { customElement, property, state } from "lit/decorators.js";
 import manager, { DefaultColor3 } from "@openremote/core";
@@ -274,9 +273,7 @@ export class PageRealms extends Page<AppStateKeyed> {
     this.requestUpdate();
   }
 
-  protected getRealmState = createSelector([this._realmSelector], async (realm) => {
-    this.requestUpdate();
-  });
+  protected _realm?: string;
 
   constructor(store: Store<AppStateKeyed>) {
     super(store);
@@ -491,7 +488,11 @@ export class PageRealms extends Page<AppStateKeyed> {
   }
 
   public stateChanged(state: AppStateKeyed) {
-    this.getRealmState(state);
+    const realm = this._realmSelector(state);
+    if (realm !== this._realm) {
+      this._realm = realm;
+      this.requestUpdate();
+    }
   }
 
   protected async _getRealms() {

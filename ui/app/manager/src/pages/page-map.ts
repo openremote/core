@@ -18,7 +18,7 @@
  */
 import { css, html } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
-import { createSlice, type Store, type PayloadAction } from "@reduxjs/toolkit";
+import { createSelector, createSlice, type Store, type PayloadAction } from "@reduxjs/toolkit";
 import "@openremote/or-map";
 import {
   type MapAssetCardConfig,
@@ -32,7 +32,6 @@ import {
   OrMapMarkersChangedEvent,
 } from "@openremote/or-map";
 import manager, { Util } from "@openremote/core";
-import { createSelector } from "reselect";
 import {
   type Asset,
   type AssetEvent,
@@ -221,6 +220,7 @@ export class PageMap extends Page<MapStateKeyed> {
   protected _unlocatedAssetSelector = (state: MapStateKeyed) => state.map.unlocatedAssets;
   protected _paramsSelector = (state: MapStateKeyed) => state.app.params;
   protected _realmSelector = (state: MapStateKeyed) => state.app.realm || manager.displayRealm;
+  protected _realm?: string;
 
   protected _activeFiltersSelector = createSelector([this._realmSelector], (realm) =>
     this.config?.filters?.filter((f) => !f.realms?.length || f.realms.includes(realm))
@@ -373,16 +373,6 @@ export class PageMap extends Page<MapStateKeyed> {
     this._map?.removeAllAssets();
   };
 
-  protected getRealmState = createSelector([this._realmSelector], async (realm) => {
-    this.unsubscribeAssets();
-    this.subscribeAssets(realm);
-    this._map?.refresh();
-  });
-
-  protected _getMapAssets = createSelector([this._locatedAssetSelector], (assets) => {
-    return assets;
-  });
-
   protected _getCurrentAsset = createSelector([this._locatedAssetSelector, this._paramsSelector], (assets, params) => {
     const currentId = params ? params.id : undefined;
 
@@ -461,9 +451,15 @@ export class PageMap extends Page<MapStateKeyed> {
   }
 
   stateChanged(state: MapStateKeyed) {
-    this._assets = this._getMapAssets(state);
+    this._assets = this._locatedAssetSelector(state);
     this._currentAsset = this._getCurrentAsset(state);
-    this.getRealmState(state);
+    const realm = this._realmSelector(state);
+    if (realm !== this._realm) {
+      this._realm = realm;
+      this.unsubscribeAssets();
+      this.subscribeAssets(realm);
+      this._map?.refresh();
+    }
   }
 
   protected _onMapMarkerClick(e: OrMapMarkerClickedEvent) {

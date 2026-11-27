@@ -21,7 +21,6 @@ import { customElement, property, query, state } from "lit/decorators.js";
 import { Page, type PageProvider, router } from "@openremote/or-app";
 import type { AppStateKeyed } from "@openremote/or-app";
 import type { Store } from "@reduxjs/toolkit";
-import { createSelector } from "reselect";
 import { manager } from "@openremote/core";
 import "@openremote/or-dashboard-builder";
 import { ClientRole, type Dashboard } from "@openremote/model";
@@ -85,15 +84,11 @@ export class PageInsights extends Page<AppStateKeyed> {
   }
 
   protected _realmSelector = (state: AppStateKeyed) => state.app.realm || manager.displayRealm;
+  protected _realm?: string;
 
   get name(): string {
     return "insights";
   }
-
-  protected getRealmState = createSelector([this._realmSelector], async () => {
-    this._updateRoute(true);
-    this.requestUpdate();
-  });
 
   constructor(store: Store<AppStateKeyed>) {
     super(store);
@@ -140,7 +135,12 @@ export class PageInsights extends Page<AppStateKeyed> {
 
   stateChanged(state: AppStateKeyed) {
     // State is only utilized for initial loading
-    this.getRealmState(state); // Order is important here!
+    const realm = this._realmSelector(state);
+    if (realm !== this._realm) {
+      this._realm = realm;
+      this._updateRoute(true);
+      this.requestUpdate();
+    }
     this._editMode =
       state.app.params && state.app.params.editMode
         ? state.app.params.editMode === "true" && manager.hasRole(ClientRole.WRITE_INSIGHTS)
