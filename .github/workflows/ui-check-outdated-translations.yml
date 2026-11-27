@@ -22,18 +22,4 @@ jobs:
           cache: "gradle"
       - name: Check for outdated translations
         timeout-minutes: 20
-        run: |
-          # Check Outdated Translations
-          ./gradlew -p ui/app/shared processTranslations --no-parallel
-
-          out=$(git status --porcelain | grep "ui/app/shared/locales" || true)
-          if [[ -z "$out" ]]; then
-            echo "✅ No pipeline changes detected."
-          else
-            echo "❌ Pipeline files have changed. Please run:
-            \`\`\`sh
-            ./gradlew -p ui/app/shared processTranslations --no-parallel
-            \`\`\`
-            $out" >> $GITHUB_STEP_SUMMARY
-            exit 1
-          fi
+        run: ./gradlew :ui:app:shared:checkTranslations --no-parallel
