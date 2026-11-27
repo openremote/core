@@ -360,7 +360,15 @@ services:
 
       # Configure the max age in weeks for data points stored in the database; data points are kept indefinitely when
       # not set. The deprecated OR_DATA_POINTS_MAX_AGE_DAYS is still used (rounded up to weeks) when this is not set.
+      # Chunks are dropped once their whole time range is older than this, checked daily.
       # OR_DATA_POINTS_MAX_AGE_WEEKS: 4
+
+      # Configure the time range in days of each data point chunk (TimescaleDB hypertable partition); defaults to 7 and
+      # is applied on startup to chunks created from then on. The chunk being written should fit in about 25% of the
+      # database memory (roughly shared_buffers); the query-exporter metric pg_datapoint_chunk_memory_ratio goes over 1
+      # when it is too large. Only reduce it when needed: each chunk adds query planning overhead, so combine small chunks with
+      # OR_DATA_POINTS_MAX_AGE_WEEKS. E.g. a system writing 1.7GB of data points a day should use 1.
+      # OR_DATA_POINTS_CHUNK_INTERVAL_DAYS: 7
 
       # Configure the limit of data points that can be queried.
       # Defaults to 100.000. When set to 0, it disables the limit.
