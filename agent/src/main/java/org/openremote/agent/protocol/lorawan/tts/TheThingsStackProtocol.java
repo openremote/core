@@ -268,9 +268,10 @@ public class TheThingsStackProtocol
                 + "/up");
       } else {
         LOG.warning(
-            "CSV import failure because couldn't find device "
+            "Skipped LoRaWAN asset because the device was not found on the network server"
+                + " while configuring the MQTT subscription topic for "
                 + deviceRecord
-                + " on LoRaWAN network server for: "
+                + " on "
                 + getProtocolInstanceUri());
         isOk = false;
       }
@@ -307,9 +308,10 @@ public class TheThingsStackProtocol
                 + "/down/push");
       } else {
         LOG.warning(
-            "CSV import failure because couldn't find device "
+            "Skipped LoRaWAN asset because the device was not found on the network server"
+                + " while configuring the MQTT publish topic for "
                 + deviceRecord
-                + " on LoRaWAN network server for: "
+                + " on "
                 + getProtocolInstanceUri());
         isOk = false;
       }
@@ -363,8 +365,11 @@ public class TheThingsStackProtocol
       } catch (JsonProcessingException e) {
         isOk = false;
         LOG.log(
-            Level.SEVERE,
-            "CSV import failure " + deviceRecord + " for: " + getProtocolInstanceUri(),
+            Level.WARNING,
+            "Skipped LoRaWAN asset because the MQTT downlink template could not be created for "
+                + deviceRecord
+                + " on "
+                + getProtocolInstanceUri(),
             e);
       }
     }
