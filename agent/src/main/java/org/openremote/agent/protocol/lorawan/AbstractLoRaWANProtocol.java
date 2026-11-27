@@ -460,7 +460,7 @@ public abstract class AbstractLoRaWANProtocol<
       asset = (Asset<?>) constructor.newInstance(deviceRecord.getName());
     } catch (ReflectiveOperationException e) {
       LOG.log(
-          Level.INFO,
+          Level.WARNING,
           "CSV import failed to create asset " + deviceRecord + " for: " + getProtocolInstanceUri(),
           e);
     }
@@ -469,15 +469,19 @@ public abstract class AbstractLoRaWANProtocol<
 
   protected Optional<Asset<?>> configureAsset(Asset<?> asset, DeviceRecord deviceRecord) {
     if (asset == null || deviceRecord == null) {
+      LOG.warning(
+          () ->
+              "Skipped LoRaWAN asset configuration because the "
+                  + (asset == null ? "asset" : "device record")
+                  + " is missing for "
+                  + getProtocolInstanceUri());
       return Optional.empty();
     }
 
+    Optional<Attribute<Object>> devEuiAttribute = asset.getAttribute(ATTRIBUTE_NAME_DEV_EUI);
     Optional.ofNullable(deviceRecord.getDevEUI())
         .ifPresent(
-            devEUI ->
-                asset
-                    .getAttribute(ATTRIBUTE_NAME_DEV_EUI)
-                    .ifPresent(attribute -> attribute.setValue(devEUI.toUpperCase())));
+            devEui -> devEuiAttribute.ifPresent(attr -> attr.setValue(devEui.toUpperCase())));
     Optional.ofNullable(deviceRecord.getVendorId())
         .ifPresent(
             vendorId ->
@@ -497,17 +501,36 @@ public abstract class AbstractLoRaWANProtocol<
                     .getAttribute(ATTRIBUTE_NAME_FIRMWARE_VERSION)
                     .ifPresent(attribute -> attribute.setValue(version)));
 
-    asset
-        .getAttribute(ATTRIBUTE_NAME_DEV_EUI)
-        .flatMap(attr -> attr.getValue(String.class))
-        .filter(devEui -> !isNullOrEmpty(devEui))
-        .ifPresent(
-            devEui -> {
-              asset.setId(generateAssetId(devEui));
-              asset.setParentId(getAgent().getId());
-            });
+    Optional<String> devEui =
+        devEuiAttribute
+            .flatMap(attr -> attr.getValue(String.class))
+            .filter(value -> !isNullOrEmpty(value));
+    devEui.ifPresent(
+        value -> {
+          asset.setId(generateAssetId(value));
+          asset.setParentId(getAgent().getId());
+        });
 
     boolean isOk = !isNullOrEmpty(asset.getId());
+    if (!isOk) {
+      String reason;
+      if (devEuiAttribute.isEmpty()) {
+        reason = "the mandatory '" + ATTRIBUTE_NAME_DEV_EUI + "' attribute is missing";
+      } else if (devEui.isEmpty()) {
+        reason = "the mandatory '" + ATTRIBUTE_NAME_DEV_EUI + "' attribute has no usable value";
+      } else {
+        reason = "an asset ID could not be generated";
+      }
+      LOG.warning(
+          () ->
+              "Skipped LoRaWAN asset of type '%s' for device '%s' (devEUI '%s') on %s because %s"
+                  .formatted(
+                      asset.getType(),
+                      deviceRecord.getName(),
+                      deviceRecord.getDevEUI(),
+                      getProtocolInstanceUri(),
+                      reason));
+    }
 
     for (Attribute<?> attribute : asset.getAttributes().values()) {
       MQTTAgentLink agentLink = new MQTTAgentLink(agent.getId());
