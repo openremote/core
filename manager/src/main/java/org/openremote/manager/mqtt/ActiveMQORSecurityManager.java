@@ -32,6 +32,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.security.auth.Subject;
 import org.apache.activemq.artemis.core.config.WildcardConfiguration;
+import org.apache.activemq.artemis.core.protocol.mqtt.MQTTConnection;
 import org.apache.activemq.artemis.core.protocol.mqtt.MQTTUtil;
 import org.apache.activemq.artemis.core.security.CheckType;
 import org.apache.activemq.artemis.core.security.Role;
@@ -139,6 +140,16 @@ public class ActiveMQORSecurityManager implements ActiveMQSecurityManager5 {
                 + cause);
         return null;
       }
+    }
+
+    // In Artemis 2.57.0, MQTTProtocolHandler.handleConnect() registers the client ID after
+    // authentication returns. If the transport closes during token lookup, disconnect cleanup can
+    // finish before there is an entry to remove. Registering the closed connection afterward
+    // blocks reconnects with the same ID because we set allowLinkStealing=false. This check narrows
+    // the race to the interval between isOpen() and addConnectedClient().
+    if (remotingConnection instanceof MQTTConnection
+        && !remotingConnection.getTransportConnection().isOpen()) {
+      return null;
     }
 
     Subject subject = new Subject(true, principals, Set.of(), Set.of());
