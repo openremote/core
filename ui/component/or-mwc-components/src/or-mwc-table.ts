@@ -197,7 +197,16 @@ export interface TableColumn {
   isSortable?: boolean;
 }
 
-export type TableContent = string | number | Date | TemplateResult;
+export type TableContent = string | number | Date | TemplateResult | SortableTableTemplate;
+
+export interface SortableTableTemplate {
+  template: TemplateResult;
+  sortValue: string | number;
+}
+
+function isSortableTableTemplate(content: TableContent | undefined): content is SortableTableTemplate {
+  return typeof content === "object" && content !== null && "sortValue" in content;
+}
 
 export interface TableRow {
   content?: TableContent[];
@@ -566,6 +575,8 @@ export class OrMwcTable extends OrElement {
       return content as string;
     } else if (content instanceof Date) {
       return moment(content).format("lll");
+    } else if (isSortableTableTemplate(content)) {
+      return content.template;
     } else {
       return content;
     }
@@ -687,8 +698,8 @@ export class OrMwcTable extends OrElement {
    * Function that handles several sorts of table content; from dates to HTML templates.
    * */
   protected sortObjectRows(rowA: TableRow, rowB: TableRow, cIndex: number, sortDirection: "ASC" | "DESC"): number {
-    const cellA = rowA.content?.[cIndex];
-    const cellB = rowB.content?.[cIndex];
+    const cellA = this.getSortValue(rowA.content?.[cIndex]);
+    const cellB = this.getSortValue(rowB.content?.[cIndex]);
     const isSortable = (content: any) => typeof content === "string" || typeof content === "number";
     const isTemplate = (content: any) => content.strings !== undefined && content.values !== undefined;
 
@@ -700,6 +711,10 @@ export class OrMwcTable extends OrElement {
       return this.sortTemplateRows(cellA, cellB, 0, sortDirection);
     }
     return 1;
+  }
+
+  protected getSortValue(content: TableContent | undefined): Exclude<TableContent, SortableTableTemplate> | undefined {
+    return isSortableTableTemplate(content) ? content.sortValue : content;
   }
 
   protected sortDateRows(dateA: Date, dateB: Date, cIndex: number, sortDirection: "ASC" | "DESC"): number {
