@@ -19,6 +19,7 @@
 package org.openremote.model.dashboard;
 
 import jakarta.validation.constraints.Min;
+import java.util.Objects;
 
 public class DashboardGridItem {
 
@@ -57,5 +58,28 @@ public class DashboardGridItem {
   public DashboardGridItem setH(int h) {
     this.h = h;
     return this;
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (!(o instanceof DashboardGridItem that)) return false;
+    return x == that.x
+        && y == that.y
+        && w == that.w
+        && h == that.h
+        && minH == that.minH
+        && minW == that.minW
+        && minPixelH == that.minPixelH
+        && minPixelW == that.minPixelW
+        && noResize == that.noResize
+        && noMove == that.noMove
+        && locked == that.locked
+        && Objects.equals(id, that.id);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(id, x, y, w, h, minH, minW, minPixelH, minPixelW, noResize, noMove, locked);
   }
 }

@@ -22,6 +22,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import java.util.Objects;
+import org.openremote.model.util.ValueUtil;
 
 public class DashboardWidget {
 
@@ -91,11 +92,12 @@ public class DashboardWidget {
         && Objects.equals(displayName, that.displayName)
         && Objects.equals(gridItem, that.gridItem)
         && Objects.equals(widgetTypeId, that.widgetTypeId)
-        && Objects.equals(widgetConfig, that.widgetConfig);
+        && ValueUtil.objectsEqualsWithJSONFallback(widgetConfig, that.widgetConfig);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(id, displayName, gridItem, widgetTypeId, widgetConfig);
+    // widgetConfig is left out; its JSON arrays deserialize to Object[] and hash by identity
+    return Objects.hash(id, displayName, gridItem, widgetTypeId);
   }
 }

@@ -163,6 +163,7 @@ public interface DashboardResource {
   @OpenApiResponses.Authenticated
   @OpenApiResponses.BadRequest
   @OpenApiResponses.NotFound
+  @OpenApiResponses.Conflict
   @OpenApiResponses.ServerError
   Dashboard update(
       @BeanParam RequestParams requestParams,

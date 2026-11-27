@@ -20,6 +20,8 @@ package org.openremote.manager.dashboard;
 
 import static jakarta.ws.rs.core.Response.Status.*;
 
+import jakarta.persistence.EntityNotFoundException;
+import jakarta.persistence.OptimisticLockException;
 import jakarta.ws.rs.WebApplicationException;
 import java.util.HashSet;
 import java.util.Optional;
@@ -98,37 +100,43 @@ public class DashboardResourceImpl extends ManagerWebResource implements Dashboa
 
   @Override
   public Dashboard create(RequestParams requestParams, Dashboard dashboard) {
-    String realm = dashboard.getRealm();
-    if (realm == null) {
+    if (dashboard == null || dashboard.getRealm() == null) {
       throw new WebApplicationException(BAD_REQUEST);
     }
-    if (!isRealmActiveAndAccessible(dashboard.getRealm())) {
+    String realm = dashboard.getRealm();
+    if (!isRealmActiveAndAccessible(realm)) {
       throw new WebApplicationException(FORBIDDEN);
     }
     try {
       dashboard.setOwnerId(getUserId());
       dashboard.setAccess(DashboardAccess.SHARED);
       return this.dashboardStorageService.createNew(ValueUtil.clone(dashboard));
+    } catch (IllegalArgumentException ex) {
+      throw new WebApplicationException(ex, BAD_REQUEST); // Invalid dashboard
     } catch (IllegalStateException ex) {
-      throw new WebApplicationException(ex, INTERNAL_SERVER_ERROR);
+      throw new WebApplicationException(ex, INTERNAL_SERVER_ERROR); // An unexpected error occurred
     }
   }
 
   @Override
   public Dashboard update(RequestParams requestParams, Dashboard dashboard) {
-    String realm = dashboard.getRealm();
-    if (realm == null) {
+    if (dashboard == null || dashboard.getRealm() == null) {
       throw new WebApplicationException(BAD_REQUEST);
     }
+    String realm = dashboard.getRealm();
     if (!isRealmActiveAndAccessible(realm)) {
       throw new WebApplicationException(FORBIDDEN);
     }
     try {
       return this.dashboardStorageService.update(ValueUtil.clone(dashboard), realm, getUserId());
     } catch (IllegalArgumentException ex) {
-      throw new WebApplicationException(ex, NOT_FOUND);
+      throw new WebApplicationException(ex, BAD_REQUEST); // Parameters are missing or invalid
+    } catch (EntityNotFoundException ex) {
+      throw new WebApplicationException(ex, NOT_FOUND); // Dashboard does not exist to the user
+    } catch (OptimisticLockException ex) {
+      throw new WebApplicationException("Cannot modify a stale dashboard", ex, CONFLICT);
     } catch (IllegalStateException ex) {
-      throw new WebApplicationException(ex, INTERNAL_SERVER_ERROR);
+      throw new WebApplicationException(ex, INTERNAL_SERVER_ERROR); // An unexpected error occurred
     }
   }
 
@@ -143,9 +151,11 @@ public class DashboardResourceImpl extends ManagerWebResource implements Dashboa
     try {
       this.dashboardStorageService.delete(dashboardId, realm, getUserId());
     } catch (IllegalArgumentException ex) {
-      throw new WebApplicationException(ex, NOT_FOUND);
+      throw new WebApplicationException(ex, BAD_REQUEST); // Parameters are missing or invalid
+    } catch (EntityNotFoundException ex) {
+      throw new WebApplicationException(ex, NOT_FOUND); // Dashboard does not exist to the user
     } catch (IllegalStateException ex) {
-      throw new WebApplicationException(ex, INTERNAL_SERVER_ERROR);
+      throw new WebApplicationException(ex, INTERNAL_SERVER_ERROR); // An unexpected error occurred
     }
   }
 

@@ -60,6 +60,7 @@ import { GatewayWidget } from "./widgets/gateway-widget";
 import { BarChartWidget } from "./widgets/barchart-widget";
 import type { OrVaadinTextField } from "@openremote/or-vaadin-components/or-vaadin-text-field";
 import { getConfirmDialogContent, showConfirmDialog } from "@openremote/or-vaadin-components/or-vaadin-confirm-dialog";
+import { isAxiosError } from "@openremote/rest";
 export { intervalToMillis } from "./controls/dashboard-refresh-controls";
 export { OrDashboardPreview } from "./or-dashboard-preview";
 
@@ -604,9 +605,12 @@ export class OrDashboardBuilder extends translate(i18next)(OrElement) {
           this.currentTemplate = Object.assign({}, this.selectedDashboard.template);
           showSnackbar(undefined, "dashboard.saveSuccessful");
         })
-        .catch((reason) => {
-          console.error(reason);
-          showSnackbar(undefined, "errorOccurred");
+        .catch((ex) => {
+          if (isAxiosError(ex) && ex.response?.status === 409) {
+            showSnackbar(undefined, "dashboard.saveConflict");
+          } else {
+            showSnackbar(undefined, "errorOccurred");
+          }
         })
         .finally(() => {
           this.isLoading = false;

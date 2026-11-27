@@ -894,6 +894,7 @@
     "interval.quarter": "15 min",
     "interval.one_hour": "1 uur",
     "saveSuccessful": "Dashboard succesvol opgeslagen!",
+    "saveConflict": "Het dashboard heeft nieuwe wijzigingen; je aanpassingen zijn niet opgeslagen.",
     "initialName": "Nieuw dashboard",
     "openInNewTab": "Openen in een nieuw tabblad",
     "whoCanView": "Wie heeft er toegang tot het dashboard?",
