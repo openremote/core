@@ -17,15 +17,15 @@ checkout is needed: core is public, and the job token reads the caller checkout.
 
 The calling job grants `contents: read` and `id-token: write`. It supplies:
 
-| Input | Meaning |
-| --- | --- |
-| `operation` | `plan` by default, or explicitly `deploy` on manual dispatch only. |
-| `core-revision` | Required full SHA for the collector bundle; match the workflow pin. |
-| `aws-account-id` | Required expected customer account; checked against role and STS identity. |
-| `compose-project` | Required independent monitoring project, matching the provisioned SSM document. |
-| `configuration-file` | Relative non-secret caller file; defaults to `.ci_cd/monitoring/staging.env`. |
-| `create-state` | Boolean, default false; authorize creation of missing owned state on a first installation. |
-| `enable-traces` | Boolean, default false; enable optional trace configuration. |
+| Input                | Meaning                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| `operation`          | `plan` by default, or explicitly `deploy` on manual dispatch only.                         |
+| `core-revision`      | Required full SHA for the collector bundle; match the workflow pin.                        |
+| `aws-account-id`     | Required expected customer account; checked against role and STS identity.                 |
+| `compose-project`    | Required independent monitoring project, matching the provisioned SSM document.            |
+| `configuration-file` | Relative non-secret caller file; defaults to `.ci_cd/monitoring/staging.env`.              |
+| `create-state`       | Boolean, default false; authorize creation of missing owned state on a first installation. |
+| `enable-traces`      | Boolean, default false; enable optional trace configuration.                               |
 
 The job selects the caller repository's `monitoring-staging` GitHub environment.
 Configure its deployment branch rules before running, allowing only reviewed branches.

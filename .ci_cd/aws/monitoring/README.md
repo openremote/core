@@ -125,9 +125,9 @@ are not a prerequisite for this identity-only test.
 
 ## CloudFormation inputs and ownership
 
-| Parameter | Value |
-| --- | --- |
-| `RoleName` | Dedicated monitoring role name, for example `monitoring-staging`. |
+| Parameter       | Value                                                                                    |
+| --------------- | ---------------------------------------------------------------------------------------- |
+| `RoleName`      | Dedicated monitoring role name, for example `monitoring-staging`.                        |
 | `GitHubSubject` | Verified exact subject for the customer repository and `monitoring-staging` environment. |
 
 The role references the fixed GitHub provider URL using the stack's account ID and
@@ -244,21 +244,21 @@ existing roles. Deploy one stack per environment, after the dedicated monitoring
 and artifact bucket exist in the same account/region. Keeping access separate lets
 the first identity check run before granting artifact permissions.
 
-| Parameter | Meaning |
-| --- | --- |
-| `EnvironmentName` | Prefix environment, matching the environment being deployed. |
+| Parameter            | Meaning                                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------ |
+| `EnvironmentName`    | Prefix environment, matching the environment being deployed.                                     |
 | `MonitoringRoleName` | Dedicated monitoring GitHub role from the identity stack; never the application deployment role. |
-| `EC2RoleName` | Existing role used by the intended EC2 instance. |
+| `EC2RoleName`        | Existing role used by the intended EC2 instance.                                                 |
 
 The template rejects identical workflow/instance role names. The bucket name follows
 the storage template's account/region convention; there is no arbitrary bucket ARN
 or cross-account access parameter. Each policy applies only to objects under
 `<environment>/releases/` in that bucket:
 
-| Principal | New permission | Intended operation |
-| --- | --- | --- |
-| Monitoring workflow role | `s3:PutObject` | Upload one small release bundle and retain the returned version ID. |
-| EC2 instance role | `s3:GetObjectVersion` | Download that exact key/version, then verify the expected checksum. |
+| Principal                | New permission        | Intended operation                                                  |
+| ------------------------ | --------------------- | ------------------------------------------------------------------- |
+| Monitoring workflow role | `s3:PutObject`        | Upload one small release bundle and retain the returned version ID. |
+| EC2 instance role        | `s3:GetObjectVersion` | Download that exact key/version, then verify the expected checksum. |
 
 The intended CLI operations are `aws s3api put-object` (one request, no ACLs/tags,
 SSE-S3, `--if-none-match '*'`) and `aws s3api get-object --version-id ...`.
@@ -320,11 +320,11 @@ Artifact API references: [PutObject permissions and version IDs](https://docs.aw
 in a separate stack per deployment/environment. It does not populate passwords,
 configure backend authentication, change the EC2 role or start a collector.
 
-| Parameter | Meaning |
-| --- | --- |
-| `DeploymentName` | Stable project identifier, for example `customer`; unique within the account. |
-| `EnvironmentName` | Environment identifier, for example `staging`. |
-| `EC2RoleName` | Existing instance role in this account, for example `ec2-access-eu-west-1`; not the GitHub role. This template supports roles at the root IAM path. |
+| Parameter         | Meaning                                                                                                                                             |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DeploymentName`  | Stable project identifier, for example `customer`; unique within the account.                                                                       |
+| `EnvironmentName` | Environment identifier, for example `staging`.                                                                                                      |
+| `EC2RoleName`     | Existing instance role in this account, for example `ec2-access-eu-west-1`; not the GitHub role. This template supports roles at the root IAM path. |
 
 The secret name is
 `openremote/monitoring/<deployment>/<environment>/credentials`. Use the stack's full
@@ -348,10 +348,10 @@ a separately reviewed access restriction. Do not describe this as environment is
 
 The secret value is a JSON object with two non-empty string fields:
 
-| Key | Consumer |
-| --- | --- |
-| `loki_password` | Loki, and Tempo when traces are enabled. |
-| `metrics_password` | Prometheus remote write. |
+| Key                | Consumer                                 |
+| ------------------ | ---------------------------------------- |
+| `loki_password`    | Loki, and Tempo when traces are enabled. |
+| `metrics_password` | Prometheus remote write.                 |
 
 Usernames and endpoint URLs remain in the non-secret environment configuration.
 The current trace configuration deliberately reuses the Loki username/password;

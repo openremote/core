@@ -11,12 +11,12 @@ retrieves passwords, or changes Docker, Alloy, application files or services.
 Create a separate CloudFormation stack, for example `monitoring-staging-artifact-check`,
 using `cloudformation-monitoring-artifact-check.yml` in the same account/region:
 
-| Parameter | Value |
-| --- | --- |
-| `EnvironmentName` | `staging` |
+| Parameter            | Value                                                                  |
+| -------------------- | ---------------------------------------------------------------------- |
+| `EnvironmentName`    | `staging`                                                              |
 | `MonitoringRoleName` | Existing dedicated monitoring workflow role, e.g. `monitoring-staging` |
-| `EC2RoleName` | Existing instance role, e.g. `ec2-access-eu-west-1` |
-| `InstanceId` | Independently verified staging instance ID, as used for preflight |
+| `EC2RoleName`        | Existing instance role, e.g. `ec2-access-eu-west-1`                    |
+| `InstanceId`         | Independently verified staging instance ID, as used for preflight      |
 
 Review with `CAPABILITY_NAMED_IAM`: expect one new Command document and one inline
 policy on the monitoring role. There is no association or automatic execution.

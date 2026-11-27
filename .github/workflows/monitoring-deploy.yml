@@ -155,9 +155,9 @@ jobs:
           INSTANCE_ID: ${{ vars.MONITORING_EC2_INSTANCE_ID }}
           DOCUMENT_NAME: ${{ vars.MONITORING_DEPLOY_DOCUMENT_NAME }}
           DOCUMENT_VERSION: ${{ vars.MONITORING_DEPLOY_DOCUMENT_VERSION }}
-          AWS_MAX_ATTEMPTS: '2'
+          AWS_MAX_ATTEMPTS: "2"
           AWS_RETRY_MODE: standard
-          AWS_PAGER: ''
+          AWS_PAGER: ""
         run: |
           set -euo pipefail
           identity=$(aws sts get-caller-identity --output json)

@@ -42,43 +42,43 @@ Resources:
               timeoutSeconds: "90"
               runCommand:
                 - !Sub |
-                    set -eu
-                    fail() { printf 'FAIL %s\n' "$1" >&2; exit 1; }
-                    test "$(id -u)" = 0 || fail 'SSM check must run as root'
-                    date -u
-                    hostname
-                    uname -m
-                    for tool in timeout findmnt docker df free; do
-                      command -v "$tool" >/dev/null 2>&1 || fail "Missing required tool: $tool"
-                    done
+                  set -eu
+                  fail() { printf 'FAIL %s\n' "$1" >&2; exit 1; }
+                  test "$(id -u)" = 0 || fail 'SSM check must run as root'
+                  date -u
+                  hostname
+                  uname -m
+                  for tool in timeout findmnt docker df free; do
+                    command -v "$tool" >/dev/null 2>&1 || fail "Missing required tool: $tool"
+                  done
 
-                    data_path=/var/lib/docker/volumes
-                    actual_uuid=$(findmnt -rn -M "$data_path" -o UUID) || fail 'Docker data path is not a mount point'
-                    test "$actual_uuid" = '${ExpectedDataVolumeUUID}' || fail 'Docker data filesystem UUID does not match provisioning'
-                    actual_type=$(findmnt -rn -M "$data_path" -o FSTYPE)
-                    test "$actual_type" = xfs || fail 'Docker data filesystem must be XFS'
-                    root_uuid=$(findmnt -rn -M / -o UUID)
-                    test -n "$root_uuid" || fail 'Cannot identify boot filesystem'
-                    test "$root_uuid" != "$actual_uuid" || fail 'Docker data is on the boot filesystem'
-                    options=$(findmnt -rn -M "$data_path" -o OPTIONS)
-                    case ",$options," in
-                      *,rw,*) ;;
-                      *) fail 'Docker data filesystem is not mounted read-write' ;;
-                    esac
-                    findmnt -rn -M "$data_path" -o TARGET,SOURCE,FSTYPE,UUID
-                    printf 'PASS retained data mount matches provisioning\n'
+                  data_path=/var/lib/docker/volumes
+                  actual_uuid=$(findmnt -rn -M "$data_path" -o UUID) || fail 'Docker data path is not a mount point'
+                  test "$actual_uuid" = '${ExpectedDataVolumeUUID}' || fail 'Docker data filesystem UUID does not match provisioning'
+                  actual_type=$(findmnt -rn -M "$data_path" -o FSTYPE)
+                  test "$actual_type" = xfs || fail 'Docker data filesystem must be XFS'
+                  root_uuid=$(findmnt -rn -M / -o UUID)
+                  test -n "$root_uuid" || fail 'Cannot identify boot filesystem'
+                  test "$root_uuid" != "$actual_uuid" || fail 'Docker data is on the boot filesystem'
+                  options=$(findmnt -rn -M "$data_path" -o OPTIONS)
+                  case ",$options," in
+                    *,rw,*) ;;
+                    *) fail 'Docker data filesystem is not mounted read-write' ;;
+                  esac
+                  findmnt -rn -M "$data_path" -o TARGET,SOURCE,FSTYPE,UUID
+                  printf 'PASS retained data mount matches provisioning\n'
 
-                    timeout 15 docker version
-                    if timeout 15 docker compose version; then
-                      printf 'Compose command: docker compose\n'
-                    else
-                      command -v docker-compose >/dev/null 2>&1 || fail 'No working Compose command'
-                      timeout 15 docker-compose version
-                      printf 'Compose command: docker-compose\n'
-                    fi
-                    df -hT / "$data_path"
-                    free -h
-                    printf 'PASS monitoring host prerequisites; no services changed\n'
+                  timeout 15 docker version
+                  if timeout 15 docker compose version; then
+                    printf 'Compose command: docker compose\n'
+                  else
+                    command -v docker-compose >/dev/null 2>&1 || fail 'No working Compose command'
+                    timeout 15 docker-compose version
+                    printf 'Compose command: docker-compose\n'
+                  fi
+                  df -hT / "$data_path"
+                  free -h
+                  printf 'PASS monitoring host prerequisites; no services changed\n'
       Tags:
         - Key: Component
           Value: monitoring

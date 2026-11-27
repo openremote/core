@@ -31,15 +31,15 @@ permissions remain effective; these additional Allows are not exclusive restrict
 
 ## Fixed CloudFormation settings
 
-| Parameter | Source |
-| --- | --- |
-| `EnvironmentName` | The environment prefix used by the artifact-access stack. |
-| `MonitoringRoleName` | Existing dedicated GitHub monitoring role. |
-| `EC2RoleName` | Existing instance role, verified by STS before download. |
-| `InstanceId` | Exact SSM-managed instance; update after an instance replacement. |
-| `ProjectName` | Independent monitoring Compose project, never the application project. |
-| `ExpectedDataVolumeUUID` | Independently verified retained XFS filesystem UUID. |
-| `MonitoringSecretArn` | Full ARN from the populated environment secret stack. |
+| Parameter                | Source                                                                 |
+| ------------------------ | ---------------------------------------------------------------------- |
+| `EnvironmentName`        | The environment prefix used by the artifact-access stack.              |
+| `MonitoringRoleName`     | Existing dedicated GitHub monitoring role.                             |
+| `EC2RoleName`            | Existing instance role, verified by STS before download.               |
+| `InstanceId`             | Exact SSM-managed instance; update after an instance replacement.      |
+| `ProjectName`            | Independent monitoring Compose project, never the application project. |
+| `ExpectedDataVolumeUUID` | Independently verified retained XFS filesystem UUID.                   |
+| `MonitoringSecretArn`    | Full ARN from the populated environment secret stack.                  |
 
 The bucket is `openremote-monitoring-<account>-<region>` and the installation root is
 `/opt/openremote/monitoring`. The secret must belong to this account and region.
@@ -103,14 +103,14 @@ version prevents a later upload at the same key from changing this request.
 
 ## Invocation and failure behavior
 
-| Command parameter | Meaning |
-| --- | --- |
-| `Action` | `plan` (default) or explicitly requested `deploy`. |
-| `ReleaseId` | 1–100 letters/digits/underscore/hyphen, starting with a letter/digit; no path. |
-| `VersionId` | Exact non-null S3 object version returned by upload. |
-| `SHA256` | Lowercase SHA-256 of the archive. |
-| `CreateState` | `false` by default; `true` only for an explicitly reviewed fresh installation, including its plan. |
-| `EnableTraces` | `false` by default; select `true` consistently for plan/deploy when trace settings are reviewed. |
+| Command parameter | Meaning                                                                                            |
+| ----------------- | -------------------------------------------------------------------------------------------------- |
+| `Action`          | `plan` (default) or explicitly requested `deploy`.                                                 |
+| `ReleaseId`       | 1–100 letters/digits/underscore/hyphen, starting with a letter/digit; no path.                     |
+| `VersionId`       | Exact non-null S3 object version returned by upload.                                               |
+| `SHA256`          | Lowercase SHA-256 of the archive.                                                                  |
+| `CreateState`     | `false` by default; `true` only for an explicitly reviewed fresh installation, including its plan. |
+| `EnableTraces`    | `false` by default; select `true` consistently for plan/deploy when trace settings are reviewed.   |
 
 SSM parameters use `ENV_VAR` interpolation and are validated again in Python. Require
 an agent supporting this interpolation; no fallback inserts input into shell code.

@@ -27,12 +27,12 @@ accept whatever disk happens to be mounted at deployment time.
 
 Use `cloudformation-monitoring-preflight.yml` in the intended account/region:
 
-| Parameter | Source |
-| --- | --- |
-| `EnvironmentName` | `staging` for the first rollout. |
-| `MonitoringRoleName` | Existing dedicated monitoring role from the identity stack. |
-| `InstanceId` | Exact staging instance, independently checked against provisioning. |
-| `ExpectedDataVolumeUUID` | Verified UUID from step 1. |
+| Parameter                | Source                                                              |
+| ------------------------ | ------------------------------------------------------------------- |
+| `EnvironmentName`        | `staging` for the first rollout.                                    |
+| `MonitoringRoleName`     | Existing dedicated monitoring role from the identity stack.         |
+| `InstanceId`             | Exact staging instance, independently checked against provisioning. |
+| `ExpectedDataVolumeUUID` | Verified UUID from step 1.                                          |
 
 Have the provisioning identity validate the template and review a change set with
 `CAPABILITY_NAMED_IAM`. Expect one Command document and one new inline policy on the
