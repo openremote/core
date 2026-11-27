@@ -86,7 +86,7 @@ jobs:
 
       # The scan action writes one format per run, so run Grype directly to get SARIF and a table from one scan
       - name: Install Grype
-        uses: anchore/scan-action/download-grype@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        uses: anchore/scan-action/download-grype@11983a512817154c80a9db660c1a184be7513ed6 # v7.4.3
         id: grype
 
       - name: Scan manager docker image
